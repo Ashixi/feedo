@@ -1,0 +1,33 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers
+fastapi
+uvicorn
+sqlalchemy>=2.0
+aiosqlite
+lancedb
+pyarrow
+feedparser
+httpx
+cryptography
+ecdsa
+coincurve
+websockets
+python-dotenv
+asyncpg
+greenlet
+PyJWT
+beautifulsoup4
+python-multipart
+aiohttp
+bs4
+google-auth
+requests
+trafilatura
+prometheus_client
+PyNaCl
+google-api-python-client
+google-auth-httplib2
+protobuf
+scikit-learn
+psutil

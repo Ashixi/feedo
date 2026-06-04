@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package feedo;
+
+message FeedoBroadcast {
+  string author_address = 1;
+  string hash_id = 2;
+  string content_blob_hash = 3;
+  string prev_post_hash = 4;
+  uint32 sequence_number = 5;
+  string signature = 6;
+  string text_preview = 7;
+  uint64 content_size = 8;
+  uint64 timestamp = 9;
+  optional string title = 10;
+  optional string source_type = 11;
+  optional string metadata = 12; // JSON string for metadata_
+}
+
+enum PbftPhase {
+  PRE_PREPARE = 0;
+  PREPARE = 1;
+  COMMIT = 2;
+  FINALIZED = 3;
+}
+
+enum TxType {
+  CONTENT = 0;
+  DID_REGISTRATION = 1;
+  NAME_REGISTRATION = 2;
+  CRDT_OPERATION = 3;
+}
+
+message PbftMessage {
+  PbftPhase phase = 1;
+  uint64 view = 2;
+  uint64 sequence = 3;
+  string tx_hash = 4;
+  string sender = 5;
+  string signature = 6;
+  TxType tx_type = 7;
+}
+
+message MempoolSubmission {
+  FeedoBroadcast post = 1;
+  // Node who accepted it into the mempool
+  string originating_node = 2;
+  string raw_text = 3;
+}
+
+message PoStChallenge {
+  string chunk_key = 1;
+  uint64 nonce = 2;
+  string challenger_id = 3;
+}
+
+message PublishRequest {
+  string text = 1;
+  string author = 2;
+  string signature = 3;
+  string hash_id = 4;
+  string content_blob_hash = 5;
+  optional string prev_post_hash = 6;
+  optional uint32 sequence_number = 7;
+  optional bool skip_dht_upload = 8;
+  optional string title = 9;
+  optional string source_type = 10;
+  optional string metadata = 11;
+  optional uint64 pow_nonce = 12;
+}
+
+message PoStResponse {
+  string chunk_key = 1;
+  string response_hash = 2;
+  string responder_id = 3;
+}
+
+message BalanceProofRequest {
+  string wallet_address = 1;
+}
+
+message BalanceProofResponse {
+  string wallet_address = 1;
+  uint64 balance = 2;
+  // Hex encoded Merkle proof nodes
+  repeated string proof_nodes = 3;
+  string root_hash = 4;
+}
+
+message DidRegistrationRequest {
+  string id = 1;
+  string did_document = 2; // JSON representation
+  string signature = 3;
+}
+
+message NameRegistrationRequest {
+  string name = 1;
+  string did = 2;
+  string signature = 3;
+  string public_key = 4;
+}
+
+message CrdtOperation {
+  string object_id = 1;
+  string crdt_type = 2; // e.g., "LWWMap"
+  string operation = 3; // "set", "delete"
+  string key = 4;
+  string value = 5;
+  uint64 timestamp = 6;
+  string author = 7;
+  string signature = 8;
+}

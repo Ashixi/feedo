@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: feedo_prod_db
+      POSTGRES_USER: feedo_admin
+      POSTGRES_PASSWORD: super_secret_password_123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feedo_admin -d feedo_prod_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  feedo:
+    image: ${DOCKER_HUB_NAMESPACE:-itsshas}/feedo-node:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8040:8040"
+      - "4001:4001/udp"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://feedo_admin:super_secret_password_123@db:5432/feedo_prod_db
+      DHT_RAM_CACHE_LIMIT: "1000"
+      PYTHON_API_URL: http://127.0.0.1:8040
+      RUST_CORE_URL: http://127.0.0.1:8041/local/publish
+      DHT_DB_PATH: /app/db/rust_store
+      PEER_KEY_PATH: /app/db/peer_key.bin
+      PEER_CACHE_PATH: /app/db/peer_cache.json
+      PEER_BLACKLIST_PATH: /app/db/peer_blacklist.json
+      BOOTSTRAP_NODES: /dns4/api.feedo.ink/udp/4001/quic-v1,/ip4/178.18.253.94/udp/4001/quic-v1
+      BOOTSTRAP_RETRY_SECS: "45"
+      MIN_PEERS_BEFORE_RETRY: "2"
+      # Секретні ключі підтягуються з .env (якщо потрібно)
+      RSS_NODE_SECRET: ${RSS_NODE_SECRET:-}
+      RSS_NODE_WALLET: ${RSS_NODE_WALLET:-}
+    volumes:
+      - feedo_state:/app/db
+      - feedo_lancedb_data:/app/lancedb_data
+      - feedo_media:/app/db_data
+
+volumes:
+  postgres_data:
+  feedo_state:
+  feedo_lancedb_data:
+  feedo_media:

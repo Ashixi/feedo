@@ -1,0 +1,816 @@
+[
+    {
+        "source_summary": "A subreddit dedicated to discussions, news, tips, and troubleshooting related to iPhones, iOS, and Apple products.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Mobile Development",
+            "Gadgets"
+        ],
+        "topics": [
+            "iphone",
+            "ios",
+            "apple",
+            "battery",
+            "camera"
+        ],
+        "target_audience": "Apple users",
+        "tone_and_style": "Community-driven",
+        "technical_complexity": 4,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://www.reddit.com/r/iphone/.rss"
+    },
+    {
+        "source_summary": "The 42 is a sports-focused feed covering news, updates, and analysis on various sports, teams, and athletes, with a particular emphasis on Irish sports and international events.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "World News",
+            "Local News"
+        ],
+        "topics": [
+            "irish sports",
+            "rugby",
+            "soccer",
+            "basketball",
+            "golf"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.the42.ie/feed/"
+    },
+    {
+        "source_summary": "BRIDGE（ブリッジ） is a Japanese media outlet focusing on startups, venture capital, and technological innovation, often highlighting entrepreneurial stories and funding news.",
+        "language": "ja",
+        "categories": [
+            "Startups",
+            "Venture Capital",
+            "Artificial Intelligence"
+        ],
+        "topics": [
+            "startups",
+            "venture funding",
+            "ai applications",
+            "robotics",
+            "energy solutions"
+        ],
+        "target_audience": "Entrepreneurs, Investors",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 7,
+        "geo_focus": "Japan",
+        "content_format": "News Report",
+        "url": "http://feeds.feedburner.com/SdJapan"
+    },
+    {
+        "source_summary": "A technology-focused feed covering Apple products, software updates, and related industry news.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Gadgets"
+        ],
+        "topics": [
+            "apple",
+            "ios",
+            "iphone",
+            "camera",
+            "xcode"
+        ],
+        "target_audience": "Apple Enthusiasts",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://9to5mac.com/feed"
+    },
+    {
+        "source_summary": "Macworld is a publication focused on Apple products, including Macs, iPhones, iPads, and related accessories, offering news, reviews, and tutorials.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "Software Engineering"
+        ],
+        "topics": [
+            "apple",
+            "macbook",
+            "ios",
+            "accessories",
+            "ai"
+        ],
+        "target_audience": "Apple Enthusiasts",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.macworld.com/index.rss"
+    },
+    {
+        "source_summary": "MacRumors is a YouTube channel focused on Apple-related news, product leaks, reviews, and comparisons, covering updates on iPhones, iPads, Apple TV, and other Apple technologies.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "Software Engineering"
+        ],
+        "topics": [
+            "apple",
+            "iphone",
+            "ios",
+            "macrumors",
+            "leaks"
+        ],
+        "target_audience": "Apple Enthusiasts",
+        "tone_and_style": "Analytical",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "Multimedia/Video",
+        "url": "https://www.youtube.com/feeds/videos.xml?user=macrumors"
+    },
+    {
+        "source_summary": "IrishCentral.com provides news and cultural stories focused on Ireland, including local events, politics, lifestyle, and Irish heritage.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Local News",
+            "Culture"
+        ],
+        "topics": [
+            "ireland",
+            "irish-culture",
+            "politics",
+            "mental-health",
+            "electric-vehicles"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Ireland",
+        "content_format": "Digest/Newsletter",
+        "url": "https://feeds.feedburner.com/IrishCentral"
+    },
+    {
+        "source_summary": "A news feed focused on diverse topics related to Japan, including culture, economy, politics, and societal issues.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Local News",
+            "Culture"
+        ],
+        "topics": [
+            "japan",
+            "economy",
+            "cinema",
+            "food packaging",
+            "nuclear energy"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Japan",
+        "content_format": "News Report",
+        "url": "http://www.newsonjapan.com/rss/top.xml"
+    },
+    {
+        "source_summary": "This feed showcases Apple's products, features, and creative collaborations, including tips, tutorials, and user stories highlighting their ecosystem of devices and software.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Health & Fitness"
+        ],
+        "topics": [
+            "apple",
+            "iphone",
+            "macbook",
+            "accessibility",
+            "logicpro"
+        ],
+        "target_audience": "Apple users",
+        "tone_and_style": "Corporate",
+        "technical_complexity": 4,
+        "geo_focus": "Global",
+        "content_format": "Tutorial/How-To",
+        "url": "https://www.youtube.com/feeds/videos.xml?user=Apple"
+    },
+    {
+        "source_summary": "Tagesschau.de is a German news feed providing comprehensive coverage of political, social, economic, and global issues, often with an investigative and analytical approach.",
+        "language": "de",
+        "categories": [
+            "World News",
+            "Politics",
+            "Economics"
+        ],
+        "topics": [
+            "iran-war",
+            "eu-train-policy",
+            "milka-lawsuit",
+            "national-religion-israel",
+            "auto-industry-jobs"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 6,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "http://www.tagesschau.de/xml/rss2"
+    },
+    {
+        "source_summary": "TheJournal.ie provides news coverage on Irish politics, global affairs, and societal issues, often with a focus on Ireland and Europe.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Politics",
+            "Economics"
+        ],
+        "topics": [
+            "ireland",
+            "eu",
+            "immigration",
+            "cost-of-living",
+            "social-media"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Europe",
+        "content_format": "News Report",
+        "url": "https://www.thejournal.ie/feed/"
+    },
+    {
+        "source_summary": "This feed focuses on sports news, including updates on athletes, teams, leagues, and tournaments across various sports disciplines.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "World News",
+            "Pop Culture"
+        ],
+        "topics": [
+            "ufc",
+            "manchester united",
+            "nhl",
+            "nba trades",
+            "world cup"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://sports.yahoo.com/rss/"
+    },
+    {
+        "source_summary": "The Loop is a podcast and blog focused on Apple-related news, products, and developments, including hardware, software, AI, and company leadership updates.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Artificial Intelligence",
+            "Software Engineering"
+        ],
+        "topics": [
+            "apple",
+            "macbook",
+            "ai",
+            "tim cook",
+            "hardware"
+        ],
+        "target_audience": "Apple enthusiasts",
+        "tone_and_style": "Conversational",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "Podcast Show Notes",
+        "url": "https://www.loopinsight.com/feed"
+    },
+    {
+        "source_summary": "A Japanese news feed providing headlines and updates on local and national issues, including law enforcement, public policy, and societal matters.",
+        "language": "ja",
+        "categories": [
+            "Local News",
+            "Law & Justice",
+            "Public Policy"
+        ],
+        "topics": [
+            "japan",
+            "law enforcement",
+            "public policy",
+            "crime",
+            "social issues"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 4,
+        "geo_focus": "Japan",
+        "content_format": "News Report",
+        "url": "http://rss.asahi.com/rss/asahi/newsheadlines.rdf"
+    },
+    {
+        "source_summary": "An unofficial community feed focused on Apple products, software, and related news, offering discussions, advice, and updates.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "Software Engineering"
+        ],
+        "topics": [
+            "apple",
+            "ios",
+            "macbook",
+            "tim cook",
+            "airpods"
+        ],
+        "target_audience": "Apple enthusiasts",
+        "tone_and_style": "Community-driven",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://www.reddit.com/r/apple/.rss"
+    },
+    {
+        "source_summary": "A German-language news feed providing a mix of national and international news, political updates, and societal issues.",
+        "language": "de",
+        "categories": [
+            "World News",
+            "Politics",
+            "Local News"
+        ],
+        "topics": [
+            "germany",
+            "politics",
+            "us-china-relations",
+            "forest-fires",
+            "eu-court"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Germany",
+        "content_format": "News Report",
+        "url": "http://newsfeed.zeit.de/index"
+    },
+    {
+        "source_summary": "A blog focused on reviews and insights about Apple devices, accessories, and audio equipment, catering to tech enthusiasts and audiophiles.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "Audio"
+        ],
+        "topics": [
+            "iphone",
+            "ipad",
+            "dac",
+            "smart cameras",
+            "audio reviews"
+        ],
+        "target_audience": "Tech Enthusiasts",
+        "tone_and_style": "Analytical",
+        "technical_complexity": 6,
+        "geo_focus": "Global",
+        "content_format": "Review",
+        "url": "http://feeds.feedburner.com/TheiPhoneBlog"
+    },
+    {
+        "source_summary": "Apple Newsroom provides updates on Apple's products, services, corporate initiatives, and industry collaborations.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Technology",
+            "Corporate"
+        ],
+        "topics": [
+            "apple",
+            "ai",
+            "arcade",
+            "iphone",
+            "manufacturing"
+        ],
+        "target_audience": "Apple Users",
+        "tone_and_style": "Corporate",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.apple.com/newsroom/rss-feed.rss"
+    },
+    {
+        "source_summary": "Cult of Mac focuses on Apple products, software, and related technology, offering news, reviews, and deals for Apple enthusiasts.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "Software Engineering"
+        ],
+        "topics": [
+            "apple",
+            "iphone",
+            "mac",
+            "ios",
+            "apple-watch"
+        ],
+        "target_audience": "Apple Enthusiasts",
+        "tone_and_style": "Casual",
+        "technical_complexity": 4,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://www.cultofmac.com/feed"
+    },
+    {
+        "source_summary": "A feed from The New York Times focusing on news and cultural stories related to Japan, including politics, international relations, and lifestyle topics.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Politics",
+            "Culture"
+        ],
+        "topics": [
+            "japan",
+            "china",
+            "rare earths",
+            "protests",
+            "prime minister"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Japan",
+        "content_format": "News Report",
+        "url": "https://www.nytimes.com/svc/collections/v1/publish/http://www.nytimes.com/topic/destination/japan/rss.xml"
+    },
+    {
+        "source_summary": "Japan Today is a news feed covering a wide range of topics including Japanese domestic news, international events, sports, and entertainment.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Sports",
+            "Medicine"
+        ],
+        "topics": [
+            "japan",
+            "sports",
+            "economy",
+            "healthcare",
+            "crime"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Japan",
+        "content_format": "News Report",
+        "url": "https://japantoday.com/feed"
+    },
+    {
+        "source_summary": "The Irish Mirror RSS feed focuses on news and stories related to Ireland, including local events, sports, crime, and human interest pieces.",
+        "language": "en",
+        "categories": [
+            "Local News",
+            "Sports",
+            "World News"
+        ],
+        "topics": [
+            "ireland",
+            "crime",
+            "sports",
+            "tourism",
+            "politics"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Ireland",
+        "content_format": "News Report",
+        "url": "https://www.irishmirror.ie/?service=rss"
+    },
+    {
+        "source_summary": "A feed providing the latest updates, news, and analysis on sports, including football, cricket, and other major events.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "World News",
+            "Entertainment"
+        ],
+        "topics": [
+            "football",
+            "premier league",
+            "world cup",
+            "tennis",
+            "cricket"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "http://feeds.skynews.com/feeds/rss/sports.xml"
+    },
+    {
+        "source_summary": "A German-language news feed from FAZ.NET covering a wide range of topics including politics, economics, health, and societal issues.",
+        "language": "de",
+        "categories": [
+            "World News",
+            "Economics",
+            "Politics"
+        ],
+        "topics": [
+            "oil market",
+            "german politics",
+            "donald trump",
+            "king charles",
+            "investment tips"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.faz.net/rss/aktuell/"
+    },
+    {
+        "source_summary": "A news feed providing the latest articles from The Japan Times, covering a mix of Japanese and global news, business, and technology developments.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Economics",
+            "Climate & Environment"
+        ],
+        "topics": [
+            "japan",
+            "business",
+            "technology",
+            "climate",
+            "politics"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.japantimes.co.jp/feed/topstories/"
+    },
+    {
+        "source_summary": "MacStories is a tech-focused feed covering Apple products, software updates, automation tools, and AI integrations, with occasional insights into broader tech trends and user experiences.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Artificial Intelligence"
+        ],
+        "topics": [
+            "apple",
+            "automation",
+            "cli tools",
+            "ai agents",
+            "macos"
+        ],
+        "target_audience": "Tech Enthusiasts",
+        "tone_and_style": "Analytical",
+        "technical_complexity": 7,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://www.macstories.net/feed"
+    },
+    {
+        "source_summary": "A feed focused on tracking and reporting deals, discounts, and price drops on Apple products, particularly MacBooks and related accessories.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Gadgets",
+            "E-commerce"
+        ],
+        "topics": [
+            "apple",
+            "macbook",
+            "m1 chip",
+            "discounts",
+            "amazon deals"
+        ],
+        "target_audience": "Apple Enthusiasts",
+        "tone_and_style": "Objective",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "http://feeds.macrumors.com/MacRumors-Mac"
+    },
+    {
+        "source_summary": "IrishExaminer.com provides news and stories focused on Irish current events, lifestyle, and local issues.",
+        "language": "en",
+        "categories": [
+            "Local News",
+            "Lifestyle",
+            "World News"
+        ],
+        "topics": [
+            "ireland",
+            "local politics",
+            "health outbreaks",
+            "weddings",
+            "transportation"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Ireland",
+        "content_format": "News Report",
+        "url": "https://feeds.feedburner.com/ietopstories"
+    },
+    {
+        "source_summary": "OS X Daily is a blog focused on Apple products, providing updates, tutorials, and reviews related to macOS, iOS, and Apple hardware.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Gadgets"
+        ],
+        "topics": [
+            "apple",
+            "macos",
+            "ios",
+            "security updates",
+            "macbook"
+        ],
+        "target_audience": "Apple Users",
+        "tone_and_style": "Instructional",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "http://feeds.feedburner.com/osxdaily"
+    },
+    {
+        "source_summary": "BBC Sport provides comprehensive coverage of global sports news, including football, cricket, rugby, tennis, and more, with a focus on major events and personalities.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "World News",
+            "Entertainment"
+        ],
+        "topics": [
+            "football",
+            "cricket",
+            "nba",
+            "world cup",
+            "tennis"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "http://feeds.bbci.co.uk/sport/rss.xml"
+    },
+    {
+        "source_summary": "Deutsche Welle provides global news coverage with a focus on politics, economics, and societal issues, often highlighting international relations and geopolitical events.",
+        "language": "en",
+        "categories": [
+            "World News",
+            "Politics",
+            "Economics"
+        ],
+        "topics": [
+            "iran war",
+            "modi fuel austerity",
+            "icc arrest philippines",
+            "trump xi summit",
+            "russia ukraine ceasefire"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 6,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://rss.dw.com/rdf/rss-en-all"
+    },
+    {
+        "source_summary": "Daring Fireball is a blog focused on Apple products, technology trends, and commentary on tech industry developments.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Technology"
+        ],
+        "topics": [
+            "apple",
+            "macos",
+            "eu regulations",
+            "smart tvs",
+            "ios updates"
+        ],
+        "target_audience": "Tech Enthusiasts",
+        "tone_and_style": "Opinionated",
+        "technical_complexity": 6,
+        "geo_focus": "Global",
+        "content_format": "Personal Blog",
+        "url": "https://daringfireball.net/feeds/main"
+    },
+    {
+        "source_summary": "Marco.org is a personal blog focused on technology, Apple products, app development, and reflections on the tech industry and its culture.",
+        "language": "en",
+        "categories": [
+            "Software Engineering",
+            "Consumer Electronics",
+            "Personal Blog"
+        ],
+        "topics": [
+            "apple",
+            "app-store",
+            "overcast",
+            "developer-relations",
+            "steve-jobs"
+        ],
+        "target_audience": "Tech Enthusiasts",
+        "tone_and_style": "Opinionated",
+        "technical_complexity": 6,
+        "geo_focus": "Global",
+        "content_format": "Personal Blog",
+        "url": "https://marco.org/rss"
+    },
+    {
+        "source_summary": "A sports-focused RSS feed providing news, updates, and analysis on major leagues and events, including basketball, football, and motorsports.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "World News",
+            "Pop Culture"
+        ],
+        "topics": [
+            "nba",
+            "playoffs",
+            "motorsports",
+            "nfl",
+            "athletes"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "News Report",
+        "url": "https://www.espn.com/espn/rss/news"
+    },
+    {
+        "source_summary": "AppleInsider News provides updates, reviews, and insights on Apple products, software, and related technology, as well as industry news involving Apple and its ecosystem.",
+        "language": "en",
+        "categories": [
+            "Consumer Electronics",
+            "Software Engineering",
+            "Gadgets"
+        ],
+        "topics": [
+            "apple",
+            "ios",
+            "mac",
+            "iphone",
+            "apple music"
+        ],
+        "target_audience": "Apple users",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 5,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://appleinsider.com/rss/news/"
+    },
+    {
+        "source_summary": "A Reddit feed focused on sports news, updates, and discussions, covering various sports and athletes globally.",
+        "language": "en",
+        "categories": [
+            "Sports",
+            "Pop Culture",
+            "World News"
+        ],
+        "topics": [
+            "nba",
+            "soccer",
+            "athletes",
+            "sports news",
+            "lebron james"
+        ],
+        "target_audience": "Sports Fans",
+        "tone_and_style": "Casual",
+        "technical_complexity": 3,
+        "geo_focus": "Global",
+        "content_format": "Digest/Newsletter",
+        "url": "https://www.reddit.com/r/sports.rss"
+    },
+    {
+        "source_summary": "BreakingNews.ie provides coverage of top stories in Ireland, focusing on politics, legal cases, social issues, and immigration trends.",
+        "language": "en",
+        "categories": [
+            "Local News",
+            "Politics",
+            "Law & Justice"
+        ],
+        "topics": [
+            "ireland",
+            "immigration",
+            "legal cases",
+            "politics",
+            "social issues"
+        ],
+        "target_audience": "General Public",
+        "tone_and_style": "Journalistic",
+        "technical_complexity": 3,
+        "geo_focus": "Ireland",
+        "content_format": "News Report",
+        "url": "https://feeds.breakingnews.ie/bntopstories"
+    }
+]

@@ -1,0 +1,16 @@
+{
+  "name": "feedo-js",
+  "version": "1.0.0",
+  "description": "Feedo Web3 Social Network SDK",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^1.7.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
