@@ -15,14 +15,35 @@ router = APIRouter()
 RUST_CORE_URL = os.getenv("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish")
 
 class PublishRequest(BaseModel):
-    text_content: str
-    author_address: str
-    metadata_: Optional[Dict[str, Any]] = None
+    text: str
+    author: str
     signature: str
+    hash_id: str
+    content_blob_hash: str
+    title: Optional[str] = None
+    source_type: Optional[str] = "native"
+    sequence_number: int = 1
+    timestamp: int
+    metadata_: Optional[Dict[str, Any]] = None
 
 @router.post("/publish")
 async def publish_content(req: PublishRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Publish content to mempool for AI-validation and PBFT consensus."""
+    
+    # 1. Zero-Trust validation
+    from feedo_parser.crypto_utils import verify_signature
+    import time
+    
+    # Check timestamp against Replay Attacks
+    now = int(time.time())
+    if abs(now - req.timestamp) > 300:
+        raise HTTPException(status_code=401, detail="Timestamp is invalid or expired (Replay Attack protection).")
+        
+    # The SDK hashes (text_content + "_" + timestamp)
+    # The signature must match this hash_id
+    if not verify_signature(req.hash_id, req.signature, req.author):
+        raise HTTPException(status_code=401, detail="Zero Trust Auth Failed: Invalid signature for hash_id!")
+
     # Proxy to Rust core for PBFT
     async with httpx.AsyncClient() as client:
         try:

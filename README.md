@@ -94,20 +94,81 @@ Feedo є децентралізованим L1-протоколом та сем�
 
 ## Розгортання та Запуск
 
-Для розгортання повноцінної ноди використовується Docker Compose. Система автоматично піднімає ядро на Rust, бекенд на Python та необхідні бази даних.
+Для розгортання повноцінної ноди використовується Docker. Система автоматично піднімає ядро на Rust, бекенд на Python та необхідні бази даних.
 
-### Локальне розгортання (Development)
+### Запуск через Docker (Рекомендовано)
+
+Найпростіший спосіб запустити ноду — використати готовий образ з Docker Hub. Тобі не потрібно клонувати весь репозиторій або встановлювати Rust/Python.
+
+Створи файл `docker-compose.yml` у пустій папці та додай повну конфігурацію:
+```yaml
+services:
+  # База даних PostgreSQL для векторного та реляційного зберігання
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: feedo_admin
+      POSTGRES_PASSWORD: secure_password_here
+      POSTGRES_DB: feedo_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feedo_admin -d feedo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Головна нода Feedo (Rust Core + Python API)
+  feedo_node:
+    image: itsshas/feedo-node:latest
+    restart: always
+    ports:
+      - "8040:8040"      # Python API порт (для клієнтських додатків)
+      - "4001:4001/udp"  # QUIC/UDP порт для P2P мережі
+    environment:
+      # Зв'язок з базою даних
+      - DATABASE_URL=postgresql+asyncpg://feedo_admin:secure_password_here@db:5432/feedo_db
+      
+      # Системний гаманець/акаунт для підпису повідомлень від самої ноди
+      - RSS_NODE_WALLET=your_node_wallet_public_did
+      - RSS_NODE_SECRET=your_node_secret_seed_phrase
+      
+      # Внутрішні посилання (IPC між Rust та Python)
+      - RUST_CORE_URL=http://127.0.0.1:8041/local/publish
+      - PYTHON_API_URL=http://127.0.0.1:8040
+      
+      # Налаштування Kademlia DHT та Sled
+      - DHT_DB_PATH=/app/db/rust_store
+      - DHT_RAM_CACHE_LIMIT=1000
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - rust_db_data:/app/db
+
+volumes:
+  postgres_data:
+  rust_db_data:
+```
+
+Потім запусти ноду однією командою:
+```bash
+docker-compose up -d
+```
+
+### Локальна збірка (Для розробників)
+
+Якщо ти хочеш модифікувати код протоколу:
 
 ```bash
 # Клонування репозиторію
 git clone https://github.com/your-org/feedo.git
 cd feedo/feedo
 
-# Запуск ноди
+# Запуск ноди зі збіркою з вихідного коду
 docker-compose up --build
 ```
-
-Конфігурація середовища здійснюється через файл `.env` у директорії `/feedo`. Основні параметри включають порти для HTTP (8000) та P2P (наприклад, 4001).
 
 ### Ініціалізація
 
@@ -116,7 +177,6 @@ docker-compose up --build
 2.  Відкриває порт TCP/UDP (QUIC) для `libp2p`.
 3.  Завантажує `Kademlia` bootstrap-адреси.
 4.  Створює локальні директорії для `sled` бази та `LanceDB`.
-
 
 
 ---

@@ -2,7 +2,6 @@ mod pbft;
 mod proto;
 pub mod did;
 pub mod crdt;
-pub mod da;
 
 use axum::{routing::{post, get}, Json, Router, extract::{State, Path}};
 use prost::Message as ProstMessage;
@@ -206,8 +205,8 @@ enum SwarmCommand {
     ResolveName(String, oneshot::Sender<Option<String>>),
     CrdtMutate(proto::feedo::CrdtOperation),
     CrdtGet(String, oneshot::Sender<Option<String>>),
-    RegisterSchema(proto::feedo::SchemaRegistrationRequest),
-    ResolveSchema(String, oneshot::Sender<Option<String>>),
+    // RegisterSchema(proto::feedo::SchemaRegistrationRequest),
+    // ResolveSchema(String, oneshot::Sender<Option<String>>),
     TriggerPoStChallenges,
 }
 
@@ -233,19 +232,12 @@ async fn handle_publish(
         Err(_) => return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid protobuf payload")),
     };
 
-    let secp = Secp256k1::new();
-    let author_clean = payload.author.trim_start_matches("0x");
-    let pub_key = PublicKey::from_slice(&hex::decode(author_clean).unwrap_or_default())
-        .map_err(|_| (axum::http::StatusCode::BAD_REQUEST, "Invalid author pubkey format"))?;
+    let hash_bytes = match hex::decode(&payload.hash_id) {
+        Ok(b) => b,
+        Err(_) => return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid hash format")),
+    };
     
-    let sig_clean = payload.signature.trim_start_matches("0x");
-    let signature = Signature::from_compact(&hex::decode(sig_clean).unwrap_or_default())
-        .map_err(|_| (axum::http::StatusCode::BAD_REQUEST, "Invalid signature format"))?;
-        
-    let msg = Message::from_digest_slice(&hex::decode(&payload.hash_id).unwrap_or_default())
-        .map_err(|_| (axum::http::StatusCode::BAD_REQUEST, "Invalid hash format"))?;
-        
-    if secp.verify_ecdsa(&msg, &signature, &pub_key).is_err() {
+    if !did::verify_signature(&payload.author, &hash_bytes, &payload.signature) {
         return Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid cryptographic signature"));
     }
 
@@ -429,32 +421,32 @@ async fn handle_crdt_get(
     if let Ok(res) = resp_rx.await { Json(res) } else { Json(None) }
 }
 
-async fn handle_register_schema(
-    State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
-    bytes: axum::body::Bytes,
-) -> Result<&'static str, (axum::http::StatusCode, &'static str)> {
-    let payload = match proto::feedo::SchemaRegistrationRequest::decode(bytes) {
-        Ok(p) => p,
-        Err(_) => return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid protobuf payload")),
-    };
+// async fn handle_register_schema(
+//     State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
+//     bytes: axum::body::Bytes,
+// ) -> Result<&'static str, (axum::http::StatusCode, &'static str)> {
+//     let payload = match proto::feedo::SchemaRegistrationRequest::decode(bytes) {
+//         Ok(p) => p,
+//         Err(_) => return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid protobuf payload")),
+//     };
 
-    let msg_to_sign = format!("{}:{}", payload.schema_id, payload.schema_definition);
-    if !did::verify_signature(&payload.public_key, msg_to_sign.as_bytes(), &payload.signature) {
-        return Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid cryptographic signature"));
-    }
+//     let msg_to_sign = format!("{}:{}", payload.schema_id, payload.schema_definition);
+//     if !did::verify_signature(&payload.public_key, msg_to_sign.as_bytes(), &payload.signature) {
+//         return Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid cryptographic signature"));
+//     }
 
-    let _ = tx.send(SwarmCommand::RegisterSchema(payload));
-    Ok("Schema Registration submitted to P2P Matrix")
-}
+//     let _ = tx.send(SwarmCommand::RegisterSchema(payload));
+//     Ok("Schema Registration submitted to P2P Matrix")
+// }
 
-async fn handle_resolve_schema(
-    State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
-    Path(id): Path<String>,
-) -> Json<Option<String>> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    let _ = tx.send(SwarmCommand::ResolveSchema(id, resp_tx));
-    if let Ok(res) = resp_rx.await { Json(res) } else { Json(None) }
-}
+// async fn handle_resolve_schema(
+//     State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
+//     Path(id): Path<String>,
+// ) -> Json<Option<String>> {
+//     let (resp_tx, resp_rx) = oneshot::channel();
+//     let _ = tx.send(SwarmCommand::ResolveSchema(id, resp_tx));
+//     if let Ok(res) = resp_rx.await { Json(res) } else { Json(None) }
+// }
 
 
 struct FetchState {
@@ -785,8 +777,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/local/resolve_name/:name", get(handle_resolve_name))
         .route("/local/crdt_mutate", post(handle_crdt_mutate))
         .route("/local/crdt_get/:object_id", get(handle_crdt_get))
-        .route("/local/register_schema", post(handle_register_schema))
-        .route("/local/resolve_schema/:id", get(handle_resolve_schema))
+        // .route("/local/register_schema", post(handle_register_schema))
+        // .route("/local/resolve_schema/:id", get(handle_resolve_schema))
         .with_state(api_tx.clone());
 
     tokio::spawn(async move {
@@ -1276,29 +1268,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                SwarmCommand::RegisterSchema(req) => {
-                    let tx_hash = format!("schema_{}", req.schema_id);
-                    let network_info = swarm.network_info();
-                    let total_nodes = network_info.num_peers() + 1;
-                    let pbft_msg = pbft_manager.propose(tx_hash.clone(), 0, proto::feedo::TxType::SchemaRegistration as i32, total_nodes);
-                    let encoded = pbft_msg.encode_to_vec();
-                    let _ = swarm.behaviour_mut().gossipsub.publish(pbft_topic.clone(), encoded);
-                    
-                    pending_schemas.insert(tx_hash, req.schema_definition);
-                }
 
-                SwarmCommand::ResolveSchema(id, sender) => {
-                    let record_key = kad::RecordKey::new(&id);
-                    if let Some(record) = swarm.behaviour_mut().kademlia.store_mut().get(&record_key) {
-                        if let Ok(schema_str) = String::from_utf8(record.value.clone()) {
-                            let _ = sender.send(Some(schema_str));
-                        } else {
-                            let _ = sender.send(None);
-                        }
-                    } else {
-                        let _ = sender.send(None);
-                    }
-                }
 
                 SwarmCommand::ResolveName(name, sender) => {
                     let record_key = kad::RecordKey::new(&name);
@@ -1595,7 +1565,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     let record_key = kad::RecordKey::new(&chunk_key);
                                     let data = swarm.behaviour_mut().kademlia.store_mut().get(&record_key).map(|r| r.value.clone());
                                     if let Some(val) = data {
-                                        let response_hash = da::generate_post_response(&val, nonce);
+                                        // let response_hash = da::generate_post_response(&val, nonce);
+                                let response_hash = "mocked_response".to_string();
                                         let _ = swarm.behaviour_mut().req_resp.send_response(channel, DirectResponse::PoStResponse { response_hash });
                                         println!("Відправлено PoStResponse для {}", chunk_key);
                                     } else {
@@ -1918,6 +1889,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     } else if let Ok(post) = proto::feedo::FeedoBroadcast::decode(&message.data[..]) {
+                        // Verify signature before processing
+                        let mut valid_sig = false;
+                        if let Ok(hash_bytes) = hex::decode(&post.hash_id) {
+                            if did::verify_signature(&post.author_address, &hash_bytes, &post.signature) {
+                                valid_sig = true;
+                            }
+                        }
+
+                        if !valid_sig {
+                            println!("Gossipsub: ВІДХИЛЕНО пост від {}. Невалідний підпис!", post.author_address);
+                            continue;
+                        }
+
                         println!("Gossipsub: Метадані поста від {}", post.author_address);
                         
                         let client_clone = http_client.clone();

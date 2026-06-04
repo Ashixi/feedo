@@ -1,16 +1,21 @@
 import hashlib
-import ecdsa
+import nacl.signing
+import nacl.exceptions
 from datetime import datetime
 
 def generate_keys_from_password(password: str) -> tuple[str, str]:
     """Використовується ТІЛЬКИ для системного акаунта (RSS-ноди)."""
     seed = hashlib.sha256(password.encode('utf-8')).digest()
-    sk = ecdsa.SigningKey.from_string(seed, curve=ecdsa.SECP256k1)
-    vk = sk.get_verifying_key()
-    return sk.to_string().hex(), vk.to_string().hex()
+    signing_key = nacl.signing.SigningKey(seed)
+    verify_key = signing_key.verify_key
+    # Returns 64-byte secret key and 32-byte public key as hex
+    sk_hex = bytes(signing_key) + bytes(verify_key)
+    return sk_hex.hex(), bytes(verify_key).hex()
 
 def generate_hash_id(text_content: str, timestamp: datetime) -> str: 
     """Генерує унікальний хеш події/поста (залежить від часу)."""
+    # For JS compatibility we used timestamp as unix seconds, but let's just make sure both match
+    # Since this function is mostly for older code, we keep it as is. But for JS we use int timestamp.
     data = f"{text_content}_{timestamp.isoformat()}"
     return hashlib.sha256(data.encode('utf-8')).hexdigest()
 
@@ -20,30 +25,24 @@ def generate_content_hash(text_content: str) -> str:
 
 def sign_hash(hash_id: str, private_key_hex: str) -> str:
     """Підписує хеш."""
-    sk = ecdsa.SigningKey.from_string(bytes.fromhex(private_key_hex), curve=ecdsa.SECP256k1)
-    return sk.sign_digest(bytes.fromhex(hash_id)).hex()
+    sk_bytes = bytes.fromhex(private_key_hex)
+    if len(sk_bytes) == 64:
+        sk_bytes = sk_bytes[:32] # PyNaCl uses 32-byte seed
+    signing_key = nacl.signing.SigningKey(sk_bytes)
+    digest = bytes.fromhex(hash_id)
+    signed = signing_key.sign(digest)
+    return signed.signature.hex()
 
 def verify_signature(hash_id: str, signature_hex: str, wallet_address_hex: str) -> bool:
-    """Універсальна перевірка підпису."""
+    """Універсальна перевірка підпису (Ed25519)."""
     try:
-        vk = ecdsa.VerifyingKey.from_string(bytes.fromhex(wallet_address_hex.removeprefix("0x")), curve=ecdsa.SECP256k1)
-        signature_bytes = bytes.fromhex(signature_hex.removeprefix("0x"))
+        vk_bytes = bytes.fromhex(wallet_address_hex.replace("0x", ""))
+        verify_key = nacl.signing.VerifyKey(vk_bytes)
+        signature_bytes = bytes.fromhex(signature_hex.replace("0x", ""))
         digest = bytes.fromhex(hash_id)
 
-        if len(signature_bytes) == 64:
-            return vk.verify_digest( 
-                signature_bytes,
-                digest,
-                sigdecode=ecdsa.util.sigdecode_string,
-            )
-
-        try:
-            return vk.verify_digest(signature_bytes, digest)
-        except Exception:
-            return vk.verify_digest(
-                signature_bytes,
-                digest,
-                sigdecode=ecdsa.util.sigdecode_string,
-            )
-    except Exception:
+        verify_key.verify(digest, signature_bytes)
+        return True
+    except (nacl.exceptions.BadSignatureError, ValueError, Exception):
         return False
+
