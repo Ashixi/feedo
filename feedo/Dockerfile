@@ -26,8 +26,8 @@ RUN pip install --no-cache-dir -r requirements.txt grpcio-tools && \
 # Копіюємо весь код Python-частини
 COPY feedo-api/ /app/
 
-# Копіюємо протокольну бібліотеку, щоб вона була імпортована як `feedo_protocol`
-COPY feedo_parser/ /app/feedo_protocol/
+# Копіюємо протокольну бібліотеку, щоб вона була імпортована як `feedo_parser`
+COPY feedo_parser/ /app/feedo_parser/
 
 # Копіюємо proto і генеруємо python класи
 COPY proto/ /app/proto/

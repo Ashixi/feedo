@@ -110,7 +110,7 @@ pub struct HybridStore {
 }
 
 impl HybridStore {
-    pub fn new(peer_id: PeerId, db_path: &str, python_api: &str, storage_full: Arc<AtomicBool>) -> Self {
+    pub fn new(peer_id: PeerId, db: sled::Db, python_api: &str, storage_full: Arc<AtomicBool>) -> Self {
         let mut config = MemoryStoreConfig::default();
         
         let ram_limit = env::var("DHT_RAM_CACHE_LIMIT")
@@ -121,7 +121,6 @@ impl HybridStore {
         config.max_records = ram_limit;
         
         let mem = MemoryStore::with_config(peer_id, config);
-        let db = sled::open(db_path).expect("Не вдалося відкрити дискову базу Sled");
         Self { mem, db, python_api: python_api.to_string(), storage_full }
     }
 
@@ -643,7 +642,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let python_api = env::var("PYTHON_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8040".to_string());
     
     let storage_full = Arc::new(AtomicBool::new(false));
-    let store = HybridStore::new(local_peer_id, &db_path, &python_api, storage_full.clone());
+    let shared_db = sled::open(&db_path).expect("Не вдалося відкрити дискову базу Sled");
+    let store = HybridStore::new(local_peer_id, shared_db.clone(), &python_api, storage_full.clone());
     
     let mut kad_config = kad::Config::default();
     kad_config.set_query_timeout(Duration::from_secs(10));
@@ -761,8 +761,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut announce_rate_map: HashMap<String, Vec<u64>> = HashMap::new();
 
     let mut pbft_manager = pbft::PbftManager::new(local_peer_id_str.clone());
-    let db_for_crdt = sled::open(&db_path).expect("Failed to open sled for CRDT");
-    let crdt_manager = crdt::CrdtManager::new(db_for_crdt);
+    let crdt_manager = crdt::CrdtManager::new(shared_db.clone());
 
     let app = Router::new()
         .route("/local/publish", post(handle_publish))

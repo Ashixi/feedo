@@ -23,7 +23,7 @@ services:
         RUST_CORE_URL: http://127.0.0.1:8041/local/publish
     restart: always
     ports:
-      - "8040:8040"
+      - "18040:8040"
       - "4001:4001/udp"
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -33,6 +33,7 @@ services:
       - DHT_DB_PATH=/app/db/rust_store
       - PYTHON_API_URL=http://127.0.0.1:8040
       - DHT_RAM_CACHE_LIMIT=1000
+      - BOOTSTRAP_NODES=${BOOTSTRAP_NODES}
     depends_on:
       db:
         condition: service_healthy

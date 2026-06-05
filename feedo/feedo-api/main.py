@@ -263,21 +263,46 @@ async def lifespan(app: FastAPI):
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
         await conn.run_sync(_ensure_users_schema_columns)
 
+    # Запускаємо міграції в окремій транзакції, щоб помилка не скасувала створення таблиць
+    async with engine.begin() as conn:
         try:
             logger.info("Міграція адрес з префіксом 04 (виправлення старих записів)...")
-            await conn.execute(text("UPDATE posts SET author_address = LOWER(SUBSTR(author_address, 3)) WHERE LENGTH(author_address) = 130 AND author_address LIKE '04%'"))
-            await conn.execute(text("UPDATE interactions SET wallet_address = LOWER(SUBSTR(wallet_address, 3)) WHERE LENGTH(wallet_address) = 130 AND wallet_address LIKE '04%'"))
-            await conn.execute(text("UPDATE relationships SET user_a = LOWER(SUBSTR(user_a, 3)) WHERE LENGTH(user_a) = 130 AND user_a LIKE '04%'"))
-            await conn.execute(text("UPDATE relationships SET user_b = LOWER(SUBSTR(user_b, 3)) WHERE LENGTH(user_b) = 130 AND user_b LIKE '04%'"))
-            await conn.execute(text("UPDATE relationships SET requester = LOWER(SUBSTR(requester, 3)) WHERE LENGTH(requester) = 130 AND requester LIKE '04%'"))
-            await conn.execute(text("UPDATE follows SET follower_wallet = LOWER(SUBSTR(follower_wallet, 3)) WHERE LENGTH(follower_wallet) = 130 AND follower_wallet LIKE '04%'"))
-            await conn.execute(text("UPDATE follows SET target_wallet = LOWER(SUBSTR(target_wallet, 3)) WHERE LENGTH(target_wallet) = 130 AND target_wallet LIKE '04%'"))
-            await conn.execute(text("UPDATE users SET wallet_address = LOWER(SUBSTR(wallet_address, 3)) WHERE LENGTH(wallet_address) = 130 AND wallet_address LIKE '04%'"))
-            await conn.execute(text("UPDATE notifications SET recipient_wallet = LOWER(SUBSTR(recipient_wallet, 3)) WHERE LENGTH(recipient_wallet) = 130 AND recipient_wallet LIKE '04%'"))
-            await conn.execute(text("UPDATE notifications SET source_wallet = LOWER(SUBSTR(source_wallet, 3)) WHERE LENGTH(source_wallet) = 130 AND source_wallet LIKE '04%'"))
+            
+            # Helper function to run update only if table exists
+            async def update_if_exists(table_name, column_name):
+                # We check if table exists before updating
+                import sqlalchemy
+                inspector = sqlalchemy.inspect(conn.sync_engine) if hasattr(conn, 'sync_engine') else None
+                # Or just catch exception per statement to avoid transaction aborts
+                # In asyncpg, if a statement fails, the transaction is aborted. 
+                # To be safe, we can just use savepoints or check existence.
+                pass
+            
+            tables = [
+                ("posts", "author_address"),
+                ("interactions", "wallet_address"),
+                ("relationships", "user_a"),
+                ("relationships", "user_b"),
+                ("relationships", "requester"),
+                ("follows", "follower_wallet"),
+                ("follows", "target_wallet"),
+                ("users", "wallet_address"),
+                ("notifications", "recipient_wallet"),
+                ("notifications", "source_wallet"),
+            ]
+            
+            # Since some tables might not exist, we just check if they exist first.
+            def _check_table(sync_conn, table):
+                return sqlalchemy.inspect(sync_conn).has_table(table)
+            
+            import sqlalchemy
+            
+            for table, col in tables:
+                exists = await conn.run_sync(lambda sync_conn, t=table: sqlalchemy.inspect(sync_conn).has_table(t))
+                if exists:
+                    await conn.execute(text(f"UPDATE {table} SET {col} = LOWER(SUBSTR({col}, 3)) WHERE LENGTH({col}) = 130 AND {col} LIKE '04%'"))
         except Exception as e:
             logger.warning(f"Не вдалося виконати міграцію префіксів 04: {e}")
 
