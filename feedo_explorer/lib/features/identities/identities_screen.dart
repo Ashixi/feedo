@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -52,6 +53,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -70,8 +72,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Decentralized Identities',
+                            Text(loc.decentralizedIdentities,
                               style: TextStyle(
                                 fontSize: isMobile ? 24 : 32, 
                                 fontWeight: FontWeight.bold, 
@@ -79,8 +80,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              'Active DID peers and their reputation scores on the network.',
+                            Text(loc.activeDidPeersDesc,
                               style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
                             ),
                           ],
@@ -120,7 +120,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
                         children: [
                           Icon(LucideIcons.users, size: 64, color: Colors.grey.shade700),
                           const SizedBox(height: 16),
-                          Text('No identities found on the network yet.', style: TextStyle(color: Colors.grey.shade500)),
+                          Text(loc.noIdentitiesFound, style: TextStyle(color: Colors.grey.shade500)),
                         ],
                       ),
                     )
@@ -131,7 +131,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
                         borderRadius: BorderRadius.circular(16),
                         side: BorderSide(color: Colors.grey.shade800),
                       ),
-                      child: isMobile ? _buildMobileList() : _buildDesktopTable(),
+                      child: isMobile ? _buildMobileList(loc) : _buildDesktopTable(loc),
                     ),
                 ],
               ),
@@ -142,15 +142,15 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
     );
   }
 
-  Widget _buildDesktopTable() {
+  Widget _buildDesktopTable(AppLocalizations loc) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
         headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-        columns: const [
-          DataColumn(label: Text('DID')),
-          DataColumn(label: Text('Reputation')),
-          DataColumn(label: Text('Status')),
+        columns: [
+          DataColumn(label: Text(loc.didColumn)),
+          DataColumn(label: Text(loc.reputationColumn)),
+          DataColumn(label: Text(loc.statusColumn)),
         ],
         rows: _identities.map((identity) {
           final reputation = (identity['reputation'] ?? 0.0) as double;
@@ -196,7 +196,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Text('Active'),
+                    Text(loc.active),
                   ],
                 ),
               ),
@@ -207,7 +207,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
     );
   }
 
-  Widget _buildMobileList() {
+  Widget _buildMobileList(AppLocalizations loc) {
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -231,7 +231,7 @@ class _IdentitiesScreenState extends ConsumerState<IdentitiesScreen> {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: const Text('Active Peer', style: TextStyle(fontSize: 12, color: Colors.green)),
+          subtitle: Text(loc.activePeer, style: TextStyle(fontSize: 12, color: Colors.green)),
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(

@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -52,6 +53,7 @@ class _ConsensusScreenState extends ConsumerState<ConsensusScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -70,8 +72,7 @@ class _ConsensusScreenState extends ConsumerState<ConsensusScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Consensus Logs (PBFT)',
+                            Text(loc.consensusLogsPbft,
                               style: TextStyle(
                                 fontSize: isMobile ? 24 : 32, 
                                 fontWeight: FontWeight.bold, 
@@ -79,8 +80,7 @@ class _ConsensusScreenState extends ConsumerState<ConsensusScreen> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              'History of confirmed blocks and distributed CRDT operations.',
+                            Text(loc.consensusHistoryDesc,
                               style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
                             ),
                           ],
@@ -122,7 +122,7 @@ class _ConsensusScreenState extends ConsumerState<ConsensusScreen> {
                         children: [
                           Icon(LucideIcons.history, size: 64, color: Colors.grey.shade700),
                           const SizedBox(height: 16),
-                          Text('No consensus logs found yet.', style: TextStyle(color: Colors.grey.shade500)),
+                          Text(loc.noConsensusLogs, style: TextStyle(color: Colors.grey.shade500)),
                         ],
                       ),
                     )

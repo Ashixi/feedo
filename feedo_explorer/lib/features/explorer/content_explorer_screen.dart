@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,6 +58,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -65,16 +67,16 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Content Explorer', style: TextStyle(fontSize: isMobile ? 24 : 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
+            Text(loc.contentExplorerTitle, style: TextStyle(fontSize: isMobile ? 24 : 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
             const SizedBox(height: 8),
-            Text('Search and verify raw posts on the DHT using their cryptographic Hash ID.', style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.grey.shade400)),
+            Text(loc.contentSearchDesc, style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.grey.shade400)),
             const SizedBox(height: 32),
             
             if (isMobile) ...[
               TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Enter Content Hash ID',
+                  hintText: loc.enterHashId,
                   prefixIcon: const Icon(LucideIcons.search),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
@@ -88,7 +90,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _search,
                   icon: const Icon(LucideIcons.search),
-                  label: const Text('Search'),
+                  label: Text(loc.searchButton),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
@@ -104,7 +106,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
                     child: TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        hintText: 'Enter Content Hash ID (e.g., hash_...)',
+                        hintText: loc.enterHashIdPlaceholder,
                         prefixIcon: const Icon(LucideIcons.search),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         filled: true,
@@ -117,7 +119,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
                   ElevatedButton.icon(
                     onPressed: _isLoading ? null : _search,
                     icon: const Icon(LucideIcons.search),
-                    label: const Text('Search'),
+                    label: Text(loc.searchButton),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
@@ -167,7 +169,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
                       _buildDetailRow('Signature', _post!['signature'] != null ? 'Present' : 'Missing', isMobile, color: _post!['signature'] != null ? Colors.teal : Colors.red),
                       const Divider(),
                       const SizedBox(height: 16),
-                      const Text('Raw Content Payload', style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text(loc.rawContentPayload, style: TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       Container(
                         width: double.infinity,
@@ -179,7 +181,7 @@ class _ContentExplorerScreenState extends ConsumerState<ContentExplorerScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const Text('JSON Metadata', style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text(loc.jsonMetadata, style: TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       Container(
                         width: double.infinity,

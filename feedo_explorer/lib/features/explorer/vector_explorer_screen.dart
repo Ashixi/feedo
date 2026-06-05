@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,6 +58,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -65,16 +67,16 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Vector Search Explorer', style: TextStyle(fontSize: isMobile ? 24 : 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
+            Text(loc.vectorSearchExplorer, style: TextStyle(fontSize: isMobile ? 24 : 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
             const SizedBox(height: 8),
-            Text('Explore AI embedding vectors for specific posts to understand semantic clustering.', style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.grey.shade400)),
+            Text(loc.exploreAiVectorsDesc, style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.grey.shade400)),
             const SizedBox(height: 32),
             
             if (isMobile) ...[
               TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Enter Content Hash ID',
+                  hintText: loc.enterHashId,
                   prefixIcon: const Icon(LucideIcons.binary),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
@@ -88,7 +90,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _search,
                   icon: const Icon(LucideIcons.search),
-                  label: const Text('Search Vector'),
+                  label: Text(loc.searchVector),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
@@ -104,7 +106,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
                     child: TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        hintText: 'Enter Content Hash ID (e.g., hash_...)',
+                        hintText: loc.enterHashIdPlaceholder,
                         prefixIcon: const Icon(LucideIcons.binary),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         filled: true,
@@ -117,7 +119,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
                   ElevatedButton.icon(
                     onPressed: _isLoading ? null : _search,
                     icon: const Icon(LucideIcons.search),
-                    label: const Text('Search Vector'),
+                    label: Text(loc.searchVector),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
@@ -149,8 +151,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
                           Icon(LucideIcons.binary, size: isMobile ? 24 : 32, color: Colors.indigo.shade400),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: Text(
-                              'Embedding Representation', 
+                            child: Text(loc.embeddingRepresentation, 
                               style: TextStyle(fontSize: isMobile ? 18 : 20, fontWeight: FontWeight.bold)
                             ),
                           ),
@@ -170,7 +171,7 @@ class _VectorExplorerScreenState extends ConsumerState<VectorExplorerScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      const Text('Make sure EXPOSE_VECTOR_API="true" is set in your docker-compose.yml to enable this.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                      Text(loc.exposeVectorApiHint, style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
                     ],
                   ),
                 ),

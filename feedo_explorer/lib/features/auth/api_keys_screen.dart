@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -8,6 +9,7 @@ class WalletIdentityScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final loc = AppLocalizations.of(context)!;
     final wallet = ref.watch(walletProvider);
 
     return Scaffold(
@@ -22,8 +24,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Wallet Identity',
+                    Text(loc.walletIdentityTitle,
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
@@ -31,8 +32,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      'Decentralized access control. Generate a local wallet to sign requests to the Feedo network.',
+                    Text(loc.walletIdentityDesc,
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.grey.shade400,
@@ -46,7 +46,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                       ref.read(walletProvider.notifier).generateNew();
                     },
                     icon: const Icon(LucideIcons.key),
-                    label: const Text('Generate Identity'),
+                    label: Text(loc.generateIdentity),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
@@ -62,7 +62,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                       ref.read(walletProvider.notifier).logout();
                     },
                     icon: const Icon(LucideIcons.logOut),
-                    label: const Text('Clear Identity'),
+                    label: Text(loc.clearIdentity),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red.shade600,
                       foregroundColor: Colors.white,
@@ -82,12 +82,11 @@ class WalletIdentityScreen extends ConsumerWidget {
                   children: [
                     Icon(LucideIcons.shieldAlert, size: 64, color: Colors.grey.shade600),
                     const SizedBox(height: 16),
-                    Text(
-                      'No Identity Found',
+                    Text(loc.noIdentityFound,
                       style: TextStyle(fontSize: 20, color: Colors.grey.shade400, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
-                    const Text('You must generate a local wallet to interact with the decentralized API.'),
+                    Text(loc.mustGenerateWallet),
                   ],
                 ),
               )
@@ -98,15 +97,15 @@ class WalletIdentityScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
                           Icon(LucideIcons.checkCircle, color: Colors.teal),
                           SizedBox(width: 12),
-                          Text('Identity Active', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)),
+                          Text(loc.identityActive, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)),
                         ],
                       ),
                       const SizedBox(height: 32),
-                      const Text('Public Wallet Address (SECP256k1)', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                      Text(loc.publicWalletAddress, style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -121,7 +120,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      const Text('Private Key (Stored Locally)', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                      Text(loc.privateKeyStoredLocally, style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -142,8 +141,7 @@ class WalletIdentityScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 32),
-                      const Text(
-                        'This identity is used to sign all outgoing HTTP requests using Zero-Trust architecture. It proves you own this wallet address without sending the private key.',
+                      Text(loc.identityZeroTrustDesc,
                         style: TextStyle(color: Colors.grey, height: 1.5),
                       ),
                     ],

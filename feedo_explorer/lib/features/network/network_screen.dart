@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -55,6 +56,7 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -70,8 +72,7 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Network Topology',
+                      Text(loc.networkTopologyTitle,
                         style: TextStyle(
                           fontSize: isMobile ? 24 : 32, 
                           fontWeight: FontWeight.bold, 
@@ -79,8 +80,7 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'P2P nodes, Supernodes, and Data Availability Layer stats.',
+                      Text(loc.networkStatsDesc,
                         style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
                       ),
                     ],
@@ -125,19 +125,19 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
                     childAspectRatio: isMobile ? 2.5 : 2.0,
                     children: [
                       _buildMetricCard(
-                        'Total Nodes',
+                        loc.totalNodes,
                         _summary!['total_nodes'].toString(),
                         LucideIcons.server,
                         Colors.blue,
                       ),
                       _buildMetricCard(
-                        'Active Supernodes',
+                        loc.activeSupernodes,
                         _summary!['supernodes'].toString(),
                         LucideIcons.database,
                         Colors.amber,
                       ),
                       _buildMetricCard(
-                        'Network Status',
+                        loc.networkStatus,
                         _summary!['network_status'] ?? 'Unknown',
                         LucideIcons.activity,
                         _summary!['network_status'] == 'Healthy' ? Colors.green : Colors.orange,
@@ -145,8 +145,7 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  Text(
-                    'Kademlia DHT Topology',
+                  Text(loc.kademliaTopology,
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -168,8 +167,7 @@ class _NetworkScreenState extends ConsumerState<NetworkScreen> {
                             Icon(LucideIcons.gitMerge,
                                 size: 48, color: Colors.grey.shade600),
                             const SizedBox(height: 16),
-                            Text(
-                              'No active peers found in the network.',
+                            Text(loc.noActivePeers,
                               style: TextStyle(color: Colors.grey.shade500),
                             ),
                           ],

@@ -1,3 +1,4 @@
+import 'package:feedo_explorer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'about_content.dart';
@@ -7,12 +8,13 @@ class AboutScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1000),
           child: Markdown(
-            data: aboutProjectMarkdown,
+            data: loc.localeName == 'uk' ? aboutProjectMarkdownUk : aboutProjectMarkdownEn,
             selectable: true,
             styleSheet: MarkdownStyleSheet(
               h1: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white, height: 1.5),
