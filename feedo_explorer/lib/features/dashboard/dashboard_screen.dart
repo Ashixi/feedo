@@ -45,7 +45,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _buildHeroSection(isMobile, context),
-            _buildExplorerQuickLinks(isMobile, context),
             _buildProblemSection(isMobile, _manifestoKey),
             _buildSolutionSection(isMobile),
             _buildTechSection(isMobile),
@@ -173,58 +172,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
-  Widget _buildExplorerQuickLinks(bool isMobile, BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 24 : 64, vertical: 40),
-      color: const Color(0xFF121212),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: Column(
-            children: [
-              Text(loc.liveNetworkExplorer,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white54,
-                  letterSpacing: 1.2,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const SizedBox(height: 32),
-              Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                alignment: WrapAlignment.center,
-                children: [
-                  _QuickLinkCard(
-                    title: loc.networkTopologyTitle,
-                    icon: LucideIcons.network,
-                    color: Colors.blue,
-                    onTap: () => context.go('/network'),
-                  ),
-                  _QuickLinkCard(
-                    title: loc.identitiesDidTitle,
-                    icon: LucideIcons.fingerprint,
-                    color: Colors.purple,
-                    onTap: () => context.go('/identities'),
-                  ),
-                  _QuickLinkCard(
-                    title: loc.consensusLogsTitle,
-                    icon: LucideIcons.history,
-                    color: Colors.green,
-                    onTap: () => context.go('/consensus'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildProblemSection(bool isMobile, GlobalKey key) {
     final loc = AppLocalizations.of(context)!;
@@ -655,73 +602,4 @@ class _EcosystemFeature extends StatelessWidget {
   }
 }
 
-class _QuickLinkCard extends StatefulWidget {
-  final String title;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
 
-  const _QuickLinkCard({
-    required this.title,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  State<_QuickLinkCard> createState() => _QuickLinkCardState();
-}
-
-class _QuickLinkCardState extends State<_QuickLinkCard> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          transform: Matrix4.identity()..scale(_isHovered ? 1.05 : 1.0),
-          width: 250,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1A1A),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: _isHovered ? widget.color.withOpacity(0.5) : Colors.white10,
-            ),
-            boxShadow: _isHovered
-                ? [
-                    BoxShadow(
-                      color: widget.color.withOpacity(0.2),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                    )
-                  ]
-                : [],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(widget.icon, size: 36, color: widget.color),
-              const SizedBox(height: 16),
-              Text(
-                widget.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -1,0 +1,21 @@
+# --- STAGE 1: Build Hybrid Rust Node ---
+FROM rustlang/rust:nightly AS rust-builder
+WORKDIR /build
+COPY feedo-core/ ./feedo-core/
+COPY proto/ ./proto/
+WORKDIR /build/feedo-core
+RUN apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler
+# Compile with the Nostr feature enabled
+RUN cargo build --release --features nostr
+RUN strip target/release/feedo-nostr
+
+# --- STAGE 2: Final Image ---
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Copy only the compiled Hybrid Node
+COPY --from=rust-builder /build/feedo-core/target/release/feedo-nostr /app/feedo-nostr
+
+EXPOSE 8080
+CMD ["/app/feedo-nostr"]

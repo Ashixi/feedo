@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package farcaster;
+
+service HubService {
+  rpc SubmitMessage(Message) returns (Message);
+}
+
+message Message {
+  MessageData data = 1;
+  bytes hash = 2; // Message hash
+  uint32 hash_scheme = 3;
+  bytes signature = 4; // Ed25519 signature
+  uint32 signature_scheme = 5;
+  bytes signer = 6; // Ed25519 public key
+}
+
+message MessageData {
+  uint32 type = 1; // MessageType (e.g., 1 for CastAdd)
+  uint64 fid = 2;
+  uint32 timestamp = 3;
+  uint32 network = 4;
+  
+  oneof body {
+    CastAddBody cast_add_body = 5;
+  }
+}
+
+message CastAddBody {
+  repeated string embeds_deprecated = 1;
+  repeated uint64 mentions = 2;
+  string text = 3;
+  repeated uint32 mentions_positions = 4;
+}

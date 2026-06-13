@@ -11,11 +11,14 @@ RUST_API_URL = "http://127.0.0.1:8041"
 
 class CrdtMutateRequest(BaseModel):
     object_id: str
+    crdt_type: str = "LWWMap"
     operation: str
     key: str
     value: str
     author: str
     signature: str
+    vector_tag: str = None
+    remove_tags: list[str] = []
 
 class CrdtWebhookPayload(BaseModel):
     object_id: str

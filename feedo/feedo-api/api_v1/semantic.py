@@ -12,11 +12,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Simple in-memory cache for tracking query popularity (Dynamic Pricing)
+# Maps a rough semantic vector hash or text to an access count
+query_popularity_tracker: Dict[str, int] = {}
+
 class SemanticQueryRequest(BaseModel):
     text: str
     limit: int = 10
     threshold: float = 0.5
     federated: bool = False
+    client_id: Optional[str] = None
 
 class MempoolValidationRequest(BaseModel):
     tx_hash: str
@@ -45,6 +50,12 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
             return {"valid": False, "reason": "semantic_duplicate", "duplicate_hash": duplicate_hash}
             
         logger.info(f"PBFT Mempool Submission {req.tx_hash} validated successfully (unique)")
+        
+        # Tokenomics: Reward unique content
+        p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+        if p2p_manager and req.originating_node:
+            p2p_manager.reputation.reward_unique_content(req.originating_node, reputation_amount=10)
+            
         return {"valid": True}
     except Exception as e:
         logger.error(f"Validation error in PBFT consensus: {e}")
@@ -61,6 +72,28 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
         if not brain:
             raise HTTPException(status_code=503, detail="Vector search not initialized")
             
+    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+    
+    # Tokenomics: Pay-per-query with Dynamic Pricing
+    base_cost = 1
+    query_multiplier = 1
+    
+    # Simple popularity check: if exact text was queried many times, increase price
+    # In a real vector system, this would be based on cluster popularity
+    hits = query_popularity_tracker.get(req.text, 0)
+    query_popularity_tracker[req.text] = hits + 1
+    
+    if hits > 50:
+        query_multiplier = 3
+    elif hits > 10:
+        query_multiplier = 2
+        
+    total_cost = base_cost * query_multiplier
+    
+    if p2p_manager and req.client_id:
+        if not p2p_manager.reputation.pay_for_query(req.client_id, cost=total_cost, allow_free_quota=True):
+            raise HTTPException(status_code=402, detail=f"Insufficient tokens or free read quota. Required: {total_cost} (Multiplier: x{query_multiplier})")
+            
     results = []
     # Using the synchronous brain operations in threadpool or directly
     try:
@@ -70,11 +103,23 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
         for r in search_res:
             dist = r.get("_distance", 1.0)
             if dist <= (1.0 - req.threshold):  # rough translation of threshold
-                results.append({
+                res_dict = {
                     "hash_id": r.get("hash_id"),
                     "post_id": r.get("post_id"),
                     "score": 1.0 - dist
-                })
+                }
+                if "author_address" in r:
+                    res_dict["author_address"] = r.get("author_address")
+                results.append(res_dict)
+                
+                # Tokenomics: Reward Query Hit with Dynamic Fee
+                if p2p_manager and req.client_id and "author_address" in r:
+                    compute_node_pubkey = p2p_manager.key.get("pubkey_hex")
+                    p2p_manager.reputation.reward_query_hit(
+                        author_pubkey=r.get("author_address"), 
+                        compute_node_pubkey=compute_node_pubkey, 
+                        fee_amount=total_cost
+                    )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         

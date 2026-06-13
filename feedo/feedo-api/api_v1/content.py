@@ -109,15 +109,38 @@ async def upload_blob(request: Request, file: UploadFile = File(...), signature:
     return {"blob_hash": blob_hash, "size": len(file_bytes)}
 
 @router.get("/blob/{blob_hash}")
-async def get_blob(blob_hash: str, request: Request):
+async def get_blob(blob_hash: str, request: Request, client_id: Optional[str] = None):
     """Stream media file. Retrieves from DHT if not in local cache."""
-    # Assuming media cache dir logic
+    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+    
+    # Tokenomics: Pay-per-download
+    download_cost = 5 # arbitrary higher cost for blobs
+    if p2p_manager and client_id:
+        if not p2p_manager.reputation.pay_for_query(client_id, cost=download_cost, allow_free_quota=False):
+            raise HTTPException(status_code=402, detail="Insufficient tokens for download.")
+            
     cache_root = "/app/db" if os.path.isdir("/app/db") else "./db_data"
     media_dir = os.path.join(cache_root, "media_cache")
     file_path = os.path.join(media_dir, blob_hash)
     
     if os.path.exists(file_path):
+        # Local hit: Reward the local node as the storage node
+        if p2p_manager and client_id:
+            local_pubkey = p2p_manager.key.get("pubkey_hex")
+            p2p_manager.reputation.reward_download_hit(
+                author_pubkey=None, # In a real scenario we need the blob metadata to know the author
+                routing_node_pubkey=local_pubkey,
+                storage_nodes=[local_pubkey],
+                fee_amount=download_cost
+            )
         with open(file_path, "rb") as f:
             return Response(content=f.read(), media_type="application/octet-stream")
             
-    raise HTTPException(status_code=404, detail="Blob not found in local cache")
+    # Mocking DHT Fetch Tokenomics
+    # If DHT fails:
+    if p2p_manager:
+        # Example of slashing a node that failed to deliver
+        failed_node = "mock_failed_node_pubkey"
+        p2p_manager.reputation.slash_storage_node(failed_node, penalty_amount=10)
+        
+    raise HTTPException(status_code=404, detail="Blob not found in local cache and DHT fetch failed")

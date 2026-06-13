@@ -22,9 +22,27 @@ secp256k1 = { version = "0.28", features = ["hashes"] }
 hex = "0.4"
 base64 = "0.22.1"
 rand = "0.8"
+tokio-tungstenite = { version = "0.20", optional = true }
+tonic = { version = "0.11", optional = true }
+
+[features]
+default = []
+nostr = ["tokio-tungstenite"]
+farcaster = ["tonic", "tonic-build"]
+
+[[bin]]
+name = "feedo-nostr"
+path = "src/bin/feedo_nostr.rs"
+required-features = ["nostr"]
+
+[[bin]]
+name = "feedo-farcaster"
+path = "src/bin/feedo_farcaster.rs"
+required-features = ["farcaster"]
 
 [build-dependencies]
 prost-build = "0.12"
+tonic-build = { version = "0.11", optional = true }
 
 [dev-dependencies]
 rand = "0.8"

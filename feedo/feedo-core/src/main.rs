@@ -29,7 +29,7 @@ const DATA_SHARDS: usize = 30;
 const PARITY_SHARDS: usize = 15;
 const TOTAL_SHARDS: usize = DATA_SHARDS + PARITY_SHARDS;
 
-// --- 1. ПОВІДОМЛЕННЯ МЕРЕЖІ (МЕТАДАНІ) ---
+// --- 1. NETWORK MESSAGES (METADATA) ---
 
 use proto::feedo::FeedoBroadcast;
 
@@ -68,7 +68,7 @@ struct Manifest {
     shards: HashMap<usize, String>,
 }
 
-// --- 2. ДОПОМІЖНІ ФУНКЦІЇ REED-SOLOMON ---
+// --- 2. HELPER FUNCTIONS FOR REED-SOLOMON ---
 
 fn encode_data(data: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn Error + Send + Sync>> {
     let rs = ReedSolomon::new(DATA_SHARDS, PARITY_SHARDS).map_err(|e| e.to_string())?;
@@ -175,7 +175,7 @@ impl RecordStore for HybridStore {
 }
 
 
-// --- 4. ПОВЕДІНКА ТА API ---
+// --- 4. MESSAGES AND API ---
 
 #[derive(NetworkBehaviour)]
 struct FeedoBehaviour {
@@ -464,7 +464,7 @@ fn do_self_healing(
     peer_cache: &PeerCache,
     local_peer_id: libp2p::PeerId,
 ) {
-    println!("🔧 Self-Healing: file {} has {} failed shards. Rebuilding...", hash, state.failed);
+    println!("Self-Healing: file {} has {} failed shards. Rebuilding...", hash, state.failed);
     if let Ok(decoded) = decode_data(state.shards.clone(), state.original_size) {
         if let Ok(new_shards) = encode_data(&decoded) {
             let mut new_manifest = state.manifest.clone().unwrap_or(Manifest {
@@ -530,7 +530,7 @@ fn do_self_healing(
     }
 }
 
-// --- 5. ГОЛОВНИЙ ЦИКЛ ---
+// --- 5. MAIN LOOP ---
 
 fn get_dir_size(path: impl AsRef<FsPath>) -> std::io::Result<u64> {
     let mut size = 0;
@@ -552,18 +552,28 @@ fn get_dir_size(path: impl AsRef<FsPath>) -> std::io::Result<u64> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("🚀 Запуск Feedo Core (Erasure Coding DHT + Sled Persistent Node)...");
+    println!("Starting Feedo Core (Erasure Coding DHT + Sled Persistent Node)...");
 
-    let peer_key_path = env::var("PEER_KEY_PATH").unwrap_or_else(|_| "./peer_key.bin".to_string());
+    let db_path = env::var("DHT_DB_PATH")
+        .or_else(|_| env::var("RUST_DB_PATH"))
+        .unwrap_or_else(|_| "./rust_db_data".to_string());
+
+    if !FsPath::new(&db_path).exists() {
+        let _ = fs::create_dir_all(&db_path);
+    }
+
+    let default_key_path = format!("{}/peer_key.bin", db_path);
+    let peer_key_path = env::var("PEER_KEY_PATH").unwrap_or(default_key_path);
+    
     let local_key = if FsPath::new(&peer_key_path).exists() {
         match fs::read(&peer_key_path) {
             Ok(bytes) => match identity::Keypair::from_protobuf_encoding(&bytes) {
                 Ok(k) => {
-                    println!("Завантажено збережений ключ з: {}", peer_key_path);
+                    println!("Loaded saved key from: {}", peer_key_path);
                     k
                 }
                 Err(e) => {
-                    println!("Не вдалося десеріалізувати ключ, згенеровано новий: {:?}", e);
+                    println!("Failed to deserialize key, generated new one: {:?}", e);
                     let k = identity::Keypair::generate_ed25519();
                     if let Ok(bytes) = k.to_protobuf_encoding() {
                         let _ = fs::write(&peer_key_path, bytes);
@@ -572,7 +582,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             },
             Err(e) => {
-                println!("Не вдалося прочитати {}: {:?}. Згенеровано новий ключ.", peer_key_path, e);
+                println!("Failed to read {}: {:?}. Generated new key.", peer_key_path, e);
                 let k = identity::Keypair::generate_ed25519();
                 if let Ok(bytes) = k.to_protobuf_encoding() {
                     let _ = fs::write(&peer_key_path, bytes);
@@ -585,13 +595,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         match k.to_protobuf_encoding() {
             Ok(bytes) => {
                 if let Err(e) = fs::write(&peer_key_path, bytes) {
-                    println!("Помилка збереження ключа в {}: {:?}", peer_key_path, e);
+                    println!("Error saving key to {}: {:?}", peer_key_path, e);
                 } else {
-                    println!("Збережено новий ключ у: {}", peer_key_path);
+                    println!("Saved new key to: {}", peer_key_path);
                 }
             }
             Err(e) => {
-                println!("Не вдалося серіалізувати ключ для збереження в {}: {:?}", peer_key_path, e);
+                println!("Failed to serialize key for saving to {}: {:?}", peer_key_path, e);
             }
         }
         k
@@ -599,7 +609,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let local_peer_id = PeerId::from(local_key.public());
     let local_peer_id_str = local_peer_id.to_string();
-    println!("Мій PeerId: {}", local_peer_id);
+    println!("My PeerId: {}", local_peer_id);
     
 
 
@@ -635,10 +645,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     gossipsub.subscribe(&crdt_sync_topic).unwrap();
 
 
-    let db_path = env::var("DHT_DB_PATH")
-        .or_else(|_| env::var("RUST_DB_PATH"))
-        .unwrap_or_else(|_| "./rust_db_data".to_string());
-    println!("🗃️ DHT persistent store path: {}", db_path);
+
+    println!("DHT persistent store path: {}", db_path);
     let python_api = env::var("PYTHON_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8040".to_string());
     
     let storage_full = Arc::new(AtomicBool::new(false));
@@ -686,19 +694,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     if let Some(pid) = peer_opt {
-                        println!("Додано bootstrap адресу {} для {}", addr, pid);
+                        println!("Added bootstrap address {} for {}", addr, pid);
                         kademlia.add_address(&pid, addr.clone());
                     } else {
-                        println!("Додано bootstrap адресу без PeerId: {}", addr);
+                        println!("Added bootstrap address without PeerId: {}", addr);
                     }
                     bootstrap_addrs.push(addr);
                 }
-                Err(e) => println!("Невірний BOOTSTRAP_NODES entry '{}': {:?}", s, e),
+                Err(e) => println!("Invalid BOOTSTRAP_NODES entry '{}': {:?}", s, e),
             }
         }
     } else if let Ok(bootstrap_addr_str) = env::var("BOOTSTRAP_NODE_ADDR") {
         if let Ok(addr) = Multiaddr::from_str(&bootstrap_addr_str) {
-            println!("Підключення до глобальної Bootstrap ноди: {}", addr);
+            println!("Connecting to global Bootstrap node: {}", addr);
             bootstrap_addrs.push(addr);
             let _ = kademlia.bootstrap();
         }
@@ -725,10 +733,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     swarm.listen_on("/ip4/0.0.0.0/udp/4001/quic-v1".parse()?)?;
 
+    if let Ok(ext_ip) = env::var("EXTERNAL_IP") {
+        if let Ok(addr) = format!("/ip4/{}/udp/4001/quic-v1", ext_ip).parse::<Multiaddr>() {
+            swarm.add_external_address(addr);
+            println!("Added external address (EXTERNAL_IP): {}", ext_ip);
+        } else {
+            println!("Invalid EXTERNAL_IP format: {}", ext_ip);
+        }
+    }
+
     for addr in bootstrap_addrs.iter() {
         match swarm.dial(addr.clone()) {
             Ok(()) => println!("Dialing bootstrap {}", addr),
-            Err(e) => println!("Помилка dial {}: {:?}", addr, e),
+            Err(e) => println!("Dial error {}: {:?}", addr, e),
         }
     }
 
@@ -782,7 +799,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::spawn(async move {
         let listener = tokio::net::TcpListener::bind("0.0.0.0:8041").await.unwrap();
-        println!("🔌 Локальне API для Python відкрито на порту 8041");
+        println!("Local API for Python opened on port 8041");
         axum::serve(listener, app).await.unwrap();
     });
 
@@ -856,7 +873,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if let Some((raw_text, _)) = pending_shards.remove(&$response_msg.tx_hash) {
                     let data_bytes = raw_text.into_bytes();
                     if let Ok(shards) = encode_data(&data_bytes) {
-                        println!("Шардинг контенту (45 частин) після консенсусу для tx: {}", $response_msg.tx_hash);
+                        println!("Content sharding (45 parts) after consensus for tx: {}", $response_msg.tx_hash);
                         let mut shard_store_vec: Vec<Option<Vec<u8>>> = vec![None; shards.len()];
                         let mut manifest_shards = HashMap::new();
                         
@@ -914,7 +931,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 expires: None,
                             };
                             if let Err(e) = swarm.behaviour_mut().kademlia.put_record(manifest_record, kad::Quorum::One) {
-                                println!("Локальне збереження маніфесту успішне, але немає інших пірів для DHT: {:?}", e);
+                                println!("Local manifest storage successful, but no other peers available for DHT: {:?}", e);
                             }
                             let _ = swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&$response_msg.tx_hash));
                         }
@@ -922,7 +939,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 if let Some(did_doc) = pending_dids.remove(&$response_msg.tx_hash) {
-                    println!("Запис DID у DHT після консенсусу для tx: {}", $response_msg.tx_hash);
+                    println!("Writing DID to DHT after consensus for tx: {}", $response_msg.tx_hash);
                     let did_id = $response_msg.tx_hash.replace("did_", "");
                     let record = kad::Record {
                         key: kad::RecordKey::new(&did_id),
@@ -935,7 +952,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 if let Some(did) = pending_names.remove(&$response_msg.tx_hash) {
-                    println!("Запис Name у DHT після консенсусу для tx: {}", $response_msg.tx_hash);
+                    println!("Writing Name to DHT after consensus for tx: {}", $response_msg.tx_hash);
                     let name_str = $response_msg.tx_hash.replace("name_", "");
                     let record = kad::Record {
                         key: kad::RecordKey::new(&name_str),
@@ -948,7 +965,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 if let Some(schema_def) = pending_schemas.remove(&$response_msg.tx_hash) {
-                    println!("Запис Schema у DHT після консенсусу для tx: {}", $response_msg.tx_hash);
+                    println!("Writing Schema to DHT after consensus for tx: {}", $response_msg.tx_hash);
                     let schema_id = $response_msg.tx_hash.replace("schema_", "");
                     let record = kad::Record {
                         key: kad::RecordKey::new(&schema_id),
@@ -994,7 +1011,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     if peer_id != *swarm.local_peer_id() {
                                         let chunk_key = format!("{}_chunk_{}", manifest.file_hash, random_index);
                                         let nonce: u64 = rng.gen();
-                                        println!("🔍 Надсилаємо PoStChallenge для {} до {}", chunk_key, peer_id);
+                                        println!("Sending PoStChallenge for {} to {}", chunk_key, peer_id);
                                         let _ = swarm.behaviour_mut().req_resp.send_request(
                                             &peer_id,
                                             DirectRequest::PoStChallenge { chunk_key, nonce }
@@ -1038,11 +1055,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         raw_text: req.text.clone(),
                     };
 
-                    println!("Відправка контенту у Mempool для валідації та консенсусу...");
+                    println!("Submitting content to Mempool for validation and consensus...");
                     let encoded = mempool_sub.encode_to_vec();
                     match swarm.behaviour_mut().gossipsub.publish(mempool_topic.clone(), encoded) {
                         Ok(_) => {
-                            println!("Заявка успішно відправлена у Mempool!");
+                            println!("Request successfully submitted to Mempool!");
                             // Initiating PBFT Propose
                             let total_nodes = swarm.network_info().num_peers() + 1;
                             let pbft_msg = pbft_manager.propose(req.hash_id.clone(), req.sequence_number.unwrap_or(0) as u64, proto::feedo::TxType::Content as i32, total_nodes);
@@ -1055,9 +1072,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             pending_shards.insert(req.hash_id.clone(), (req.text.clone(), now));
                         }
                         Err(gossipsub::PublishError::InsufficientPeers) => {
-                            println!("Заявка в Mempool готова, але немає сусідів. Очікуємо підключень...");
+                            println!("Request ready for Mempool, but no peers available. Awaiting connections...");
                         },
-                        Err(e) => println!("Невідома помилка Mempool: {:?}", e),
+                        Err(e) => println!("Unknown Mempool error: {:?}", e),
                     }
                 }
                 
@@ -1066,7 +1083,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     hasher.update(&data_bytes);
                     let media_hash = hex::encode(hasher.finalize());
 
-                    println!("Завантаження медіа: нарізання на 45 шархів...");
+                    println!("Uploading media: splitting into 45 shards...");
                     if let Ok(shards) = encode_data(&data_bytes) {
                         let mut shard_store_vec: Vec<Option<Vec<u8>>> = vec![None; shards.len()];
                         let mut manifest_shards = HashMap::new();
@@ -1127,12 +1144,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 expires: None,
                             };
                             if let Err(e) = swarm.behaviour_mut().kademlia.put_record(manifest_record, kad::Quorum::One) {
-                                println!("Локальне збереження маніфесту успішне, але немає інших пірів для DHT: {:?}", e);
+                                println!("Local manifest storage successful, but no other peers available for DHT: {:?}", e);
                             }
                             let _ = swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&media_hash));
                         }
                         
-                        println!("Медіа успішно завантажено. Маніфест створено.");
+                        println!("Media uploaded successfully. Manifest created.");
                         let _ = sender.send(media_hash);
                     }
                 }
@@ -1161,12 +1178,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 announce.signature = Some(hex::encode(sig_bytes));
                                 if let Ok(final_payload) = serde_json::to_vec(&announce) {
                                     match swarm.behaviour_mut().gossipsub.publish(announce_topic.clone(), final_payload) {
-                                        Ok(_) => println!("Опубліковано peer announce (signed)"),
-                                        Err(e) => println!("Помилка публікації announce: {:?}", e),
+                                        Ok(_) => println!("Published peer announce (signed)"),
+                                        Err(e) => println!("Error publishing announce: {:?}", e),
                                     }
                                 }
                             } else {
-                                println!("Не вдалося підписати announce payload");
+                                println!("Failed to sign announce payload");
                             }
                         }
                     }
@@ -1190,14 +1207,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 SwarmCommand::MempoolValidationResult(tx_hash, is_valid, tx_type) => {
                     if is_valid {
-                        println!("Mempool заявка {} семантично унікальна. Голосуємо у PBFT.", tx_hash);
+                        println!("Mempool request {} is semantically unique. Voting in PBFT.", tx_hash);
                         let total_nodes = swarm.network_info().num_peers() + 1;
                         if let Some(prepare_msg) = pbft_manager.mark_validated(&tx_hash, tx_type, total_nodes) {
-                            println!("PBFT Prepare відправлено для {}", tx_hash);
+                            println!("PBFT Prepare sent for {}", tx_hash);
                             handle_pbft_response!(prepare_msg);
                         }
                     } else {
-                        println!("Mempool заявка {} відхилена (дублікат).", tx_hash);
+                        println!("Mempool request {} rejected (duplicate).", tx_hash);
                     }
                 }
 
@@ -1209,14 +1226,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     });
                     if let Ok(encoded) = serde_json::to_vec(&payload) {
                         match swarm.behaviour_mut().gossipsub.publish(supernode_sync_topic.clone(), encoded) {
-                            Ok(_) => println!("Трансляція центроїдів Supernode через Gossipsub"),
-                            Err(e) => println!("Помилка трансляції центроїдів: {:?}", e),
+                            Ok(_) => println!("Broadcasting centroids to Supernode via Gossipsub"),
+                            Err(e) => println!("Error broadcasting centroids: {:?}", e),
                         }
                     }
                 }
 
                 SwarmCommand::VectorRouteQuery(vector, target_peers, limit, sender) => {
-                    println!("🔍 Відправка маршрутизованого векторного запиту до: {:?}", target_peers);
+                    println!("Sending routed vector query to: {:?}", target_peers);
                     for peer_id_str in target_peers {
                         if let Ok(peer_id) = PeerId::from_str(&peer_id_str) {
                             let _req_id = swarm.behaviour_mut().req_resp.send_request(
@@ -1311,7 +1328,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 SwarmCommand::FetchContent(content_hash, size, sender) => {
-                    println!("Запит на збірку контенту {} (Потрібно 30/45 шархів)", content_hash);
+                    println!("Sending fetch request for content {} (Need 30/45 shards)", content_hash);
                     
                     // Initialize fetch state
                     active_fetches.insert(content_hash.clone(), FetchState {
@@ -1356,7 +1373,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     Ok(content_str) => {
                                         if let Some(sender) = state.sender.take() {
                                             let _ = sender.send(Some(content_str));
-                                            println!("Контент (текст) успішно відновлено locally.");
+                                            println!("Content (text) successfully restored locally.");
                                         }
                                     }
                                     Err(_) => {
@@ -1364,12 +1381,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         let b64 = general_purpose::STANDARD.encode(&decoded);
                                         if let Some(sender) = state.sender.take() {
                                             let _ = sender.send(Some(b64));
-                                            println!("Контент (бінарний/медіа) успішно відновлено та закодовано в Base64 (local).");
+                                            println!("Content (binary/media) successfully restored and encoded in Base64 (local).");
                                         }
                                     }
                                 }
                             } else {
-                                println!("Помилка локального відновлення Ріда-Соломона для {}", content_hash);
+                                println!("Error restoring Reed-Solomon content locally for {}", content_hash);
                             }
                             active_fetches.remove(&content_hash);
                             continue;
@@ -1415,7 +1432,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 });
                 let after_len = pending_shards.len();
                 if before_len > after_len {
-                    println!("GC: Видалено {} застарілих заявок з pending_shards", before_len - after_len);
+                    println!("GC: Removed {} expired requests from pending_shards", before_len - after_len);
                 }
             }
 
@@ -1443,13 +1460,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     state.received += 1;
                                     
                                     if state.received == DATA_SHARDS {
-                                        println!("Зібрано {}/45 шархів для {} (DHT fallback). Математичне відновлення...", DATA_SHARDS, hash);
+                                        println!("Collected {}/45 shards for {} (DHT fallback). Mathematical restoration...", DATA_SHARDS, hash);
                                         if let Ok(decoded) = decode_data(state.shards.clone(), state.original_size) {
                                             match String::from_utf8(decoded.clone()) {
                                                 Ok(content_str) => {
                                                     if let Some(sender) = state.sender.take() {
                                                         let _ = sender.send(Some(content_str));
-                                                        println!("Контент (текст) успішно відновлено.");
+                                                        println!("Content (text) successfully restored.");
                                                     }
                                                 }
                                                 Err(_) => {
@@ -1457,12 +1474,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                     let b64 = general_purpose::STANDARD.encode(&decoded);
                                                     if let Some(sender) = state.sender.take() {
                                                         let _ = sender.send(Some(b64));
-                                                        println!("Контент (бінарний/медіа) успішно відновлено та закодовано в Base64.");
+                                                        println!("Content (binary/media) successfully restored and encoded in Base64.");
                                                     }
                                                 }
                                             }
                                         } else {
-                                            println!("Помилка відновлення Ріда-Соломона для {}", hash);
+                                            println!("Error restoring Reed-Solomon content for {}", hash);
                                             if let Some(sender) = state.sender.take() {
                                                 let _ = sender.send(None);
                                             }
@@ -1476,14 +1493,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 SwarmEvent::Behaviour(FeedoBehaviourEvent::Kademlia(kad::Event::RoutingUpdated { peer, is_new_peer, addresses, .. })) => {
                     if is_new_peer {
-                        println!("Kademlia DHT виявила нову ноду: {}", peer);
+                        println!("Kademlia DHT discovered a new node: {}", peer);
                     }
                     let addrs: Vec<String> = addresses.iter().map(|a| a.to_string()).collect();
                     peer_cache.add_or_update(&peer.to_string(), addrs, true);
                 }
 
                 SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                    println!("З'єднання встановлено з {}", peer_id);
+                    println!("Connection established with {}", peer_id);
                     peer_cache.add_or_update(&peer_id.to_string(), vec![], true);
                     peer_cache.save(&peer_cache_path);
                     
@@ -1545,7 +1562,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     let _ = swarm.behaviour_mut().req_resp.send_response(channel, DirectResponse::PbftVoteOk);
                                 }
                                 DirectRequest::VectorQuery { vector, limit } => {
-                                    println!("Отримано VectorQuery від {}", peer);
+                                    println!("Received VectorQuery from {}", peer);
                                     let client_clone = http_client.clone();
                                     let url_clone = python_webhook_url.replace("/internal/p2p_receive", "/api/v1/semantic/query");
                                     tokio::spawn(async move {
@@ -1560,16 +1577,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     let _ = swarm.behaviour_mut().req_resp.send_response(channel, DirectResponse::VectorQueryResponse(serde_json::json!({"results": []}).to_string()));
                                 }
                                 DirectRequest::PoStChallenge { chunk_key, nonce } => {
-                                    println!("🔍 Отримано PoStChallenge для фрагменту {} від {}", chunk_key, peer);
+                                    println!("Received PoStChallenge for chunk {} from {}", chunk_key, peer);
                                     let record_key = kad::RecordKey::new(&chunk_key);
                                     let data = swarm.behaviour_mut().kademlia.store_mut().get(&record_key).map(|r| r.value.clone());
                                     if let Some(val) = data {
                                         // let response_hash = da::generate_post_response(&val, nonce);
                                 let response_hash = "mocked_response".to_string();
                                         let _ = swarm.behaviour_mut().req_resp.send_response(channel, DirectResponse::PoStResponse { response_hash });
-                                        println!("Відправлено PoStResponse для {}", chunk_key);
+                                        println!("Sent PoStResponse for {}", chunk_key);
                                     } else {
-                                        println!("Фрагмент {} не знайдено для PoStChallenge", chunk_key);
+                                        println!("Fragment {} not found for PoStChallenge", chunk_key);
                                     }
                                 }
                             }
@@ -1578,11 +1595,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             match response {
                                 DirectResponse::HandshakeResponse(sig) => {
                                     if let Some(challenge) = handshake_challenges.remove(&request_id) {
-                                        println!("Криптографічний Handshake з {} успішно перевірено!", peer);
+                                        println!("Cryptographic Handshake with {} successfully verified!", peer);
                                     }
                                 }
                                 DirectResponse::PoStResponse { response_hash } => {
-                                    println!("Отримано PoStResponse від {}. Хеш: {}", peer, response_hash);
+                                    println!("Received PoStResponse from {}. Hash: {}", peer, response_hash);
                                 }
                                 DirectResponse::StoreOk => {}
                                 DirectResponse::ShardData(Some(data)) => {
@@ -1593,13 +1610,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                 state.received += 1;
                                                 
                                                 if state.received == DATA_SHARDS {
-                                                    println!("Зібрано {}/45 шархів для {} (Parallel Fetch). Математичне відновлення...", DATA_SHARDS, hash);
+                                                    println!("Collected {}/45 shards for {} (Parallel Fetch). Mathematical restoration...", DATA_SHARDS, hash);
                                                     if let Ok(decoded) = decode_data(state.shards.clone(), state.original_size) {
                                                         match String::from_utf8(decoded.clone()) {
                                                             Ok(content_str) => {
                                                                 if let Some(sender) = state.sender.take() {
                                                                     let _ = sender.send(Some(content_str));
-                                                                    println!("Контент (текст) успішно відновлено.");
+                                                                    println!("Content (text) successfully restored.");
                                                                 }
                                                             }
                                                             Err(_) => {
@@ -1607,12 +1624,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                                 let b64 = general_purpose::STANDARD.encode(&decoded);
                                                                 if let Some(sender) = state.sender.take() {
                                                                     let _ = sender.send(Some(b64));
-                                                                    println!("Контент (бінарний/медіа) успішно відновлено та закодовано в Base64.");
+                                                                    println!("Content (binary/media) successfully restored and encoded in Base64.");
                                                                 }
                                                             }
                                                         }
                                                     } else {
-                                                        println!("Помилка відновлення Ріда-Соломона для {}", hash);
+                                                        println!("Error restoring Reed-Solomon for {}", hash);
                                                         if let Some(sender) = state.sender.take() {
                                                             let _ = sender.send(None);
                                                         }
@@ -1623,7 +1640,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                     if state.failed > 0 && state.received >= DATA_SHARDS {
                                                         do_self_healing(&hash, state, &mut swarm, &peer_cache, local_peer_id);
                                                     } else if state.received < DATA_SHARDS {
-                                                        println!("Неможливо відновити файл {}. Зібрано лише {}/{} шардів.", hash, state.received, DATA_SHARDS);
+                                                        println!("Cannot restore file {}. Only collected {}/{} shards.", hash, state.received, DATA_SHARDS);
                                                         if let Some(sender) = state.sender.take() {
                                                             let _ = sender.send(None);
                                                         }
@@ -1643,7 +1660,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                 if state.failed > 0 && state.received >= DATA_SHARDS {
                                                     do_self_healing(&hash, state, &mut swarm, &peer_cache, local_peer_id);
                                                 } else if state.received < DATA_SHARDS {
-                                                    println!(" Неможливо відновити файл {}. Зібрано лише {}/{} шардів.", hash, state.received, DATA_SHARDS);
+                                                    println!("Cannot restore file {}. Only collected {}/{} shards.", hash, state.received, DATA_SHARDS);
                                                     if let Some(sender) = state.sender.take() {
                                                         let _ = sender.send(None);
                                                     }
@@ -1655,7 +1672,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 }
                                 DirectResponse::ManifestData(Some(manifest)) => {
                                     if let Some(hash) = manifest_requests.remove(&request_id) {
-                                        println!("Маніфест отримано для {}. Запуск паралельного завантаження шархів...", hash);
+                                        println!("Manifest received for {}. Starting parallel shard download...", hash);
                                         if let Some(state) = active_fetches.get_mut(&hash) {
                                             state.manifest = Some(manifest.clone());
                                         }
@@ -1677,7 +1694,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 }
                                 DirectResponse::PbftVoteOk => {}
                                 DirectResponse::VectorQueryResponse(res_json) => {
-                                    println!("🧠 Отримано відповідь на VectorQuery: {}", res_json);
+                                    println!("Received response on VectorQuery: {}", res_json);
                                 }
                             }
                             }
@@ -1692,7 +1709,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         if state.failed > 0 && state.received >= DATA_SHARDS {
                                             do_self_healing(&hash, state, &mut swarm, &peer_cache, local_peer_id);
                                         } else if state.received < DATA_SHARDS {
-                                            println!("Неможливо відновити файл {}. Зібрано лише {}/{} шардів.", hash, state.received, DATA_SHARDS);
+                                            println!("Cannot restore file {}. Collected only {}/{} shards.", hash, state.received, DATA_SHARDS);
                                             if let Some(sender) = state.sender.take() {
                                                 let _ = sender.send(None);
                                             }
@@ -1701,7 +1718,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
                             } else if let Some(hash) = manifest_requests.remove(&request_id) {
-                                println!("Не вдалося отримати маніфест для {}", hash);
+                                println!("Failed to get manifest for {}", hash);
                             }
                         }
                         _ => {}
@@ -1710,7 +1727,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 SwarmEvent::Behaviour(FeedoBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
                     for (peer_id, addr) in peers {
-                        println!("mDNS знайшов сусіда: {} на {}", peer_id, addr);
+                        println!("mDNS found neighbor: {} on {}", peer_id, addr);
                         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                         peer_cache.add_or_update(&peer_id.to_string(), vec![addr.to_string()], false);
@@ -1718,7 +1735,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 SwarmEvent::Behaviour(FeedoBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
                     for (peer_id, _) in peers {
-                        println!("mDNS: Сусід відключився {}", peer_id);
+                        println!("mDNS: Peer disconnected {}", peer_id);
                         swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     }
                 }
@@ -1736,7 +1753,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if message.topic.as_str() == "feedo_mempool" {
                         if let Ok(mempool_sub) = proto::feedo::MempoolSubmission::decode(&message.data[..]) {
                             if let Some(post) = mempool_sub.post {
-                                println!("Отримано заявку у Mempool від {}", mempool_sub.originating_node);
+                                println!("Received request in Mempool from {}", mempool_sub.originating_node);
                                 let client_clone = http_client.clone();
                                 let url_clone = python_webhook_url.replace("/internal/p2p_receive", "/api/v1/semantic/validate_uniqueness");
                                 let tx_hash = post.hash_id.clone();
@@ -1759,7 +1776,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         continue;
                     }
                     if message.topic.as_str() == "feedo_supernode_sync" {
-                        println!("Отримано Gossipsub повідомлення feedo_supernode_sync");
+                        println!("Received Gossipsub message feedo_supernode_sync");
                         if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&message.data) {
                             let client_clone = http_client.clone();
                             let url_clone = python_webhook_url.replace("/internal/p2p_receive", "/internal/ingest_global_map");
@@ -1819,7 +1836,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     // prune old
                                     entries.retain(|t| now_ts.saturating_sub(*t) <= window_secs);
                                     if entries.len() >= max_per_window {
-                                        println!("Rate limit exceeded for {} — ignoring announce", announce.peer_id);
+                                        println!("Rate limit exceeded for {} - ignoring announce", announce.peer_id);
                                         // optionally add to blacklist after repeated offenses
                                         let offenses = env::var("ANNOUNCE_BLACKLIST_OFFENSES").unwrap_or_else(|_| "10".to_string()).parse::<usize>().unwrap_or(10);
                                         if entries.len() >= offenses {
@@ -1877,6 +1894,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                         }
                                                     }
                                                 }
+
+                                                let client_clone = http_client.clone();
+                                                let url_clone = python_webhook_url.replace("/internal/p2p_receive", "/internal/p2p/register_peer");
+                                                
+                                                let mut pubkey_hex = String::new();
+                                                if let Some(pk_b64) = announce.public_key.clone() {
+                                                    if let Ok(pk_bytes) = base64::engine::general_purpose::STANDARD.decode(pk_b64.as_bytes()) {
+                                                        pubkey_hex = hex::encode(pk_bytes);
+                                                    }
+                                                }
+
+                                                let is_supernode = announce.is_supernode.unwrap_or(false);
+                                                let peer_id_clone = announce.peer_id.clone();
+                                                
+                                                tokio::spawn(async move {
+                                                    let req_body = serde_json::json!({
+                                                        "peer_id": peer_id_clone,
+                                                        "pubkey_hex": pubkey_hex,
+                                                        "is_supernode": is_supernode
+                                                    });
+                                                    let _ = client_clone.post(&url_clone).json(&req_body).send().await;
+                                                });
+
                                             } else {
                                                 println!("Ignoring announce from {} because signature/public key not verified", announce.peer_id);
                                             }
@@ -1884,7 +1924,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
                             } else {
-                                println!("Announce without gossipsub source — ignoring {}", announce.peer_id);
+                                println!("Announce without gossipsub source - ignoring {}", announce.peer_id);
                             }
                         }
                     } else if let Ok(post) = proto::feedo::FeedoBroadcast::decode(&message.data[..]) {
@@ -1897,11 +1937,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
 
                         if !valid_sig {
-                            println!("Gossipsub: ВІДХИЛЕНО пост від {}. Невалідний підпис!", post.author_address);
+                            println!("Gossipsub: REJECTED post from {}. Invalid signature!", post.author_address);
                             continue;
                         }
 
-                        println!("Gossipsub: Метадані поста від {}", post.author_address);
+                        println!("Gossipsub: Post metadata from {}", post.author_address);
                         
                         let client_clone = http_client.clone();
                         let url_clone = python_webhook_url.clone();
@@ -1911,16 +1951,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             match client_clone.post(&url_clone).json(&post_clone).send().await {
                                 Ok(res) => {
                                     if !res.status().is_success() {
-                                        println!("Python API повернув помилку: {}", res.status());
+                                        println!("Python API returned an error: {}", res.status());
                                     }
                                 }
-                                Err(e) => println!("Не вдалося достукатися до Python API: {}", e),
+                                Err(e) => println!("Failed to reach Python API: {}", e),
                             }
                         });
                     }
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
-                    println!("Нода P2P слухає на: {}", address);
+                    println!("P2P Node listening on: {}", address);
                 }
                 _ => {}
             }

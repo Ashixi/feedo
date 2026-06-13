@@ -53,21 +53,7 @@ class MainLayout extends ConsumerWidget {
                       isSelected: GoRouterState.of(context).uri.path == '/',
                       onTap: () => context.go('/'),
                     ),
-                    _TopNavItem(
-                      label: loc.network,
-                      isSelected: GoRouterState.of(context).uri.path == '/network',
-                      onTap: () => context.go('/network'),
-                    ),
-                    _TopNavItem(
-                      label: loc.identities,
-                      isSelected: GoRouterState.of(context).uri.path == '/identities',
-                      onTap: () => context.go('/identities'),
-                    ),
-                    _TopNavItem(
-                      label: loc.consensus,
-                      isSelected: GoRouterState.of(context).uri.path == '/consensus',
-                      onTap: () => context.go('/consensus'),
-                    ),
+
                     _TopNavItem(
                       label: loc.docs,
                       isSelected: GoRouterState.of(context).uri.path == '/docs',
@@ -129,33 +115,7 @@ class MainLayout extends ConsumerWidget {
               context.go('/');
             },
           ),
-          _DrawerItem(
-            icon: LucideIcons.network,
-            label: loc.networkTopology,
-            isSelected: location == '/network',
-            onTap: () {
-              Navigator.pop(context);
-              context.go('/network');
-            },
-          ),
-          _DrawerItem(
-            icon: LucideIcons.fingerprint,
-            label: loc.identitiesDid,
-            isSelected: location == '/identities',
-            onTap: () {
-              Navigator.pop(context);
-              context.go('/identities');
-            },
-          ),
-          _DrawerItem(
-            icon: LucideIcons.history,
-            label: loc.consensusLogs,
-            isSelected: location == '/consensus',
-            onTap: () {
-              Navigator.pop(context);
-              context.go('/consensus');
-            },
-          ),
+
           const Divider(color: Colors.white10, height: 32),
           _DrawerItem(
             icon: LucideIcons.bookOpen,

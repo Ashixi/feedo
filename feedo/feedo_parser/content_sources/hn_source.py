@@ -29,12 +29,17 @@ class HNSource(BaseSource):
                 if gh:
                     return gh
 
-            # Use `trafilatura` via `clean_html_text` (runs in a thread)
-            downloaded = await asyncio.to_thread(trafilatura.fetch_url, url)
-            if downloaded:
-                extracted = await asyncio.to_thread(clean_html_text, downloaded)
-                if extracted:
-                    return extracted
+            # Fetch using httpx with User-Agent to bypass 403 blocks, then extract via clean_html_text
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            try:
+                async with httpx.AsyncClient(timeout=15.0, headers=headers, follow_redirects=True) as client:
+                    res = await client.get(url)
+                    if res.status_code == 200:
+                        extracted = await asyncio.to_thread(clean_html_text, res.text)
+                        if extracted:
+                            return extracted
+            except Exception as e:
+                logger.debug(f"HTTP fetch failed for {url}: {e}")
 
             # Nothing useful found
             return ""

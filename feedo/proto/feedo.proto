@@ -109,4 +109,8 @@ message CrdtOperation {
   uint64 timestamp = 6;
   string author = 7;
   string signature = 8;
+  
+  // For AW-OR-Set (Merkle-CRDT semantics)
+  optional string vector_tag = 9; // Unique tag generated on "add" (e.g. UUID or hash)
+  repeated string remove_tags = 10; // List of tags observed and removed during "remove"
 }
