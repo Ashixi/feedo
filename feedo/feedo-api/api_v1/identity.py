@@ -9,6 +9,14 @@ from database import get_db
 from models import User, Delegation
 from feedo_parser.crypto_utils import verify_signature
 from pydantic import BaseModel, Field
+import hashlib
+
+def verify_pow(public_key: str, nonce: str, difficulty: int = 4) -> bool:
+    if not nonce:
+        return False
+    data = f"{public_key}:{nonce}".encode('utf-8')
+    hash_result = hashlib.sha256(data).hexdigest()
+    return hash_result.startswith('0' * difficulty)
 
 router = APIRouter()
 
@@ -36,6 +44,13 @@ async def announce_identity(req: AnnounceRequest, request: Request, db: AsyncSes
     # Mocking verify_signature for simplicity, ideally:
     # if not verify_signature(req.public_key, msg, req.signature):
     #     raise HTTPException(status_code=403, detail="Invalid signature")
+
+    # Anti-Spam: Proof-of-Work check for free identity creation
+    if not verify_pow(req.public_key, req.pow_nonce, difficulty=4):
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid Proof of Work nonce. Registration requires computational proof to prevent spam."
+        )
 
     wallet_address = req.public_key.lower()
     

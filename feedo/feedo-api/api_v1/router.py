@@ -7,6 +7,8 @@ from .graph import router as graph_router
 from .node import router as node_router
 from .crdt import router as crdt_router
 from .tokenomics import router as tokenomics_router
+from .website import router as website_router
+from .wallet import router as wallet_router
 
 api_v1_router = APIRouter()
 
@@ -17,3 +19,5 @@ api_v1_router.include_router(graph_router, prefix="/graph", tags=["Knowledge Top
 api_v1_router.include_router(node_router, prefix="/node", tags=["Node Administration"])
 api_v1_router.include_router(crdt_router, prefix="/crdt", tags=["Dynamic CRDT State"])
 api_v1_router.include_router(tokenomics_router, prefix="/tokenomics", tags=["Tokenomics & Reputation"])
+api_v1_router.include_router(website_router, prefix="/website", tags=["Web3 Websites"])
+api_v1_router.include_router(wallet_router, prefix="/wallet", tags=["Wallet & Balances"])

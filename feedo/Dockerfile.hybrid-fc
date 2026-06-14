@@ -6,10 +6,10 @@ COPY feedo-core/ ./feedo-core/
 COPY proto/ ./proto/
 WORKDIR /build/feedo-core
 RUN apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler
-# Build both regular core and the nostr binary
-RUN cargo build --release --features nostr
+# Build both regular core and the farcaster binary
+RUN cargo build --release --features farcaster
 RUN strip target/release/feedo-core
-RUN strip target/release/feedo-nostr
+RUN strip target/release/feedo-farcaster
 
 # --- ЕТАП 2: Фінальний образ (Python + Rust) ---
 FROM python:3.11-slim
@@ -31,15 +31,15 @@ RUN python3 -m grpc_tools.protoc -I=/app/proto --python_out=/app /app/proto/feed
 
 # Переносимо скомпільовані Rust-бінарники
 COPY --from=rust-builder /build/feedo-core/target/release/feedo-core /app/feedo-core
-COPY --from=rust-builder /build/feedo-core/target/release/feedo-nostr /app/feedo-nostr
+COPY --from=rust-builder /build/feedo-core/target/release/feedo-farcaster /app/feedo-farcaster
 
 # Копіюємо скрипт запуску для гібридної ноди
-COPY start-hybrid.sh /app/start-hybrid.sh
-RUN chmod +x /app/start-hybrid.sh
+COPY start-hybrid-fc.sh /app/start-hybrid-fc.sh
+RUN chmod +x /app/start-hybrid-fc.sh
 
-# Відкриваємо порти (8040 - FastAPI, 4001 - P2P мережа, 8080 - Nostr Relay)
-EXPOSE 8040 4001 8080
+# Відкриваємо порти (8040 - FastAPI, 4001 - P2P мережа, 2283 - Farcaster Hub RPC)
+EXPOSE 8040 4001 2283
 
 ENV RUST_CORE_URL=${RUST_CORE_URL}
 
-CMD ["/app/start-hybrid.sh"]
+CMD ["/app/start-hybrid-fc.sh"]

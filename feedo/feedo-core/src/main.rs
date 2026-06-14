@@ -2,6 +2,10 @@ mod pbft;
 mod proto;
 pub mod did;
 pub mod crdt;
+mod nostr_db;
+pub mod name_db;
+pub mod eth_bridge;
+pub mod accounting;
 
 use axum::{routing::{post, get}, Json, Router, extract::{State, Path}};
 use prost::Message as ProstMessage;
@@ -207,6 +211,12 @@ enum SwarmCommand {
     // RegisterSchema(proto::feedo::SchemaRegistrationRequest),
     // ResolveSchema(String, oneshot::Sender<Option<String>>),
     TriggerPoStChallenges,
+    InitiateSemanticSearch(String, u32, oneshot::Sender<String>),
+    FinishSemanticSearch(String),
+    BroadcastSemanticResult(Vec<u8>),
+    ForwardSemanticSearch(Vec<u8>),
+    DhtUpload(Vec<u8>, oneshot::Sender<String>),
+    DhtDownload(String, oneshot::Sender<Option<Vec<u8>>>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -243,6 +253,44 @@ async fn handle_publish(
     let _ = tx.send(SwarmCommand::Publish(payload));
     Ok("Publishing to P2P Matrix...")
 }
+
+async fn handle_dht_upload(
+    State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
+    mut multipart: Multipart,
+) -> Result<String, (axum::http::StatusCode, String)> {
+    let mut file_data = Vec::new();
+    while let Some(field) = multipart.next_field().await.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))? {
+        if field.name() == Some("file") {
+            let data = field.bytes().await.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+            file_data.extend_from_slice(&data);
+        }
+    }
+    
+    if file_data.is_empty() {
+        return Err((axum::http::StatusCode::BAD_REQUEST, "No file provided".to_string()));
+    }
+    
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let _ = tx.send(SwarmCommand::DhtUpload(file_data, resp_tx));
+    
+    match resp_rx.await {
+        Ok(hash) => Ok(hash),
+        Err(_) => Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "DHT upload failed".to_string())),
+    }
+}
+
+async fn handle_dht_download(
+    State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
+    Path(hash): Path<String>,
+) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let _ = tx.send(SwarmCommand::DhtDownload(hash, resp_tx));
+    match resp_rx.await {
+        Ok(Some(data)) => Ok(data),
+        _ => Err((axum::http::StatusCode::NOT_FOUND, "Not found in DHT".to_string())),
+    }
+}
+
 
 async fn handle_fetch_content(
     State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
@@ -447,6 +495,25 @@ async fn handle_crdt_get(
 //     if let Ok(res) = resp_rx.await { Json(res) } else { Json(None) }
 // }
 
+#[derive(Deserialize)]
+struct SemanticSearchReq {
+    text_query: String,
+    limit: Option<u32>,
+}
+
+async fn handle_semantic_search(
+    State(tx): State<mpsc::UnboundedSender<SwarmCommand>>,
+    Json(req): Json<SemanticSearchReq>,
+) -> Json<serde_json::Value> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let _ = tx.send(SwarmCommand::InitiateSemanticSearch(req.text_query, req.limit.unwrap_or(10), resp_tx));
+    if let Ok(res_str) = resp_rx.await {
+        if let Ok(json) = serde_json::from_str(&res_str) {
+            return Json(json);
+        }
+    }
+    Json(serde_json::json!({"results": []}))
+}
 
 struct FetchState {
     sender: Option<oneshot::Sender<Option<String>>>,
@@ -643,6 +710,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     gossipsub.subscribe(&supernode_sync_topic).unwrap();
     let crdt_sync_topic = gossipsub::IdentTopic::new("feedo_crdt_sync");
     gossipsub.subscribe(&crdt_sync_topic).unwrap();
+    let semantic_search_topic = gossipsub::IdentTopic::new("feedo_semantic_search");
+    gossipsub.subscribe(&semantic_search_topic).unwrap();
 
 
 
@@ -675,6 +744,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
             storage_full_clone.store(is_full, Ordering::Relaxed);
         }
     });
+
+    let (api_tx, mut api_rx) = mpsc::unbounded_channel::<SwarmCommand>();
+
+    let ledger = Arc::new(accounting::Ledger::new(shared_db.clone()));
+    
+    // Фоновий демон Епох: Раз на годину генерує Merkle Root і пропонує його в PBFT
+    let ledger_clone = ledger.clone();
+    let local_peer_id_str_clone = local_peer_id_str.clone();
+    let api_tx_clone = api_tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600)); // 1 година
+        loop {
+            interval.tick().await;
+            let (root, _tree) = ledger_clone.generate_merkle_root().await;
+            if root != [0u8; 32] {
+                let root_hex = hex::encode(root);
+                println!("[EPOCH DAEMON] Generated Merkle Root for PBFT: {}", root_hex);
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let _ = api_tx_clone.send(SwarmCommand::PbftPropose(root_hex, timestamp, pbft::TX_TYPE_MICRO_TX_BATCH));
+            }
+        }
+    });
+
+    if let Ok(rpc_url) = env::var("POLYGON_RPC_URL") {
+        if let Ok(private_key) = env::var("NODE_WALLET_PRIVATE_KEY") {
+            let rpc_clone = rpc_url.clone();
+            tokio::spawn(async move {
+                eth_bridge::Web3Bridge::start_auto_claim_daemon(rpc_clone, private_key).await;
+            });
+        }
+        
+        if let Ok(bridge) = eth_bridge::Web3Bridge::new(&rpc_url, ledger.clone()) {
+            let bridge_arc = Arc::new(bridge);
+            tokio::spawn(async move {
+                bridge_arc.start_event_listener().await;
+            });
+        } else {
+            eprintln!("Failed to initialize Web3 Bridge.");
+        }
+    } else {
+        println!("POLYGON_RPC_URL not found, Web3 features disabled.");
+    }
 
     let mut bootstrap_addrs: Vec<Multiaddr> = Vec::new();
     if let Ok(nodes_csv) = env::var("BOOTSTRAP_NODES") {
@@ -761,7 +872,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let (api_tx, mut api_rx) = mpsc::unbounded_channel::<SwarmCommand>();
     
     let mut handshake_challenges = HashMap::new();
     let mut active_fetches: HashMap<String, FetchState> = HashMap::new();
@@ -776,9 +886,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(_) => std::collections::HashSet::new(),
     };
     let mut announce_rate_map: HashMap<String, Vec<u64>> = HashMap::new();
+    let mut search_query_cache: HashMap<String, u64> = HashMap::new();
+    let mut active_search_requests: HashMap<String, (oneshot::Sender<String>, Vec<proto::feedo::SemanticSearchResultItem>)> = HashMap::new();
 
     let mut pbft_manager = pbft::PbftManager::new(local_peer_id_str.clone());
     let crdt_manager = crdt::CrdtManager::new(shared_db.clone());
+    
+    let name_db_path = format!("{}/name_registry.db", db_path);
+    let name_db = name_db::NameDb::new(&name_db_path).expect("Failed to open NameDb");
+
+    let ledger_db = sled::open(format!("{}/ledger", db_path)).unwrap();
+    let ledger = Arc::new(accounting::Ledger::new(ledger_db));
+
+    if let Ok(rpc_url) = env::var("POLYGON_RPC_URL") {
+        if let Ok(bridge) = eth_bridge::Web3Bridge::new(&rpc_url, ledger.clone()) {
+            let bridge_arc = Arc::new(bridge);
+            tokio::spawn(async move {
+                bridge_arc.start_event_listener().await;
+            });
+        }
+    }
 
     let app = Router::new()
         .route("/local/publish", post(handle_publish))
@@ -793,8 +920,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/local/resolve_name/:name", get(handle_resolve_name))
         .route("/local/crdt_mutate", post(handle_crdt_mutate))
         .route("/local/crdt_get/:object_id", get(handle_crdt_get))
+        .route("/local/semantic_search", post(handle_semantic_search))
+        .route("/local/dht/upload", post(handle_dht_upload))
+        .route("/local/dht/download/:hash", get(handle_dht_download))
+        .route("/local/balance/:address", get(handle_balance))
         // .route("/local/register_schema", post(handle_register_schema))
         // .route("/local/resolve_schema/:id", get(handle_resolve_schema))
+        .layer(axum::extract::Extension(ledger.clone()))
         .with_state(api_tx.clone());
 
     tokio::spawn(async move {
@@ -848,7 +980,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let loop_tx = api_tx.clone();
     let mut pending_shards: std::collections::HashMap<String, (String, u64)> = std::collections::HashMap::new();
     let mut pending_dids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut pending_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut pending_names: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
     let mut pending_schemas: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     macro_rules! handle_pbft_response {
@@ -951,17 +1083,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let _ = swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&did_id));
                 }
 
-                if let Some(did) = pending_names.remove(&$response_msg.tx_hash) {
-                    println!("Writing Name to DHT after consensus for tx: {}", $response_msg.tx_hash);
+                if let Some((did, pubkey)) = pending_names.remove(&$response_msg.tx_hash) {
+                    println!("Writing Name to DHT and DB after consensus for tx: {}", $response_msg.tx_hash);
                     let name_str = $response_msg.tx_hash.replace("name_", "");
                     let record = kad::Record {
                         key: kad::RecordKey::new(&name_str),
-                        value: did.into_bytes(),
+                        value: did.clone().into_bytes(),
                         publisher: None,
                         expires: None,
                     };
                     let _ = swarm.behaviour_mut().kademlia.store_mut().put(record);
                     let _ = swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&name_str));
+                    
+                    if let Err(e) = name_db.insert_name(&name_str, &did, &pubkey) {
+                        println!("Failed to write to NameDb: {:?}", e);
+                    }
                 }
 
                 if let Some(schema_def) = pending_schemas.remove(&$response_msg.tx_hash) {
@@ -1154,6 +1290,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
 
+                SwarmCommand::DhtUpload(data_bytes, sender) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(&data_bytes);
+                    let hash_str = hex::encode(hasher.finalize());
+                    
+                    let record = kad::Record {
+                        key: kad::RecordKey::new(&hash_str),
+                        value: data_bytes.clone(),
+                        publisher: None,
+                        expires: None,
+                    };
+                    
+                    let _ = swarm.behaviour_mut().kademlia.store_mut().put(record);
+                    let _ = swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&hash_str));
+                    
+                    println!("Raw DHT upload successful: {}", hash_str);
+                    let _ = sender.send(hash_str);
+                }
+
+                SwarmCommand::DhtDownload(hash_str, sender) => {
+                    let record_key = kad::RecordKey::new(&hash_str);
+                    if let Some(record) = swarm.behaviour_mut().kademlia.store_mut().get(&record_key) {
+                        let _ = sender.send(Some(record.value.clone()));
+                    } else {
+                        let _qid = swarm.behaviour_mut().kademlia.get_record(record_key);
+                        let _ = sender.send(None);
+                    }
+                }
+
+
                 SwarmCommand::AnnouncePeer => {
                     let listen_addrs: Vec<String> = swarm.listeners().map(|a| a.to_string()).collect();
                     let pubkey_bytes = local_key.public().encode_protobuf();
@@ -1260,6 +1426,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 SwarmCommand::RegisterName(req) => {
+                    let re = regex::Regex::new(r"^[a-z0-9-]{3,63}$").unwrap();
+                    if !re.is_match(&req.name) {
+                        println!("Invalid name format: {}", req.name);
+                        continue;
+                    }
+                    if let Ok(true) = name_db.name_exists(&req.name) {
+                        println!("Name {} already exists!", req.name);
+                        continue;
+                    }
+
                     let tx_hash = format!("name_{}", req.name);
                     let network_info = swarm.network_info();
                     let total_nodes = network_info.num_peers() + 1;
@@ -1267,7 +1443,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let encoded = pbft_msg.encode_to_vec();
                     let _ = swarm.behaviour_mut().gossipsub.publish(pbft_topic.clone(), encoded);
                     
-                    pending_names.insert(tx_hash, req.did);
+                    pending_names.insert(tx_hash, (req.did, req.public_key));
                 }
 
                 SwarmCommand::ResolveDid(id, sender) => {
@@ -1287,15 +1463,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 
                 SwarmCommand::ResolveName(name, sender) => {
-                    let record_key = kad::RecordKey::new(&name);
-                    if let Some(record) = swarm.behaviour_mut().kademlia.store_mut().get(&record_key) {
-                        if let Ok(did_str) = String::from_utf8(record.value.clone()) {
+                    match name_db.resolve_name(&name) {
+                        Ok(Some(did_str)) => {
                             let _ = sender.send(Some(did_str));
-                        } else {
+                        }
+                        _ => {
                             let _ = sender.send(None);
                         }
-                    } else {
-                        let _ = sender.send(None);
                     }
                 }
 
@@ -1325,6 +1499,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     } else {
                         let _ = sender.send(None);
                     }
+                }
+
+                SwarmCommand::InitiateSemanticSearch(query_text, limit, sender) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(query_text.as_bytes());
+                    hasher.update(&std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos().to_le_bytes());
+                    let query_id = hex::encode(hasher.finalize());
+
+                    println!("Initiating Federated Semantic Search. Query ID: {}", query_id);
+                    
+                    let query = proto::feedo::SemanticSearchQuery {
+                        query_id: query_id.clone(),
+                        text_query: query_text,
+                        ttl: 5, // Default TTL
+                        limit,
+                        source_type: None,
+                        originator_peer_id: local_peer_id_str.clone(),
+                    };
+                    
+                    // Keep track of this query to avoid processing our own broadcast again
+                    search_query_cache.insert(query_id.clone(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+                    active_search_requests.insert(query_id.clone(), (sender, Vec::new()));
+                    
+                    let mut encoded = Vec::new();
+                    // Let's wrap it in a custom format or just send it raw with a 1 byte prefix (0 for query, 1 for result)
+                    encoded.push(0u8);
+                    if prost::Message::encode(&query, &mut encoded).is_ok() {
+                        let _ = swarm.behaviour_mut().gossipsub.publish(semantic_search_topic.clone(), encoded);
+                    }
+                    
+                    // We need a timeout to return the results. We can do that by spawning a task that waits 3 seconds, 
+                    // then sends a special command to finish the query. Or we can just do it inline here? No, it's a loop.
+                    let cmd_tx = loop_tx.clone();
+                    let qid = query_id.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                        let _ = cmd_tx.send(SwarmCommand::FinishSemanticSearch(qid));
+                    });
                 }
 
                 SwarmCommand::FetchContent(content_hash, size, sender) => {
@@ -1405,6 +1617,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         peer_id: local_peer_id_str.clone(),
                         total_nodes: total_peers + 1,
                     });
+                }
+
+                SwarmCommand::FinishSemanticSearch(query_id) => {
+                    if let Some((sender, results)) = active_search_requests.remove(&query_id) {
+                        // Serialize results and send back
+                        let mut unique_results = results.clone();
+                        unique_results.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap_or(std::cmp::Ordering::Equal));
+                        unique_results.dedup_by(|a, b| a.hash_id == b.hash_id);
+                        
+                        let json_res = serde_json::json!({
+                            "query_id": query_id,
+                            "results": unique_results.iter().map(|r| {
+                                serde_json::json!({
+                                    "hash_id": r.hash_id,
+                                    "text": r.text,
+                                    "author": r.author,
+                                    "timestamp": r.timestamp,
+                                    "similarity_score": r.similarity_score
+                                })
+                            }).collect::<Vec<_>>()
+                        });
+                        let _ = sender.send(json_res.to_string());
+                    }
+                }
+
+                SwarmCommand::BroadcastSemanticResult(encoded) => {
+                    let _ = swarm.behaviour_mut().gossipsub.publish(semantic_search_topic.clone(), encoded);
+                }
+
+                SwarmCommand::ForwardSemanticSearch(encoded) => {
+                    let _ = swarm.behaviour_mut().gossipsub.publish(semantic_search_topic.clone(), encoded);
                 }
             },
 
@@ -1813,6 +2056,89 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         continue;
                     }
 
+                    if message.topic.as_str() == "feedo_semantic_search" {
+                        if message.data.is_empty() { continue; }
+                        let msg_type = message.data[0];
+                        let payload = &message.data[1..];
+
+                        if msg_type == 0 { // Query
+                            if let Ok(mut query) = proto::feedo::SemanticSearchQuery::decode(payload) {
+                                // Deduplication
+                                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                                if search_query_cache.contains_key(&query.query_id) {
+                                    continue;
+                                }
+                                search_query_cache.insert(query.query_id.clone(), now);
+
+                                // 1. Forward to Python internal API to get local results
+                                let cmd_tx = loop_tx.clone();
+                                let client_clone = http_client.clone();
+                                let python_url = python_webhook_url.replace("/internal/p2p_receive", "/internal/semantic/query");
+                                let peer_id_str = local_peer_id_str.clone();
+                                let query_id_clone = query.query_id.clone();
+                                let query_text = query.text_query.clone();
+                                let query_limit = query.limit;
+                                let query_originator_peer_id = query.originator_peer_id.clone();
+
+                                tokio::spawn(async move {
+                                    let req_body = serde_json::json!({
+                                        "query_id": query_id_clone,
+                                        "text": query_text,
+                                        "limit": query_limit,
+                                        "originator_peer_id": query_originator_peer_id
+                                    });
+                                    if let Ok(res) = client_clone.post(&python_url).json(&req_body).send().await {
+                                        if let Ok(json_res) = res.json::<serde_json::Value>().await {
+                                            if let Some(results_array) = json_res.get("results").and_then(|r| r.as_array()) {
+                                                let mut items = Vec::new();
+                                                for r in results_array {
+                                                    items.push(proto::feedo::SemanticSearchResultItem {
+                                                        hash_id: r.get("hash_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                                        text: r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                                        author: r.get("author").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                                        timestamp: r.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
+                                                        similarity_score: r.get("similarity_score").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                                                    });
+                                                }
+                                                if !items.is_empty() {
+                                                    let res_proto = proto::feedo::SemanticSearchResult {
+                                                        query_id: query_id_clone,
+                                                        responder_peer_id: peer_id_str,
+                                                        results: items,
+                                                    };
+                                                    let mut encoded = Vec::new();
+                                                    encoded.push(1u8); // Result
+                                                    if prost::Message::encode(&res_proto, &mut encoded).is_ok() {
+                                                        let _ = cmd_tx.send(SwarmCommand::BroadcastSemanticResult(encoded));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+
+                                // Forward the query if TTL > 0
+                                if query.ttl > 0 {
+                                    query.ttl -= 1;
+                                    let mut fwd_encoded = Vec::new();
+                                    fwd_encoded.push(0u8);
+                                    if prost::Message::encode(&query, &mut fwd_encoded).is_ok() {
+                                        let _ = loop_tx.send(SwarmCommand::ForwardSemanticSearch(fwd_encoded));
+                                    }
+                                }
+                            }
+                        } else if msg_type == 1 { // Result
+                            if let Ok(res) = proto::feedo::SemanticSearchResult::decode(payload) {
+                                if let Some((_, results)) = active_search_requests.get_mut(&res.query_id) {
+                                    for item in res.results {
+                                        results.push(item);
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
                     
                     // Try to parse as PeerAnnounce first
                     if let Ok(announce) = serde_json::from_slice::<PeerAnnounce>(&message.data) {
@@ -1943,6 +2269,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                         println!("Gossipsub: Post metadata from {}", post.author_address);
                         
+                        if post.source_type.as_deref() == Some("nostr") {
+                            if let Ok(db) = nostr_db::NostrDb::new() {
+                                let nostr_pubkey = post.author_address.replace("did:feedo:schnorr:", "");
+                                let nostr_id = post.hash_id.clone();
+                                let content = post.text_preview.clone(); // In FeedoBroadcast, text_preview holds the first 250 chars. We need the full content. Wait, FeedoBroadcast doesn't have the full text? It has content_blob_hash. Actually we should use the raw text if available, or just save what we have. Let's assume the client fetching from DHT or we just save text_preview for now. 
+                                // Actually, FeedoBroadcast text_preview might not be the full text. Wait, Nostr texts are small.
+                                let tags_str = if let Some(meta_str) = &post.metadata {
+                                    if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(meta_str) {
+                                        if let Some(tags) = meta_json.get("nostr_tags") {
+                                            serde_json::to_string(tags).unwrap_or_else(|_| "[]".to_string())
+                                        } else {
+                                            "[]".to_string()
+                                        }
+                                    } else { "[]".to_string() }
+                                } else { "[]".to_string() };
+                                
+                                let _ = db.insert_event(
+                                    &nostr_id,
+                                    &nostr_pubkey,
+                                    post.timestamp,
+                                    1, // default kind 1
+                                    &content,
+                                    &post.signature,
+                                    &tags_str
+                                );
+                                println!("Saved global Nostr event {} to local SQLite.", nostr_id);
+                            }
+                        }
+
                         let client_clone = http_client.clone();
                         let url_clone = python_webhook_url.clone();
                         let post_clone = post.clone();
@@ -1981,6 +2336,13 @@ fn is_valid_multiaddr(s: &str) -> bool {
         return has_quic;
     }
     false
+}
+
+async fn handle_balance(Path(address): Path<String>, axum::extract::Extension(ledger): axum::extract::Extension<Arc<accounting::Ledger>>) -> Json<serde_json::Value> {
+    let bal = ledger.get_balance(&address).await;
+    // WEI to MATIC conversion for the API response
+    let in_matic = (bal as f64) / 1_000_000_000_000_000_000.0;
+    Json(serde_json::json!({"balance": in_matic}))
 }
 
 // --- Peer cache for P1 ---

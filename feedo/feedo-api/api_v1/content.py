@@ -47,10 +47,29 @@ async def publish_content(req: PublishRequest, request: Request, db: AsyncSessio
     # Proxy to Rust core for PBFT
     async with httpx.AsyncClient() as client:
         try:
-            res = await client.post(RUST_CORE_URL, json=req.dict(), timeout=10.0)
+            import feedo_pb2
+            pb_req = feedo_pb2.PublishRequest()
+            pb_req.text = req.text
+            pb_req.author = req.author
+            pb_req.signature = req.signature
+            pb_req.hash_id = req.hash_id
+            pb_req.content_blob_hash = req.content_blob_hash
+            if req.title:
+                pb_req.title = req.title
+            if req.source_type:
+                pb_req.source_type = req.source_type
+            pb_req.sequence_number = req.sequence_number
+            if req.metadata_:
+                import json
+                pb_req.metadata = json.dumps(req.metadata_)
+            
+            payload_bytes = pb_req.SerializeToString()
+            
+            res = await client.post(RUST_CORE_URL, content=payload_bytes, headers={"Content-Type": "application/octet-stream"}, timeout=10.0)
             if res.status_code != 200:
                 raise HTTPException(status_code=res.status_code, detail=res.text)
-            return res.json()
+            
+            return {"status": "ok", "message": res.text}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to contact rust core: {str(e)}")
 

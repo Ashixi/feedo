@@ -1,6 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use crate::proto::feedo::{PbftMessage, PbftPhase};
 
+pub const TX_TYPE_DATA: i32 = 0;
+pub const TX_TYPE_MICRO_TX_BATCH: i32 = 1;
+pub const TX_TYPE_SLASHING: i32 = 2;
+
 #[derive(Debug)]
 pub struct PbftState {
     pub view: u64,

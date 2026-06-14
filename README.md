@@ -7,16 +7,17 @@
 <a name="feedo-protocol-en"></a>
 # Feedo Protocol (EN)
 
-Feedo is a decentralized L1 protocol and a semantic data layer (Web3 Data Grid). The system is designed to store, index, and route data using cryptographic proofs, consensus algorithms (PBFT), and AI-based vectorization technologies (Embeddings).
+Feedo is the Unified Semantic Layer for the decentralized internet (let's boldly call it Web4, haha). The core vision is for Feedo to serve as a foundational protocol and infrastructure layer where developers can build the decentralized applications (dApps) of the future. It provides a censorship-resistant, sharded P2P storage system with native AI-powered semantic search.
 
-The protocol provides the infrastructure to build decentralized applications (dApps) that require semantic understanding of content, fast routing (Kademlia DHT), and high data availability.
+To overcome the "empty network" problem and accelerate Go-To-Market, Feedo acts as a universal "global brain" that initially ingests data from fragmented networks—like Nostr and Farcaster. This strategy populates the global semantic graph with life from day one, allowing users to discover existing content by its **meaning** rather than exact keywords, and creating a fertile ground for new ecosystem projects.
 
 ## Tech Stack
 
 *   **P2P Core (Low-level core):** Rust, `libp2p` (Gossipsub, Kademlia DHT), `sled` (key-value storage).
 *   **Consensus & State:** PBFT (Practical Byzantine Fault Tolerance), CRDT (Conflict-free Replicated Data Types).
 *   **Semantic API (Application layer):** Python, `FastAPI`, `SentenceTransformers`, `LanceDB` (Vector DB), `SQLAlchemy` (SQLite).
-*   **Serialization & IPC:** Protocol Buffers (`protobuf`).
+*   **Smart Contracts (Tokenomics):** Solidity (EVM) for PBFT validator rewards and micro-transactions.
+*   **Serialization & IPC:** Protocol Buffers (`protobuf`), gRPC.
 *   **Client layer:** SDK (Python, Rust, TS), Flutter (Web/Mobile Explorer).
 
 ---
@@ -27,7 +28,8 @@ The architecture of the protocol is based on the separation of network interacti
 
 1.  **Feedo Core (Rust):** Provides network transport. Uses `libp2p` to establish connections between nodes, manage DHT routing tables, and exchange messages via Gossipsub. It also implements the PBFT consensus logic to confirm transactions and stores local state in `sled`.
 2.  **Feedo API (Python):** Acts as a semantic indexer. Content arriving from the P2P network or client applications is vectorized (converted into semantic embeddings) and stored in the `LanceDB` vector database. This enables semantic queries.
-3.  **Inter-process Communication (IPC):** Rust and Python components communicate locally using binary `protobuf` schemas (defined in `feedo.proto`), minimizing serialization overhead.
+3.  **Protocol Bridges (Ingress Nodes):** Feedo can act as a "Hybrid Node" for existing decentralized networks. We currently natively support bridging **Nostr** (WebSocket relay) and **Farcaster** (gRPC Hub). Messages from these networks are automatically translated, semantically indexed, and stored in the global Feedo DHT.
+4.  **Inter-process Communication (IPC):** Rust and Python components communicate locally using binary `protobuf` schemas (defined in `feedo.proto`), minimizing serialization overhead.
 
 ---
 
@@ -105,63 +107,21 @@ Docker is used to deploy a full-fledged node. The system automatically spins up 
 
 ### Running via Docker (Recommended)
 
-The easiest way to start a node is to use the ready-made image from Docker Hub. You don't need to clone the entire repository or install Rust/Python.
+The easiest way to start a node is to use the ready-made configurations. Depending on your goals, you can run a standard node or a hybrid node acting as a bridge.
 
-Create a `docker-compose.yml` file in an empty folder and add the full configuration:
-```yaml
-services:
-  # PostgreSQL Database for vector and relational storage
-  db:
-    image: postgres:15-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: feedo_admin
-      POSTGRES_PASSWORD: secure_password_here
-      POSTGRES_DB: feedo_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U feedo_admin -d feedo_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Main Feedo node (Rust Core + Python API)
-  feedo_node:
-    image: itsshas/feedo-node:latest
-    restart: always
-    ports:
-      - "8040:8040"      # Python API port (for client apps)
-      - "4001:4001/udp"  # QUIC/UDP port for P2P network
-    environment:
-      # Database connection
-      - DATABASE_URL=postgresql+asyncpg://feedo_admin:secure_password_here@db:5432/feedo_db
-      
-      # System wallet/account to sign messages from the node itself
-      - RSS_NODE_WALLET=your_node_wallet_public_did
-      - RSS_NODE_SECRET=your_node_secret_seed_phrase
-      
-      # Internal references (IPC between Rust and Python)
-      - RUST_CORE_URL=http://127.0.0.1:8041/local/publish
-      - PYTHON_API_URL=http://127.0.0.1:8040
-      
-      # Kademlia DHT and Sled configurations
-      - DHT_DB_PATH=/app/db/rust_store
-      - DHT_RAM_CACHE_LIMIT=1000
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - rust_db_data:/app/db
-
-volumes:
-  postgres_data:
-  rust_db_data:
-```
-
-Then start the node with a single command:
+To run a standard node:
 ```bash
 docker-compose up -d
+```
+
+To run a **Nostr Hybrid Node** (bridging Nostr relays to Feedo):
+```bash
+docker-compose -f docker-compose.nostr.yml up -d
+```
+
+To run a **Farcaster Hybrid Node** (bridging Farcaster Hubs to Feedo):
+```bash
+docker-compose -f docker-compose.farcaster.yml up -d
 ```
 
 ### Local Build (For Developers)
@@ -180,7 +140,7 @@ docker-compose up --build
 ### Initialization
 
 After starting, the node automatically:
-1.  Generates a new ED25519 key pair if missing.
+1.  Generates a new ED25519 key pair if missing (however, it is highly recommended to generate your own keys using the 'feedo/generate_keys.py' script and save them to your '.env' file).
 2.  Opens a TCP/UDP (QUIC) port for `libp2p`.
 3.  Loads `Kademlia` bootstrap addresses.
 4.  Creates local directories for the `sled` database and `LanceDB`.
@@ -195,8 +155,8 @@ The protocol uses a distributed hash table to search for content by its `hash_id
 ### 2. Synchronization (Anti-Entropy)
 An anti-entropy protocol is used to ensure data consistency. Nodes periodically exchange Merkle Trees of their local databases. When discrepancies are detected, it initiates the downloading of missing blocks (DAG Sync).
 
-### 3. Consensus (PBFT)
-Practical Byzantine Fault Tolerance is used for operations requiring strict ordering and finalization (DID registration, balance transfers, CRDT rights changes). Validator nodes pass through `Pre-Prepare`, `Prepare`, and `Commit` phases, forming a cryptographic proof of transaction completion.
+### 3. Consensus & Tokenomics (PBFT)
+Practical Byzantine Fault Tolerance is used for operations requiring strict ordering and finalization (DID registration, balance transfers, CRDT rights changes). Validator nodes pass through `Pre-Prepare`, `Prepare`, and `Commit` phases, forming a cryptographic proof of transaction completion. Validators are rewarded via an EVM-based smart contract mechanism (`FeedoPayment.sol`), supporting micro-transactions and automatic claiming using Merkle Roots.
 
 <br>
 <br>
@@ -206,16 +166,17 @@ Practical Byzantine Fault Tolerance is used for operations requiring strict orde
 <a name="feedo-protocol-uk"></a>
 # Feedo Protocol (UK)
 
-Feedo є децентралізованим L1-протоколом та семантичним шаром даних (Web3 Data Grid). Система призначена для зберігання, індексування та маршрутизації даних з використанням криптографічних доказів, алгоритмів консенсусу (PBFT) та технологій векторизації (Embeddings) на базі штучного інтелекту.
+Feedo — це Універсальний Семантичний Шар для децентралізованого інтернету (нехай це буде Web4, хаха). Головна ідея — створення фундаментального протоколу та базової інфраструктури, на якій розробники будуть будувати нові додатки (dApps) майбутнього. Це нативний базовий шар даних зі стійкою до цензури P2P-мережею та AI-пошуком за сенсом.
 
-Протокол забезпечує інфраструктуру для створення децентралізованих додатків (dApps), які потребують семантичного розуміння контенту, швидкої маршрутизації (Kademlia DHT) та високого рівня доступності даних (Data Availability).
+Але щоб подолати проблему "порожньої мережі" і швидко вийти на ринок (Go-To-Market), Feedo на початковому етапі "заковтує" дані з уже існуючих розрізнених мереж (Nostr, Farcaster). Це наповнює глобальний граф життям з першого ж дня, дозволяє знаходити контент за його **сенсом** і створює ідеальний ґрунт для нових проектів.
 
 ## Технологічний Стек
 
 *   **P2P Core (Низькорівневе ядро):** Rust, `libp2p` (Gossipsub, Kademlia DHT), `sled` (key-value storage).
 *   **Консенсус та Стан:** PBFT (Practical Byzantine Fault Tolerance), CRDT (Conflict-free Replicated Data Types).
 *   **Semantic API (Прикладний рівень):** Python, `FastAPI`, `SentenceTransformers`, `LanceDB` (Vector DB), `SQLAlchemy` (SQLite).
-*   **Серіалізація та IPC:** Protocol Buffers (`protobuf`).
+*   **Смарт-Контракти (Токеноміка):** Solidity (EVM) для виплат PBFT-валідаторам та мікротранзакцій.
+*   **Серіалізація та IPC:** Protocol Buffers (`protobuf`), gRPC.
 *   **Клієнтський рівень:** SDK (Python, Rust, TS), Flutter (Web/Mobile Explorer).
 
 ---
@@ -226,7 +187,8 @@ Feedo є децентралізованим L1-протоколом та сем�
 
 1.  **Feedo Core (Rust):** Забезпечує мережевий транспорт. Використовує `libp2p` для встановлення з'єднань між нодами, управління DHT-таблицями маршрутизації та обміну повідомленнями через Gossipsub. Також реалізує логіку консенсусу PBFT для підтвердження транзакцій та зберігає локальний стан у `sled`.
 2.  **Feedo API (Python):** Виконує роль семантичного індексатора. Контент, який надходить з P2P-мережі або від клієнтських додатків, векторизується (перетворюється у семантичні ембеддінги) та зберігається у векторній базі даних `LanceDB`. Це забезпечує можливість виконання семантичних запитів.
-3.  **Міжпроцесна взаємодія (IPC):** Компоненти на Rust та Python комунікують локально з використанням бінарних `protobuf`-схем (визначених у `feedo.proto`), що мінімізує оверхед на серіалізацію.
+3.  **Протокольні Мости (Гібридні Ноди):** Feedo може працювати як "гібридна нода" для існуючих децентралізованих мереж. Ми вже нативно підтримуємо мости для **Nostr** (через WebSocket Relay) та **Farcaster** (через gRPC Hub). Повідомлення з цих мереж автоматично транслюються, семантично індексуються і зберігаються у глобальній мережі Feedo.
+4.  **Міжпроцесна взаємодія (IPC):** Компоненти на Rust та Python комунікують локально з використанням бінарних `protobuf`-схем (визначених у `feedo.proto`), що мінімізує оверхед на серіалізацію.
 
 ---
 
@@ -304,63 +266,21 @@ Feedo є децентралізованим L1-протоколом та сем�
 
 ### Запуск через Docker (Рекомендовано)
 
-Найпростіший спосіб запустити ноду — використати готовий образ з Docker Hub. Тобі не потрібно клонувати весь репозиторій або встановлювати Rust/Python.
+Найпростіший спосіб запустити ноду — використати готові конфігурації. В залежності від ваших цілей, ви можете підняти стандартну ноду, або гібридну ноду-міст.
 
-Створи файл `docker-compose.yml` у пустій папці та додай повну конфігурацію:
-```yaml
-services:
-  # База даних PostgreSQL для векторного та реляційного зберігання
-  db:
-    image: postgres:15-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: feedo_admin
-      POSTGRES_PASSWORD: secure_password_here
-      POSTGRES_DB: feedo_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U feedo_admin -d feedo_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Головна нода Feedo (Rust Core + Python API)
-  feedo_node:
-    image: itsshas/feedo-node:latest
-    restart: always
-    ports:
-      - "8040:8040"      # Python API порт (для клієнтських додатків)
-      - "4001:4001/udp"  # QUIC/UDP порт для P2P мережі
-    environment:
-      # Зв'язок з базою даних
-      - DATABASE_URL=postgresql+asyncpg://feedo_admin:secure_password_here@db:5432/feedo_db
-      
-      # Системний гаманець/акаунт для підпису повідомлень від самої ноди
-      - RSS_NODE_WALLET=your_node_wallet_public_did
-      - RSS_NODE_SECRET=your_node_secret_seed_phrase
-      
-      # Внутрішні посилання (IPC між Rust та Python)
-      - RUST_CORE_URL=http://127.0.0.1:8041/local/publish
-      - PYTHON_API_URL=http://127.0.0.1:8040
-      
-      # Налаштування Kademlia DHT та Sled
-      - DHT_DB_PATH=/app/db/rust_store
-      - DHT_RAM_CACHE_LIMIT=1000
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - rust_db_data:/app/db
-
-volumes:
-  postgres_data:
-  rust_db_data:
-```
-
-Потім запусти ноду однією командою:
+Для запуску стандартної ноди:
 ```bash
 docker-compose up -d
+```
+
+Для запуску **Гібридної Ноди Nostr** (яка транслює дані з Nostr у Feedo):
+```bash
+docker-compose -f docker-compose.nostr.yml up -d
+```
+
+Для запуску **Гібридної Ноди Farcaster** (яка транслює дані з Farcaster у Feedo):
+```bash
+docker-compose -f docker-compose.farcaster.yml up -d
 ```
 
 ### Локальна збірка (Для розробників)
@@ -379,11 +299,10 @@ docker-compose up --build
 ### Ініціалізація
 
 Після запуску нода автоматично:
-1.  Генерує нову пару ключів ED25519, якщо вона відсутня.
+1.  Генерує нову пару ключів ED25519, якщо вона відсутня (проте, наполегливо рекомендується генерувати власні ключі за допомогою скрипта 'feedo/generate_keys.py' та зберігати їх у '.env' файлі).
 2.  Відкриває порт TCP/UDP (QUIC) для `libp2p`.
 3.  Завантажує `Kademlia` bootstrap-адреси.
 4.  Створює локальні директорії для `sled` бази та `LanceDB`.
-
 
 ---
 
@@ -395,5 +314,5 @@ docker-compose up --build
 ### 2. Синхронізація (Anti-Entropy)
 Для забезпечення узгодженості даних використовується протокол анти-ентропії. Ноди періодично обмінюються деревами Меркла (Merkle Trees) своїх локальних баз. При виявленні розбіжностей ініціюється довантаження відсутніх блоків (DAG Sync).
 
-### 3. Консенсус (PBFT)
-Для операцій, що потребують суворого порядку та фіналізації (реєстрація DID, переказ балансів, зміна CRDT-прав), використовується Practical Byzantine Fault Tolerance. Ноди-валідатори проходять фази `Pre-Prepare`, `Prepare` та `Commit`, формуючи криптографічний доказ завершення транзакції.
+### 3. Консенсус та Токеноміка (PBFT)
+Для операцій, що потребують суворого порядку та фіналізації (реєстрація DID, переказ балансів, зміна CRDT-прав), використовується Practical Byzantine Fault Tolerance. Ноди-валідатори проходять фази `Pre-Prepare`, `Prepare` та `Commit`, формуючи криптографічний доказ завершення транзакції. Винагорода валідаторам виплачується через механізм смарт-контрактів (`FeedoPayment.sol`), що підтримує мікротранзакції та автовиплати на основі дерев Меркла.

@@ -18,7 +18,6 @@ class FeedoMap:
             if resp.status_code == 200:
                 data = resp.json()
                 if "entries" in data:
-                    # Flatten the entries into a simple map for the developer
                     return {k: v["value"] for k, v in data["entries"].items() if not v.get("is_deleted", False)}
                 return data
             return {}

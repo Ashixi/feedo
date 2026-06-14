@@ -26,7 +26,6 @@ class LANDiscovery:
     async def start(self):
         loop = asyncio.get_running_loop()
         self._running = True
-        # Start listener
         listen = loop.create_datagram_endpoint(
             lambda: _UDPListener(self._handle_message),
             local_addr=("0.0.0.0", self.port),

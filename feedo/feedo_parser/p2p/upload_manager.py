@@ -43,7 +43,6 @@ class UploadManager:
                 p = os.path.join(self.tmp_dir, f"{upload_id}.chunk.{i}")
                 with open(p, 'rb') as cf:
                     out.write(cf.read())
-        # cleanup
         try:
             os.remove(meta_path)
             for i in chunks:

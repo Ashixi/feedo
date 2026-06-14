@@ -29,6 +29,8 @@ enum TxType {
   DID_REGISTRATION = 1;
   NAME_REGISTRATION = 2;
   CRDT_OPERATION = 3;
+  SEMANTIC_SEARCH_QUERY = 4;
+  SEMANTIC_SEARCH_RESULT = 5;
 }
 
 message PbftMessage {
@@ -113,4 +115,27 @@ message CrdtOperation {
   // For AW-OR-Set (Merkle-CRDT semantics)
   optional string vector_tag = 9; // Unique tag generated on "add" (e.g. UUID or hash)
   repeated string remove_tags = 10; // List of tags observed and removed during "remove"
+}
+
+message SemanticSearchQuery {
+  string query_id = 1;
+  string text_query = 2;
+  uint32 ttl = 3;
+  uint32 limit = 4;
+  optional string source_type = 5;
+  string originator_peer_id = 6;
+}
+
+message SemanticSearchResultItem {
+  string hash_id = 1;
+  string text = 2;
+  string author = 3;
+  uint64 timestamp = 4;
+  float similarity_score = 5;
+}
+
+message SemanticSearchResult {
+  string query_id = 1;
+  string responder_peer_id = 2;
+  repeated SemanticSearchResultItem results = 3;
 }

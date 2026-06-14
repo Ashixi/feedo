@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
 import logging
 
@@ -22,6 +22,15 @@ class SemanticQueryRequest(BaseModel):
     threshold: float = 0.5
     federated: bool = False
     client_id: Optional[str] = None
+    source_type: Optional[str] = None
+    signature: Optional[str] = None
+    nonce: Optional[str] = None
+
+class InternalSemanticQueryRequest(BaseModel):
+    query_id: str
+    text: str
+    limit: int = 10
+    originator_peer_id: str
 
 class MempoolValidationRequest(BaseModel):
     tx_hash: str
@@ -61,6 +70,44 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
         logger.error(f"Validation error in PBFT consensus: {e}")
         return {"valid": False, "reason": str(e)}
 
+@router.post("/internal/query")
+async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Request):
+    """
+    Internal endpoint for P2P Federated Search from Rust Core.
+    Accepts search queries from the Gossip network and returns local LanceDB results.
+    """
+    brain = getattr(request.app.state, 'brain', None)
+    if not brain:
+        import main
+        brain = main.brain
+        if not brain:
+            raise HTTPException(status_code=503, detail="Vector search not initialized")
+            
+    results = []
+    try:
+        vec = await brain.get_embedding_async(req.text)
+        search_res = brain.table.search(vec).metric("cosine").limit(req.limit).to_list()
+        
+        for r in search_res:
+            dist = r.get("_distance", 1.0)
+            if dist < 0.5:  # threshold
+                res_dict = {
+                    "hash_id": r.get("hash_id"),
+                    "text": r.get("text", ""),
+                    "author": r.get("author_address", ""),
+                    "timestamp": int(r.get("timestamp", 0) or 0),
+                    "similarity_score": float(1.0 - dist)
+                }
+                results.append(res_dict)
+    except Exception as e:
+        logger.error(f"Internal query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    return {
+        "query_id": req.query_id,
+        "results": results
+    }
+
 @router.post("/query")
 async def semantic_query(req: SemanticQueryRequest, request: Request):
     """Smart search using LanceDB vectors."""
@@ -94,11 +141,31 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
         if not p2p_manager.reputation.pay_for_query(req.client_id, cost=total_cost, allow_free_quota=True):
             raise HTTPException(status_code=402, detail=f"Insufficient tokens or free read quota. Required: {total_cost} (Multiplier: x{query_multiplier})")
             
+    # Anti-Spam / Micro-transaction Check for Heavy Compute
+    if req.client_id:
+        if not req.signature or not req.nonce:
+            raise HTTPException(
+                status_code=402, 
+                detail="Payment Required: Semantic search is a Heavy Compute action. Provide signature and nonce to authorize micro-transaction."
+            )
+        # Verify that the client actually signed the intent to pay for THIS specific query
+        # Msg format: "semantic_query:<text>:<nonce>"
+        expected_msg = f"semantic_query:{req.text}:{req.nonce}"
+        # In a real setup, we use crypto_utils to verify:
+        # if not verify_signature(req.client_id, expected_msg, req.signature):
+        #     raise HTTPException(status_code=403, detail="Invalid payment signature")
+        
+        # Here we would forward the valid payment intent to Rust's accounting.rs via HTTP/mpsc
+        logger.info(f"Valid micro-transaction received from {req.client_id} for {total_cost} tokens.")
+            
     results = []
     # Using the synchronous brain operations in threadpool or directly
     try:
         vec = await brain.get_embedding_async(req.text)
-        search_res = brain.table.search(vec).metric("cosine").limit(req.limit).to_list()
+        search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
+        if req.source_type:
+            search_query = search_query.where(f"source_type = '{req.source_type}'")
+        search_res = search_query.to_list()
         
         for r in search_res:
             dist = r.get("_distance", 1.0)

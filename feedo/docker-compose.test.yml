@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: test_admin
+      POSTGRES_PASSWORD: test_password_123
+      POSTGRES_DB: feedo_test_db
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_admin -d feedo_test_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  feedo_node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "18040:8040"
+      - "4001:4001/udp"
+    environment:
+      - POSTGRES_USER=test_admin
+      - POSTGRES_PASSWORD=test_password_123
+      - POSTGRES_DB=feedo_test_db
+      - DATABASE_URL=postgresql+asyncpg://test_admin:test_password_123@db:5432/feedo_test_db
+      - RSS_NODE_SECRET=1111111111111111111111111111111111111111111111111111111111111111
+      - RSS_NODE_WALLET=test_wallet_0x123
+      - RUST_CORE_URL=http://127.0.0.1:8041/local/publish
+      - PYTHON_API_URL=http://127.0.0.1:8040
+      - POLYGON_RPC_URL=https://polygon-rpc.com
+      - NODE_WALLET_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - IS_SUPERNODE=true
+      # For test, we will ignore strict P2P
+      - BOOTSTRAP_NODES=
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - rust_db_test_data:/app/db
+
+volumes:
+  postgres_test_data:
+  rust_db_test_data:

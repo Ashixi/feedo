@@ -7,11 +7,7 @@ DEFAULT_PORT = 10000
 
 
 class GossipSub:
-    """Very small 'gossipsub' over UDP broadcast for peer announce messages.
 
-    Peers send topic messages as JSON: {"topic": "announce", "peer_id":..., "payload": {...}}
-    Listeners receive and can act on them.
-    """
 
     def __init__(self, peer_id: str, port: int = DEFAULT_PORT, on_message: Callable[[dict], None] = None):
         self.peer_id = peer_id
