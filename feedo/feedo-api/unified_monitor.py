@@ -31,9 +31,10 @@ RSS_NODE_WALLET = os.getenv("RSS_NODE_WALLET", "feedo_system_node_wallet_address
 GLOBAL_REGISTRY_URL = "https://raw.githubusercontent.com/Ashixi/feedo-sources/825d8d28815a12ab61a347aa7893773949f3ca0c/analyzed_sources.json"
 
 SOURCES = [
-    RSSSource(),
-    HNSource(),
-    NostrSource()
+    # Uncomment the sources below if you want to run a dedicated parsing node
+    # RSSSource(),
+    # HNSource(),
+    # NostrSource()
 ]
 
 
