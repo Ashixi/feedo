@@ -34,9 +34,7 @@ async def get_node_health(request: Request, db: AsyncSession = Depends(get_db)):
         health["database"] = "error"
         
     # P2P Check
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p:
-        health["p2p"] = "ok"
+    health["p2p"] = "managed_by_rust_core"
         
     # Vector DB Check
     brain = getattr(request.app.state, 'brain', None)
@@ -60,10 +58,7 @@ async def get_node_metrics(request: Request, db: AsyncSession = Depends(get_db))
     
     total_posts = await db.scalar(select(func.count(Post.id)))
     
-    p2p_peers = 0
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p and hasattr(p2p, "peer_registry"):
-        p2p_peers = len(p2p.peer_registry.peers)
+    p2p_peers = 0 # TODO: Fetch from Rust core
         
     return {
         "cpu_percent": cpu_usage,
@@ -75,20 +70,8 @@ async def get_node_metrics(request: Request, db: AsyncSession = Depends(get_db))
 @router.get("/peers")
 async def get_peers(request: Request):
     """List all connected gossipsub peers."""
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if not p2p or not hasattr(p2p, "peer_registry"):
-        return {"peers": []}
-        
-    peers_info = []
-    for peer_id, info in p2p.peer_registry.peers.items():
-        peers_info.append({
-            "peer_id": peer_id,
-            "pubkey": info.get("pubkey"),
-            "last_seen": info.get("last_seen"),
-            "is_supernode": info.get("is_supernode", False)
-        })
-        
-    return {"peers": peers_info}
+    # TODO: Fetch from Rust core via HTTP
+    return {"peers": []}
 
 @router.post("/commercial/api_key")
 async def create_commercial_key(req: CreateCommercialKeyRequest, db: AsyncSession = Depends(get_db)):

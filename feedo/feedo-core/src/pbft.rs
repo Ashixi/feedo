@@ -79,6 +79,8 @@ pub struct PbftManager {
     pub states: HashMap<String, PbftState>,
     pub view: u64,
     pub node_id: String,
+    pub secret_key: Option<secp256k1::SecretKey>,
+    pub secp: secp256k1::Secp256k1<secp256k1::All>,
 }
 
 impl PbftManager {
@@ -87,6 +89,27 @@ impl PbftManager {
             states: HashMap::new(),
             view: 0,
             node_id,
+            secret_key: None,
+            secp: secp256k1::Secp256k1::new(),
+        }
+    }
+
+    pub fn set_secret_key(&mut self, hex_key: &str) {
+        if let Ok(decoded) = hex::decode(hex_key.trim_start_matches("0x")) {
+            if let Ok(sk) = secp256k1::SecretKey::from_slice(&decoded) {
+                self.secret_key = Some(sk);
+            }
+        }
+    }
+
+    fn generate_signature(&self, tx_hash: &str, sequence: u64, phase: i32) -> String {
+        if let Some(sk) = &self.secret_key {
+            let payload = format!("{}:{}:{}", tx_hash, sequence, phase);
+            let message = secp256k1::Message::from_hashed_data::<secp256k1::hashes::sha256::Hash>(payload.as_bytes());
+            let sig = self.secp.sign_ecdsa(&message, sk);
+            hex::encode(sig.serialize_compact())
+        } else {
+            "sig_placeholder".to_string()
         }
     }
 
@@ -97,9 +120,9 @@ impl PbftManager {
             phase: PbftPhase::PrePrepare as i32,
             view: self.view,
             sequence,
-            tx_hash,
+            tx_hash: tx_hash.clone(),
             sender: self.node_id.clone(),
-            signature: "sig_placeholder".to_string(), 
+            signature: self.generate_signature(&tx_hash, sequence, PbftPhase::PrePrepare as i32),
             tx_type,
         }
     }
@@ -116,7 +139,7 @@ impl PbftManager {
                 sequence: state.sequence,
                 tx_hash: state.tx_hash.clone(),
                 sender: self.node_id.clone(),
-                signature: "sig_placeholder".to_string(),
+                signature: self.generate_signature(&state.tx_hash, state.sequence, new_phase as i32),
                 tx_type: state.tx_type,
             });
         }
@@ -135,7 +158,7 @@ impl PbftManager {
                 sequence: state.sequence,
                 tx_hash: state.tx_hash.clone(),
                 sender: self.node_id.clone(),
-                signature: "sig_placeholder".to_string(),
+                signature: self.generate_signature(&state.tx_hash, state.sequence, new_phase as i32),
                 tx_type: state.tx_type,
             });
         }

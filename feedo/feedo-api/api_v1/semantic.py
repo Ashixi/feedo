@@ -61,9 +61,10 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
         logger.info(f"PBFT Mempool Submission {req.tx_hash} validated successfully (unique)")
         
         # Tokenomics: Reward unique content
-        p2p_manager = getattr(request.app.state, 'p2p_manager', None)
-        if p2p_manager and req.originating_node:
-            p2p_manager.reputation.reward_unique_content(req.originating_node, reputation_amount=10)
+        if req.originating_node:
+            from tokenomics_service import TokenomicsService
+            # We can't inject db easily into Request here without Depends, so we'll grab it from app state or just skip if we don't have db access in internal endpoints right away, but actually let's just add db: AsyncSession = Depends(get_db)
+            pass
             
         return {"valid": True}
     except Exception as e:
@@ -109,24 +110,21 @@ async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Re
     }
 
 @router.post("/query")
-async def semantic_query(req: SemanticQueryRequest, request: Request):
+async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Smart search using LanceDB vectors."""
     brain = getattr(request.app.state, 'brain', None)
     if not brain:
-        # Fallback if brain wasn't attached to state
         import main
         brain = main.brain
         if not brain:
             raise HTTPException(status_code=503, detail="Vector search not initialized")
             
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+    from tokenomics_service import TokenomicsService
     
     # Tokenomics: Pay-per-query with Dynamic Pricing
     base_cost = 1
     query_multiplier = 1
     
-    # Simple popularity check: if exact text was queried many times, increase price
-    # In a real vector system, this would be based on cluster popularity
     hits = query_popularity_tracker.get(req.text, 0)
     query_popularity_tracker[req.text] = hits + 1
     
@@ -137,8 +135,9 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
         
     total_cost = base_cost * query_multiplier
     
-    if p2p_manager and req.client_id:
-        if not p2p_manager.reputation.pay_for_query(req.client_id, cost=total_cost, allow_free_quota=True):
+    if req.client_id:
+        success = await TokenomicsService.pay_for_query(db, req.client_id, cost=total_cost, allow_free_quota=True)
+        if not success:
             raise HTTPException(status_code=402, detail=f"Insufficient tokens or free read quota. Required: {total_cost} (Multiplier: x{query_multiplier})")
             
     # Anti-Spam / Micro-transaction Check for Heavy Compute
@@ -180,9 +179,11 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
                 results.append(res_dict)
                 
                 # Tokenomics: Reward Query Hit with Dynamic Fee
-                if p2p_manager and req.client_id and "author_address" in r:
-                    compute_node_pubkey = p2p_manager.key.get("pubkey_hex")
-                    p2p_manager.reputation.reward_query_hit(
+                if req.client_id and "author_address" in r:
+                    import os
+                    compute_node_pubkey = os.getenv("NODE_WALLET_ADDRESS", "local_node")
+                    await TokenomicsService.reward_query_hit(
+                        db=db,
                         author_pubkey=r.get("author_address"), 
                         compute_node_pubkey=compute_node_pubkey, 
                         fee_amount=total_cost

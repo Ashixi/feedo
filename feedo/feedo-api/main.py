@@ -41,8 +41,6 @@ from models import Post, User, ContentType, UserKey, ApiKeyRole, Edge
 from feedo_parser.vector_brain import VectorBrain
 from feedo_parser.crypto_utils import verify_signature, generate_content_hash
 from feedo_parser.content_sources.text_utils import sanitize_for_storage
-from feedo_parser.p2p import P2PManager
-from feedo_parser.p2p.upload_manager import UploadManager
 from unified_monitor import monitor_all, run_monitor_process
 import threading
 from admin import router as admin_router
@@ -317,16 +315,8 @@ async def lifespan(app: FastAPI):
     try:
         BOOTSTRAP_NODES_RAW = os.getenv("BOOTSTRAP_NODES", "")
         BOOTSTRAP_NODES = [s.strip() for s in BOOTSTRAP_NODES_RAW.split(",") if s.strip()]
-        p2p_manager = P2PManager(bootstrap_nodes=BOOTSTRAP_NODES)
-        try:
-            app.state.p2p_manager = p2p_manager
-        except Exception:
-            pass
-        app.state._p2p_upload_manager = UploadManager(os.getenv('FEEDO_UPLOAD_TMP', './.p2p_uploads'))
-        asyncio.create_task(p2p_manager.start())
     except Exception as e:
-        logger.warning(f"Failed to start P2P manager: {e}")
-        
+        pass
     app.state.brain = brain
     
     yield
@@ -343,12 +333,6 @@ async def lifespan(app: FastAPI):
         brain.executor.shutdown(wait=False)
     await engine.dispose()
 
-    try:
-        pm = getattr(app.state, 'p2p_manager', None)
-        if pm is not None:
-            await pm.stop()
-    except Exception:
-        pass
 
 app = FastAPI(title="Feedo P2P Gateway", lifespan=lifespan)
 
@@ -366,189 +350,6 @@ app.add_middleware(
 
 from pydantic import BaseModel
 
-class RegisterPeerRequest(BaseModel):
-    peer_id: str
-    pubkey_hex: str
-    is_supernode: bool = False
-
-@app.post("/internal/p2p/register_peer")
-async def register_peer(req: RegisterPeerRequest):
-    """Endpoint for peers to register their public keys."""
-    p2p = getattr(app.state, 'p2p_manager', None)
-    if p2p is None:
-        raise HTTPException(status_code=503, detail="P2P not available")
-    
-    p2p.peer_registry.register(req.peer_id, req.pubkey_hex, is_supernode=req.is_supernode)
-    return {"status": "ok"}
-
-class IngestGlobalMapRequest(BaseModel):
-    peer_id: str
-    cluster_ids: list[str]
-    centroids: list[list[float]]
-
-@app.post("/internal/ingest_global_map")
-async def ingest_global_map(req: IngestGlobalMapRequest):
-    """Called by Rust core when it receives Global Knowledge Map via Gossipsub."""
-    if not brain:
-        raise HTTPException(status_code=503, detail="Brain not initialized")
-        
-    try:
-        brain.update_global_map(req.peer_id, req.centroids, req.cluster_ids)
-        logger.info(f"🌍 Global Knowledge Map оновлено центроїдами від {req.peer_id}")
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error(f"Error ingesting global map: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/internal/p2p/receive_shard")
-async def receive_shard(request: Request):
-    """Endpoint for receiving a shard push from another peer.
-
-    Expects JSON: {shard_id: str, data?: ..., origin_peer_id?: str, ts?: float, hmac: str}
-    Auth: HMAC using shared secret `FEEDO_P2P_SHARED_SECRET` over stringified shard_id+ts+origin
-    Basic rate limiting and size checks applied.
-    """
-    p2p = getattr(app.state, 'p2p_manager', None)
-    if p2p is None:
-        raise HTTPException(status_code=503, detail="P2P not available")
-
-    content_type = request.headers.get('content-type', '')
-    shard_id = None
-    origin = None
-    ts = None
-    signature = None
-    file_bytes = None
-    metadata = None
-
-    if content_type.startswith('multipart/'):
-        form = await request.form()
-        meta_raw = form.get('metadata')
-        if meta_raw:
-            try:
-                metadata = _json.loads(meta_raw)
-            except Exception:
-                metadata = None
-        file_field = form.get('file')
-        if file_field is not None:
-            file_bytes = await file_field.read()
-    elif content_type.startswith('application/octet-stream'):
-        meta_header = request.headers.get('X-P2P-META')
-        if meta_header:
-            try:
-                metadata = _json.loads(meta_header)
-            except Exception:
-                metadata = None
-        file_bytes = await request.body()
-    else:
-        body = await request.json()
-        metadata = body
-
-    if metadata:
-        shard_id = metadata.get('shard_id')
-        origin = metadata.get('origin_peer_id') or metadata.get('origin')
-        ts = str(metadata.get('ts') or request.headers.get('X-P2P-TS') or '')
-        signature = metadata.get('signature')
-        provided_checksum = metadata.get('checksum')
-        size = int(metadata.get('size') or (len(file_bytes) if file_bytes else 0))
-    else:
-        raise HTTPException(status_code=400, detail='missing metadata')
-
-    hmac_header = request.headers.get('X-P2P-HMAC') or metadata.get('hmac')
-    if not shard_id or (not hmac_header and not signature):
-        raise HTTPException(status_code=400, detail='missing shard_id, hmac, or signature')
-
-    rl = getattr(app.state, '_p2p_receive_rl', {})
-    now = time.time()
-    window = 60
-    key = origin or request.client.host
-    rec = rl.get(key, [])
-    rec = [t for t in rec if now - t < window]
-    if len(rec) > 30:
-        raise HTTPException(status_code=429, detail='rate limit')
-    rec.append(now)
-    rl[key] = rec
-    app.state._p2p_receive_rl = rl
-
-    shared = os.getenv('FEEDO_P2P_SHARED_SECRET', '')
-    from feedo_parser.p2p.security import verify_hmac
-    msg = f"{shard_id}:{provided_checksum or ''}:{size}:{ts or ''}:{origin or ''}"
-    try:
-        ts_val = int(ts) if ts and ts.isdigit() else int(now)
-    except Exception:
-        ts_val = int(now)
-
-    try:
-        if p2p.replay_cache.seen(origin or request.client.host, metadata.get('nonce') or ts, float(ts_val)):
-            raise HTTPException(status_code=403, detail='replay detected')
-    except Exception:
-        pass
-
-    sig_ok = False
-    if origin:
-        pub = p2p.peer_registry.get_pubkey(origin)
-        if pub:
-            from feedo_parser.p2p.security import verify_ed25519
-            try:
-                raw = msg.encode('utf-8')
-                sig = metadata.get('signature') or ''
-                if verify_ed25519(pub, raw, sig):
-                    sig_ok = True
-            except Exception:
-                sig_ok = False
-
-    if not sig_ok:
-        from feedo_parser.p2p.security import verify_hmac
-        if not hmac_header or not shared or not verify_hmac(shared, msg, hmac_header):
-            raise HTTPException(status_code=403, detail='invalid signature')
-    # Validate size limit
-    max_size = int(os.getenv('FEEDO_SHARD_MAX_SIZE', str(50 * 1024 * 1024)))  # default 50 MB
-    if size > max_size:
-        raise HTTPException(status_code=413, detail='shard too large')
-
-    # Must have file bytes for full push
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail='missing file bytes for shard push')
-
-    # Verify checksum
-    import hashlib
-    actual_checksum = hashlib.sha256(file_bytes).hexdigest()
-    if provided_checksum and provided_checksum != actual_checksum:
-        raise HTTPException(status_code=400, detail='checksum mismatch')
-
-    # Check existing
-    try:
-        exists_same = p2p.content_store.has_file(shard_id) and p2p.content_store.get_file_path(shard_id) and hashlib.sha256(open(p2p.content_store.get_file_path(shard_id),'rb').read()).hexdigest() == actual_checksum
-    except Exception:
-        exists_same = False
-
-    if exists_same:
-        return {"status": "ok", "peer_id": p2p.peer_id, "shard_id": shard_id, "checksum": actual_checksum}
-
-    # If exists with different checksum -> conflict
-    if p2p.content_store.has_file(shard_id) and not exists_same:
-        raise HTTPException(status_code=409, detail='conflict: shard exists with different checksum')
-
-    # Atomic write
-    try:
-        stored_path = p2p.content_store.save_binary_atomic(shard_id, file_bytes)
-    except Exception as e:
-        logger.exception('Failed to persist shard bytes: %s', e)
-        raise HTTPException(status_code=500, detail='failed to persist binary')
-
-    # Record replica after success
-    try:
-        p2p.replication.metadata.note_replica(shard_id, p2p.peer_id)
-        p2p.content_store.add_item(shard_id, metadata or {}, origin=origin, last_modified=float(ts) if ts else now)
-        if origin and hasattr(p2p, "reputation"):
-            pubkey = p2p.peer_registry.get_pubkey(origin)
-            if pubkey:
-                p2p.reputation.reward_peer(pubkey, 1)
-    except Exception as e:
-        logger.exception('Failed to record replication metadata: %s', e)
-
-    return {"status": "ok", "peer_id": p2p.peer_id, "shard_id": shard_id, "checksum": actual_checksum}
- 
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
@@ -928,7 +729,6 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
             from models import CreditTransaction
             tx_hash = hashlib.sha256(f"POUW:{new_post.hash_id}:{author_address}".encode()).hexdigest()
             
-            p2p = getattr(app.state, 'p2p_manager', None)
             if p2p:
                 payload = {
                     "type": "pbft_propose",
@@ -1216,7 +1016,6 @@ async def vector_query(req: VectorQueryRequest, request: Request, api_key = Depe
         raise HTTPException(status_code=403, detail="Vector API not exposed")
         
     pubkey = request.headers.get("X-P2P-Pubkey")
-    p2p = getattr(request.app.state, 'p2p_manager', None)
     if pubkey and p2p and hasattr(p2p, "reputation"):
         p2p.reputation.charge_peer(pubkey, req.k)
         p2p.reputation.can_afford(pubkey, req.k)
@@ -1259,7 +1058,6 @@ async def vector_batch_query(req: BatchVectorQueryRequest, request: Request, api
         raise HTTPException(status_code=403, detail="Batch query not allowed for anonymous users")
         
     pubkey = request.headers.get("X-P2P-Pubkey")
-    p2p = getattr(request.app.state, 'p2p_manager', None)
     if pubkey and p2p and hasattr(p2p, "reputation"):
         p2p.reputation.charge_peer(pubkey, len(req.vectors) * req.k)
         p2p.reputation.can_afford(pubkey, len(req.vectors) * req.k)
@@ -1296,7 +1094,6 @@ async def vector_by_post(hash_id: str, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=403, detail="Vector API not exposed")
         
     pubkey = request.headers.get("X-P2P-Pubkey")
-    p2p = getattr(request.app.state, 'p2p_manager', None)
     if pubkey and p2p and hasattr(p2p, "reputation"):
         p2p.reputation.charge_peer(pubkey, 1)
         p2p.reputation.can_afford(pubkey, 1)
@@ -1327,7 +1124,6 @@ async def vector_recent(request: Request, since: float = 0.0, limit: int = 100, 
         raise HTTPException(status_code=403, detail="Vector API not exposed")
         
     pubkey = request.headers.get("X-P2P-Pubkey")
-    p2p = getattr(request.app.state, 'p2p_manager', None)
     if pubkey and p2p and hasattr(p2p, "reputation"):
         p2p.reputation.charge_peer(pubkey, 1)
         p2p.reputation.can_afford(pubkey, 1)
@@ -1931,7 +1727,6 @@ async def get_posts_by_author(wallet_address: str, limit: int = 100, db: AsyncSe
 @app.get("/feed/anti-bubble")
 async def get_anti_bubble_feed(request: Request, wallet_address: str, limit: int = 50, offset: int = 0, source_type: str = "main", db: AsyncSession = Depends(get_db)):
     pubkey = request.headers.get("X-P2P-Pubkey")
-    p2p = getattr(request.app.state, 'p2p_manager', None)
     if pubkey and p2p and hasattr(p2p, "reputation"):
         p2p.reputation.charge_peer(pubkey, limit)
         p2p.reputation.can_afford(pubkey, limit)
@@ -2150,7 +1945,6 @@ async def create_edge(req: EdgeCreateRequest, db: AsyncSession = Depends(get_db)
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
         
-    p2p = getattr(app.state, 'p2p_manager', None)
     if p2p:
         payload = {"type": "edge", "data": req.model_dump()}
         try:
@@ -2194,7 +1988,6 @@ async def federated_query(text: str, limit: int = 10, federated: bool = False, d
                 results.append(await _serialize_post_for_client(db, p))
                 
         if federated:
-            p2p = getattr(app.state, 'p2p_manager', None)
             if p2p:
                 peer_addrs = set()
                 stmt_peers = select(Post.metadata_).where(Post.metadata_.is_not(None)).order_by(desc(Post.published_at)).limit(200)

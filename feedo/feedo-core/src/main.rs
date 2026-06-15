@@ -890,6 +890,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut active_search_requests: HashMap<String, (oneshot::Sender<String>, Vec<proto::feedo::SemanticSearchResultItem>)> = HashMap::new();
 
     let mut pbft_manager = pbft::PbftManager::new(local_peer_id_str.clone());
+    if let Ok(private_key) = std::env::var("NODE_WALLET_PRIVATE_KEY") {
+        pbft_manager.set_secret_key(&private_key);
+    }
     let crdt_manager = crdt::CrdtManager::new(shared_db.clone());
     
     let name_db_path = format!("{}/name_registry.db", db_path);

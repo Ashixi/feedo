@@ -140,6 +140,42 @@ class VectorBrain:
             print(f"⚠️ Помилка LanceDB: {e}")
         return None
 
+    def route_query(self, query_vector: list[float], top_k: int = 3) -> list[str]:
+        """
+        Phase 4: Semantic Routing Validation.
+        Determines the best peer supernodes to route this semantic query to,
+        based on their known Global Knowledge Map centroids.
+        For now, if the global map is empty, returns an empty list, 
+        thus avoiding old legacy P2P flooding.
+        """
+        if not hasattr(self, 'global_map') or not self.global_map:
+            return []
+            
+        import numpy as np
+        query_np = np.array(query_vector)
+        
+        peer_distances = []
+        for peer_id, centroids in self.global_map.items():
+            if not centroids:
+                continue
+            
+            # Find the minimum distance from query to any centroid of this peer
+            min_dist = float('inf')
+            for c in centroids:
+                c_np = np.array(c)
+                # Cosine distance
+                dist = 1.0 - (np.dot(query_np, c_np) / (np.linalg.norm(query_np) * np.linalg.norm(c_np)))
+                if dist < min_dist:
+                    min_dist = dist
+                    
+            peer_distances.append((peer_id, min_dist))
+            
+        # Sort by closest distance
+        peer_distances.sort(key=lambda x: x[1])
+        
+        # Return top_k peers
+        return [p[0] for p in peer_distances[:top_k]]
+
     def add_vector_by_emb(self, post_id: int, hash_id: str, vector: list[float], source_type: str = "native", language: str = "", geo: str = ""):
         # store language and geo for contextual weighting later
         vector = self._coerce_vector(vector)
