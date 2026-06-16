@@ -67,33 +67,46 @@ async def publish_website(request: Request, files: List[UploadFile] = File(...))
     }
     
     # 4. Публікація FeedoBroadcast
-    broadcast_req = {
-        "text": full_text[:5000],
-        "author": author,
-        "signature": "dummy_signature",
-        "hash_id": post_hash,
-        "content_blob_hash": index_hash,
-        "title": title or "Web3 Site",
-        "source_type": "website",
-        "sequence_number": 1,
-        "timestamp": int(time.time()),
-        "metadata_": metadata
-    }
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.post(RUST_CORE_URL, json=broadcast_req, timeout=10.0)
-        except Exception as e:
-            print(f"Warning: Failed to broadcast website to rust core: {e}")
+    try:
+        import feedo_pb2
+        import json
+        pb_req = feedo_pb2.PublishRequest(
+            text=full_text[:5000],
+            author=author,
+            signature="dummy_signature",
+            hash_id=post_hash,
+            content_blob_hash=index_hash,
+            title=title or "Web3 Site",
+            source_type="website",
+            sequence_number=1,
+            metadata=json.dumps(metadata)
+        )
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                RUST_CORE_URL, 
+                content=pb_req.SerializeToString(), 
+                headers={"Content-Type": "application/x-protobuf"},
+                timeout=10.0
+            )
+    except Exception as e:
+        print(f"Warning: Failed to broadcast website to rust core: {e}")
             
     # Add to vector brain manually so semantic search works
     try:
         vector = await brain.get_embedding_async(full_text)
+        
+        import re
+        image_vector = None
+        img_match = re.search(r'(https?://[^\s]+(?:jpg|jpeg|png|webp))', full_text, re.IGNORECASE)
+        if img_match:
+            image_vector = await brain.get_image_embedding_async(img_match.group(1))
+
         brain.add_vector_by_emb(
             post_id=0,
             hash_id=post_hash,
             vector=vector,
-            source_type="website"
+            source_type="website",
+            image_vector=image_vector
         )
     except Exception as e:
         print(f"Vectorization failed: {e}")

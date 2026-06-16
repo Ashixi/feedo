@@ -128,38 +128,50 @@ impl PbftManager {
     }
 
     pub fn handle_message(&mut self, msg: PbftMessage, total_nodes: usize) -> Option<PbftMessage> {
-        let state = self.states.entry(msg.tx_hash.clone()).or_insert_with(|| {
-            PbftState::new(msg.view, msg.sequence, msg.tx_hash.clone(), msg.tx_type, total_nodes)
-        });
+        let (new_phase, s_view, s_seq, s_tx_hash, s_tx_type) = {
+            let state = self.states.entry(msg.tx_hash.clone()).or_insert_with(|| {
+                PbftState::new(msg.view, msg.sequence, msg.tx_hash.clone(), msg.tx_type, total_nodes)
+            });
+            match state.process_message(&msg) {
+                Some(p) => (Some(p), state.view, state.sequence, state.tx_hash.clone(), state.tx_type),
+                None => (None, 0, 0, String::new(), 0),
+            }
+        };
 
-        if let Some(new_phase) = state.process_message(&msg) {
+        if let Some(phase) = new_phase {
             return Some(PbftMessage {
-                phase: new_phase as i32,
-                view: state.view,
-                sequence: state.sequence,
-                tx_hash: state.tx_hash.clone(),
+                phase: phase as i32,
+                view: s_view,
+                sequence: s_seq,
+                tx_hash: s_tx_hash.clone(),
                 sender: self.node_id.clone(),
-                signature: self.generate_signature(&state.tx_hash, state.sequence, new_phase as i32),
-                tx_type: state.tx_type,
+                signature: self.generate_signature(&s_tx_hash, s_seq, phase as i32),
+                tx_type: s_tx_type,
             });
         }
         None
     }
 
     pub fn mark_validated(&mut self, tx_hash: &str, tx_type: i32, total_nodes: usize) -> Option<PbftMessage> {
-        let state = self.states.entry(tx_hash.to_string()).or_insert_with(|| {
-            PbftState::new(self.view, 0, tx_hash.to_string(), tx_type, total_nodes)
-        });
+        let (new_phase, s_view, s_seq, s_tx_hash, s_tx_type) = {
+            let state = self.states.entry(tx_hash.to_string()).or_insert_with(|| {
+                PbftState::new(self.view, 0, tx_hash.to_string(), tx_type, total_nodes)
+            });
+            match state.mark_validated() {
+                Some(p) => (Some(p), state.view, state.sequence, state.tx_hash.clone(), state.tx_type),
+                None => (None, 0, 0, String::new(), 0),
+            }
+        };
 
-        if let Some(new_phase) = state.mark_validated() {
+        if let Some(phase) = new_phase {
             return Some(PbftMessage {
-                phase: new_phase as i32,
-                view: state.view,
-                sequence: state.sequence,
-                tx_hash: state.tx_hash.clone(),
+                phase: phase as i32,
+                view: s_view,
+                sequence: s_seq,
+                tx_hash: s_tx_hash.clone(),
                 sender: self.node_id.clone(),
-                signature: self.generate_signature(&state.tx_hash, state.sequence, new_phase as i32),
-                tx_type: state.tx_type,
+                signature: self.generate_signature(&s_tx_hash, s_seq, phase as i32),
+                tx_type: s_tx_type,
             });
         }
         None

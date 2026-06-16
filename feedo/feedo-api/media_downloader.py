@@ -11,6 +11,12 @@ logger = logging.getLogger("media_downloader")
 async def download_and_store_media(url: str, storage: LocalMediaStorage) -> Optional[str]:
     if not url or not url.startswith("http"):
         return None
+        
+    valid_exts = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+    if not any(url.lower().split('?')[0].endswith(ext) for ext in valid_exts):
+        logger.debug(f"Ігнорую не-медіа посилання: {url}")
+        return None
+        
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
@@ -43,6 +49,12 @@ async def parse_and_store_post_media(p_data: dict, storage: LocalMediaStorage):
         async def replace_match(match):
             alt_text = match.group(1)
             img_url = match.group(2)
+            
+            # Prevent downloading HTML pages or RSS feeds posted by users
+            valid_exts = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+            if not any(img_url.lower().split('?')[0].endswith(ext) for ext in valid_exts):
+                return match.group(0)
+                
             media_id = await download_and_store_media(img_url, storage)
             if media_id:
                 return f"![{alt_text}](/p2p-media/{media_id})"

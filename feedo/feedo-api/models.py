@@ -109,11 +109,14 @@ class Post(Base):
     
     title = Column(String, nullable=True)
     
-    text_content = Column(Text) 
+    # Stateless Indexer: text_content is now optional, as we only need vectors!
+    text_content = Column(Text, nullable=True) 
     content_size = Column(Integer, default=0) 
     is_full_content_loaded = Column(Boolean, default=True) 
+    item_type = Column(String(20), default="post", index=True)
     
     external_link = Column(String, nullable=True) 
+    relay_url = Column(String, nullable=True) # Used for NIP-65 to fetch content
     published_at = Column(DateTime, default=_naive_utc_now)
     source_internal_id = Column(String, nullable=True) 
     language = Column(String(10), default="uk")
@@ -192,3 +195,12 @@ class CreditTransaction(Base):
     reason = Column(String, nullable=False)
     signature = Column(String, nullable=False)
     created_at = Column(DateTime, default=_naive_utc_now)
+
+
+class DiscoveredRelay(Base):
+    __tablename__ = "discovered_relays"
+    id = Column(Integer, primary_key=True)
+    url = Column(String, nullable=False, index=True, unique=True)
+    last_seen_at = Column(DateTime, default=_naive_utc_now)
+    success_count = Column(Integer, default=0)
+    fail_count = Column(Integer, default=0)

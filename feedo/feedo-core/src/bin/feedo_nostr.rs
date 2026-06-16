@@ -12,8 +12,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[path = "../nostr_db.rs"]
-pub mod nostr_db;
+// Stateless Smart Proxy (No local DB)
 
 const FEEDO_CORE_PUBLISH_URL: &str = "http://127.0.0.1:8041/local/publish";
 const FEEDO_CORE_SEMANTIC_URL: &str = "http://127.0.0.1:8041/local/semantic_search";
@@ -63,7 +62,6 @@ fn verify_nostr_event(event: &Value) -> bool {
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<nostr_db::NostrDb>,
     http_client: Client,
     broadcast_tx: broadcast::Sender<Value>,
 }
@@ -72,29 +70,13 @@ struct AppState {
 async fn main() {
     println!("Starting Feedo-Nostr Hybrid Relay...");
     
-    let db = Arc::new(nostr_db::NostrDb::new().expect("Failed to initialize Nostr DB"));
     let http_client = Client::new();
     let (broadcast_tx, _) = broadcast::channel(1024);
 
     let state = AppState {
-        db: db.clone(),
         http_client,
         broadcast_tx,
     };
-
-    // NIP-40: Background task for Expiration
-    let db_for_gc = db.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // Every hour
-        loop {
-            interval.tick().await;
-            if let Ok(deleted) = db_for_gc.delete_expired_events() {
-                if deleted > 0 {
-                    println!("Deleted {} expired events.", deleted);
-                }
-            }
-        }
-    });
 
     let app = Router::new()
         .route("/", get(ws_or_nip11_handler))
@@ -118,7 +100,7 @@ async fn ws_or_nip11_handler(
                     "description": "Federated P2P Nostr Relay powered by Feedo AI",
                     "pubkey": "",
                     "contact": "",
-                    "supported_nips": [1, 9, 11, 15, 16, 20, 33, 40, 50],
+                    "supported_nips": [11, 50],
                     "software": "git+https://github.com/feedo/feedo.git",
                     "version": "1.0.0"
                 });
@@ -231,10 +213,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             
                                             if let Some(content) = event["content"].as_str() {
                                                 if !is_ephemeral {
-                                                    // Save to local SQLite
-                                                    let _ = state.db.insert_event(event_id, pubkey_str, created_at, kind, content, sig_str, &tags_str);
-                                                    
-                                                    // Send to Feedo Core IPC
+                                                    // Send to Feedo Core IPC for Vectorization (No local text storage)
                                                     let author_hex = pubkey_str;
                                                     let did = format!("did:feedo:schnorr:{}", author_hex);
                                                     let mut metadata = serde_json::Map::new();
@@ -278,10 +257,19 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                 // Check if this Nostr query is requesting a Semantic Search
                                                 if let Some(search_query) = filter["search"].as_str() {
                                                     println!("Triggering Semantic AI Search for: {}", search_query);
+                                                    
+                                                    let mut item_type = "post";
+                                                    if let Some(kinds) = filter["kinds"].as_array() {
+                                                        if kinds.iter().any(|k| k.as_u64() == Some(0)) {
+                                                            item_type = "profile";
+                                                        }
+                                                    }
+                                                    
                                                     let payload = serde_json::json!({
                                                         "text_query": search_query,
                                                         "limit": filter["limit"].as_u64().unwrap_or(20) as u32,
-                                                        "source_type": "nostr" // Enforce searching only Nostr content
+                                                        "source_types": ["nostr"], // Enforce searching only Nostr content
+                                                        "item_type": item_type
                                                     });
                                                     let http_client_clone = state.http_client.clone();
                                                     let sub_id_clone = sub_id.to_string();
@@ -292,22 +280,49 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                             if let Ok(res_json) = res.json::<serde_json::Value>().await {
                                                                 if let Some(results) = res_json.get("results").and_then(|r| r.as_array()) {
                                                                     for hit in results {
-                                                                        let raw_author = hit["author"].as_str().unwrap_or("");
-                                                                        let nostr_pubkey = raw_author.replace("did:feedo:schnorr:", "");
-                                                                        let n_event = serde_json::json!([
-                                                                            "EVENT",
-                                                                            sub_id_clone,
-                                                                            {
-                                                                                "id": hit["hash_id"].as_str().unwrap_or(""),
-                                                                                "pubkey": nostr_pubkey,
-                                                                                "created_at": hit["timestamp"].as_u64().unwrap_or(0),
-                                                                                "kind": 1,
-                                                                                "content": hit["text"].as_str().unwrap_or(""),
-                                                                                "tags": [],
-                                                                                "sig": "feedo_semantic_search_result"
-                                                                            }
-                                                                        ]);
-                                                                        let _ = local_tx_clone.send(AxumMessage::Text(n_event.to_string())).await;
+                                                                        let hash_id = hit["hash_id"].as_str().unwrap_or("").to_string();
+                                                                        
+                                                                        let relay_urls: Vec<String> = if let Some(urls) = hit["relay_urls"].as_array() {
+                                                                            urls.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                                                                        } else if let Some(url) = hit["relay_url"].as_str() {
+                                                                            vec![url.to_string()]
+                                                                        } else {
+                                                                            vec![]
+                                                                        };
+                                                                        
+                                                                        if !relay_urls.is_empty() && !hash_id.is_empty() {
+                                                                            let sub_id_inner = sub_id_clone.clone();
+                                                                            let tx_inner = local_tx_clone.clone();
+                                                                            
+                                                                            tokio::spawn(async move {
+                                                                                let mut event_found = false;
+                                                                                for relay_url in relay_urls {
+                                                                                    if event_found { break; }
+                                                                                    
+                                                                                    if let Ok(Ok((mut ws_stream, _))) = tokio::time::timeout(std::time::Duration::from_secs(5), tokio_tungstenite::connect_async(&relay_url)).await {
+                                                                                        let req_id = format!("fetch_{}", hash_id);
+                                                                                        let req = serde_json::json!(["REQ", req_id.clone(), { "ids": [hash_id] }]);
+                                                                                        let _ = futures::SinkExt::send(&mut ws_stream, tokio_tungstenite::tungstenite::Message::Text(req.to_string())).await;
+                                                                                        
+                                                                                        while let Ok(Some(Ok(msg))) = tokio::time::timeout(std::time::Duration::from_secs(3), futures::StreamExt::next(&mut ws_stream)).await {
+                                                                                            if let Ok(text) = msg.to_text() {
+                                                                                                if let Ok(arr) = serde_json::from_str::<Vec<Value>>(text) {
+                                                                                                    if arr.len() >= 3 && arr[0] == "EVENT" && arr[1] == req_id {
+                                                                                                        let event = arr[2].clone();
+                                                                                                        let n_event = serde_json::json!(["EVENT", sub_id_inner.clone(), event]);
+                                                                                                        let _ = tx_inner.send(AxumMessage::Text(n_event.to_string())).await;
+                                                                                                        event_found = true;
+                                                                                                        break;
+                                                                                                    } else if arr.len() >= 2 && arr[0] == "EOSE" && arr[1] == req_id {
+                                                                                                        break;
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -317,13 +332,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                     });
                                                     continue;
                                                 } else {
-                                                    // Regular NIP-01 SQL query from local DB
-                                                    if let Ok(events) = state.db.query_events(filter) {
-                                                        for event in events {
-                                                            let n_event = serde_json::json!(["EVENT", sub_id, event]);
-                                                            let _ = local_tx.send(AxumMessage::Text(n_event.to_string())).await;
-                                                        }
-                                                    }
+                                                    // As a Stateless Indexer, we don't serve regular queries, only searches.
+                                                    // Just return EOSE immediately.
                                                 }
                                             }
                                             

@@ -11,11 +11,19 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 
+import requests
+import torch
+import io
+from PIL import Image
+
 class VectorBrain:
     def __init__(self, db_path="./lancedb_data"):
-        print("🧠 Завантаження ML-моделі (thenlper/gte-large)...")
-        self.model = SentenceTransformer('thenlper/gte-large')
+        print("🧠 Завантаження ML-моделі (intfloat/multilingual-e5-small) в економному режимі (FP16)...")
+        self.model = SentenceTransformer('intfloat/multilingual-e5-small', model_kwargs={"torch_dtype": torch.float16})
+        print("👁️ Завантаження Multimodal-моделі (clip-ViT-B-32)...")
+        self.image_model = SentenceTransformer('clip-ViT-B-32', model_kwargs={"torch_dtype": torch.float16})
         self.db = lancedb.connect(db_path)
+
         
         self.table_name = "post_vectors"
         
@@ -23,24 +31,26 @@ class VectorBrain:
         schema = pa.schema([
             pa.field("post_id", pa.int32()),
             pa.field("hash_id", pa.string()),
-            pa.field("vector", pa.list_(pa.float32(), 1024)),
+            pa.field("vector", pa.list_(pa.float32(), 384)),
+            pa.field("image_vector", pa.list_(pa.float32(), 512)),
             pa.field("timestamp", pa.float64()),
             pa.field("source_type", pa.string()),
+            pa.field("item_type", pa.string()),
             pa.field("language", pa.string()),
-            pa.field("geo", pa.string())
+            pa.field("geo", pa.string()),
+            pa.field("relay_url", pa.string())
         ])
         
         try:
             self.table = self.db.create_table(self.table_name, schema=schema, exist_ok=True)
-            # Перевірка: якщо стара база не має source_type, перестворюємо
-            if "source_type" not in self.table.schema.names:
-                print("⚠️ Схема LanceDB змінилася (Додано source_type). Перестворюємо таблицю...")
+            if "item_type" not in self.table.schema.names or "relay_url" not in self.table.schema.names or "image_vector" not in self.table.schema.names:
+                print("⚠️ Схема LanceDB змінилася (Додано item_type/image_vector). Перестворюємо таблицю...")
                 self.db.drop_table(self.table_name)
                 self.table = self.db.create_table(self.table_name, schema=schema)
         except ValueError:
             self.table = self.db.open_table(self.table_name)
             vector_field = self.table.schema.field("vector")
-            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 1024 or "source_type" not in self.table.schema.names:
+            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 384 or "item_type" not in self.table.schema.names:
                 print("⚠️ Схема LanceDB змінилася. Перестворюємо таблицю...")
                 self.db.drop_table(self.table_name)
                 self.table = self.db.create_table(self.table_name, schema=schema)
@@ -80,8 +90,8 @@ class VectorBrain:
             raise ValueError(f"Vector must be a list of floats, got {type(vector)!r}")
 
         coerced = [float(v) for v in vector]
-        if len(coerced) != 1024:
-            raise ValueError(f"Vector must have exactly 1024 dimensions, got {len(coerced)}")
+        if len(coerced) != 384:
+            raise ValueError(f"Vector must have exactly 384 dimensions, got {len(coerced)}")
         return coerced
 
     def is_gibberish(self, text: str) -> bool:
@@ -92,11 +102,12 @@ class VectorBrain:
         entropy = -sum(count/lns * math.log2(count/lns) for count in p.values())
         return entropy < 2.0 or entropy > 6.5
 
-    def get_embedding(self, text: str) -> list[float]:
+    def get_embedding(self, text: str, is_query: bool = False) -> list[float]:
         if text in self.emb_cache:
             self.emb_cache.move_to_end(text)
             return self.emb_cache[text]
-        vec = self.model.encode(text, normalize_embeddings=True, show_progress_bar=False).tolist()
+        prefix = "query: " if is_query else "passage: "
+        vec = self.model.encode(prefix + text, normalize_embeddings=True, show_progress_bar=False).tolist()
         self._cache_emb_set(text, vec)
         return vec
 
@@ -114,8 +125,9 @@ class VectorBrain:
                 to_compute_texts.append(text)
         
         if to_compute_texts:
+            prefixed_texts = ["passage: " + t for t in to_compute_texts]
             computed = self.model.encode(
-                to_compute_texts, 
+                prefixed_texts, 
                 batch_size=batch_size, 
                 normalize_embeddings=True, 
                 show_progress_bar=False
@@ -176,22 +188,43 @@ class VectorBrain:
         # Return top_k peers
         return [p[0] for p in peer_distances[:top_k]]
 
-    def add_vector_by_emb(self, post_id: int, hash_id: str, vector: list[float], source_type: str = "native", language: str = "", geo: str = ""):
-        # store language and geo for contextual weighting later
+    def add_vector_by_emb(self, post_id: int, hash_id: str, vector: list[float], source_type: str = "native", item_type: str = "post", language: str = "", geo: str = "", relay_url: str = "", image_vector: list[float] = None):
+        # store language, geo, relay_url for contextual weighting later
         vector = self._coerce_vector(vector)
+        if image_vector is None:
+            image_vector = [0.0] * 512
+            
         self.table.add([{
             "post_id": post_id,
             "hash_id": hash_id,
             "vector": vector,
+            "image_vector": image_vector,
             "timestamp": time.time(),
             "source_type": source_type,
+            "item_type": item_type,
             "language": language or "",
-            "geo": geo or ""
+            "geo": geo or "",
+            "relay_url": relay_url or ""
         }])
 
-    async def get_embedding_async(self, text: str) -> list[float]:
+    def get_image_embedding(self, image_url: str) -> list[float]:
+        try:
+            response = requests.get(image_url, timeout=5.0)
+            response.raise_for_status()
+            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+            vec = self.image_model.encode(image).tolist()
+            return vec
+        except Exception as e:
+            print(f"⚠️ Помилка обробки зображення {image_url}: {e}")
+            return None
+
+    async def get_image_embedding_async(self, image_url: str) -> list[float]:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self.executor, self.get_embedding, text)
+        return await loop.run_in_executor(self.executor, self.get_image_embedding, image_url)
+
+    async def get_embedding_async(self, text: str, is_query: bool = False) -> list[float]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self.get_embedding, text, is_query)
 
     async def get_embeddings_batch_async(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         loop = asyncio.get_event_loop()
@@ -201,9 +234,9 @@ class VectorBrain:
         vector = await self.get_embedding_async(text)
         return self.find_duplicate_by_vector(vector, threshold, hours)
 
-    async def add_vector_async(self, post_id: int, hash_id: str, text: str, source_type: str = "native", language: str = "", geo: str = ""):
+    async def add_vector_async(self, post_id: int, hash_id: str, text: str, source_type: str = "native", item_type: str = "post", language: str = "", geo: str = ""):
         vector = await self.get_embedding_async(text)
-        self.add_vector_by_emb(post_id, hash_id, vector, source_type, language=language, geo=geo)
+        self.add_vector_by_emb(post_id, hash_id, vector, source_type, item_type=item_type, language=language, geo=geo)
 
     async def update_user_vector_async(self, current_vector: list[float] | None, post_text: str, weight: float = 0.2) -> list[float]:
         new_interest = await self.get_embedding_async(post_text)

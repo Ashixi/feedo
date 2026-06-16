@@ -96,3 +96,21 @@ async def create_commercial_key(req: CreateCommercialKeyRequest, db: AsyncSessio
         "api_key": raw_key, # Send raw key only once!
         "owner": req.owner_address
     }
+
+@router.get("/network/sync_state/{source_type}")
+async def get_network_sync_state(source_type: str, db: AsyncSession = Depends(get_db)):
+    """Return local max timestamp for a source type to help new nodes sync cursor."""
+    stmt_last_post = select(func.max(Post.published_at)).where(Post.source_type == source_type)
+    last_post_date = (await db.execute(stmt_last_post)).scalar()
+    
+    timestamp = 0
+    if last_post_date:
+        import datetime
+        if last_post_date.tzinfo is None:
+            last_post_date = last_post_date.replace(tzinfo=datetime.timezone.utc)
+        timestamp = int(last_post_date.timestamp())
+        
+    return {
+        "source_type": source_type,
+        "max_timestamp": timestamp
+    }

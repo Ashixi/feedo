@@ -147,62 +147,6 @@ async def node_heartbeat_loop():
             
         await asyncio.sleep(60)
 
-async def backfill_vectors():
-    await asyncio.sleep(15)
-    if not EXPOSE_VECTOR_API:
-        return
-        
-    peer_sync_state = {}
-    retry_delay = 60
-    
-    while True:
-        try:
-            aggregator = AggregatorClient(api_key=VECTOR_API_KEY)
-            async with AsyncSessionLocal() as db:
-                stmt_peers = select(Post.metadata_).where(Post.metadata_.is_not(None)).order_by(desc(Post.published_at)).limit(500)
-                peer_metas = (await db.execute(stmt_peers)).scalars().all()
-                peer_addrs = set()
-                for meta in peer_metas:
-                    if isinstance(meta, dict) and "vector_api_addr" in meta:
-                        addr = meta["vector_api_addr"]
-                        if addr and addr != VECTOR_API_ADDR:
-                            peer_addrs.add(addr)
-
-            if peer_addrs:
-                for addr in peer_addrs:
-                    since = peer_sync_state.get(addr, 0.0)
-                    recent_ids = await aggregator.fetch_recent_hash_ids(addr, limit=50, since=since)
-                    if recent_ids:
-                        peer_sync_state[addr] = time.time()
-                        
-                    for hid in recent_ids:
-                        async with AsyncSessionLocal() as session:
-                            stmt = select(Post).where(Post.hash_id == hid)
-                            post = (await session.execute(stmt)).scalar_one_or_none()
-                            if post:
-                                if brain:
-                                    try:
-                                        exist = brain.table.search().where(f"hash_id = '{hid}'").limit(1).to_list()
-                                    except Exception:
-                                        exist = brain.table.search().where(f"post_id = {post.id}").limit(1).to_list()
-                                        
-                                    if not exist:
-                                        vdata = await aggregator.fetch_vector(addr, hid)
-                                        if "vector" in vdata:
-                                            lang = getattr(post, "language", "") or (post.metadata_ or {}).get("language", "")
-                                            geo = (post.metadata_ or {}).get("geo", "")
-                                            brain.add_vector_by_emb(post.id, hid, vdata["vector"], post.source_type, language=lang, geo=geo)
-                                            
-                LAST_BACKFILL.set(time.time())
-                
-            retry_delay = 60 
-            await asyncio.sleep(300)
-            
-        except Exception as e:
-            logger.error(f"Global backfill error: {e}")
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, 3600)
-
 async def background_centroid_updater():
     await asyncio.sleep(60)
     is_supernode = os.getenv("IS_SUPERNODE", "false").lower() == "true"
@@ -308,7 +252,6 @@ async def lifespan(app: FastAPI):
     monitor_thread = threading.Thread(target=lambda: run_monitor_process(monitor_stop_event), daemon=True)
     monitor_thread.start()
     
-    asyncio.create_task(backfill_vectors())
     asyncio.create_task(node_heartbeat_loop())
     asyncio.create_task(background_centroid_updater())
     
@@ -1870,16 +1813,23 @@ async def upload_avatar(
 
     try:
         async with httpx.AsyncClient() as client:
-            await client.post(RUST_CORE_URL, json={
-                "text": b64_text,
-                "author": author_address,
-                "signature": signature,
-                "hash_id": media_hash,
-                "content_blob_hash": media_hash,
-                "prev_post_hash": "",
-                "sequence_number": 0,
-                "skip_dht_upload": False
-            }, timeout=15.0)
+            import feedo_pb2
+            pb_req = feedo_pb2.PublishRequest(
+                text=b64_text,
+                author=author_address,
+                signature=signature,
+                hash_id=media_hash,
+                content_blob_hash=media_hash,
+                prev_post_hash="",
+                sequence_number=0,
+                skip_dht_upload=False
+            )
+            await client.post(
+                RUST_CORE_URL, 
+                content=pb_req.SerializeToString(),
+                headers={"Content-Type": "application/x-protobuf"},
+                timeout=15.0
+            )
     except Exception as e:
         logger.warning(f"Failed to seed media to DHT: {e}")
 

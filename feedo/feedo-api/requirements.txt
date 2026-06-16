@@ -31,3 +31,4 @@ google-auth-httplib2
 protobuf
 scikit-learn
 psutil
+Pillow
