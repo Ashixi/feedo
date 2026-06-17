@@ -146,6 +146,7 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
             
             new_count = 0
             updated_count = 0
+            seen_in_run = set()
             
             async for raw_posts in generator:
                 logger.info(f"Знайдено {len(raw_posts)} нових елементів у батчі з {source.source_type}")
@@ -154,13 +155,12 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                 local_media_storage = LocalMediaStorage()
                 
                 # Deduplicate raw_posts in memory to prevent IntegrityError
-                seen_in_batch = set()
                 deduped_raw_posts = []
                 for p_data in raw_posts:
                     sid = p_data.get("source_specific_id")
-                    if sid in seen_in_batch:
+                    if sid in seen_in_run:
                         continue
-                    seen_in_batch.add(sid)
+                    seen_in_run.add(sid)
                     deduped_raw_posts.append(p_data)
                 
                 for p_data in deduped_raw_posts:
