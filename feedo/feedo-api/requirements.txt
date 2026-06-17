@@ -32,3 +32,4 @@ protobuf
 scikit-learn
 psutil
 Pillow
+einops

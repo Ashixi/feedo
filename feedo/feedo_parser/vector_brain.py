@@ -18,8 +18,8 @@ from PIL import Image
 
 class VectorBrain:
     def __init__(self, db_path="./lancedb_data"):
-        print("🧠 Завантаження ML-моделі (intfloat/multilingual-e5-small) в економному режимі (FP16)...")
-        self.model = SentenceTransformer('intfloat/multilingual-e5-small', model_kwargs={"torch_dtype": torch.float16})
+        print("🧠 Завантаження ML-моделі (Alibaba-NLP/gte-multilingual-base) в економному режимі (FP16)...")
+        self.model = SentenceTransformer('Alibaba-NLP/gte-multilingual-base', model_kwargs={"torch_dtype": torch.float16}, trust_remote_code=True)
         print("👁️ Завантаження Multimodal-моделі (clip-ViT-B-32)...")
         self.image_model = SentenceTransformer('clip-ViT-B-32', model_kwargs={"torch_dtype": torch.float16})
         self.db = lancedb.connect(db_path)
@@ -31,7 +31,7 @@ class VectorBrain:
         schema = pa.schema([
             pa.field("post_id", pa.int32()),
             pa.field("hash_id", pa.string()),
-            pa.field("vector", pa.list_(pa.float32(), 384)),
+            pa.field("vector", pa.list_(pa.float32(), 768)),
             pa.field("image_vector", pa.list_(pa.float32(), 512)),
             pa.field("timestamp", pa.float64()),
             pa.field("source_type", pa.string()),
@@ -50,7 +50,7 @@ class VectorBrain:
         except ValueError:
             self.table = self.db.open_table(self.table_name)
             vector_field = self.table.schema.field("vector")
-            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 384 or "item_type" not in self.table.schema.names:
+            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 768 or "item_type" not in self.table.schema.names:
                 print("⚠️ Схема LanceDB змінилася. Перестворюємо таблицю...")
                 self.db.drop_table(self.table_name)
                 self.table = self.db.create_table(self.table_name, schema=schema)
@@ -90,8 +90,8 @@ class VectorBrain:
             raise ValueError(f"Vector must be a list of floats, got {type(vector)!r}")
 
         coerced = [float(v) for v in vector]
-        if len(coerced) != 384:
-            raise ValueError(f"Vector must have exactly 384 dimensions, got {len(coerced)}")
+        if len(coerced) != 768:
+            raise ValueError(f"Vector must have exactly 768 dimensions, got {len(coerced)}")
         return coerced
 
     def is_gibberish(self, text: str) -> bool:
