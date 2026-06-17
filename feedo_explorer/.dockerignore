@@ -1,0 +1,14 @@
+.dart_tool/
+build/
+android/
+ios/
+macos/
+windows/
+linux/
+.git/
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.env
