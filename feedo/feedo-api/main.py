@@ -980,11 +980,13 @@ async def vector_query(req: VectorQueryRequest, request: Request, api_key = Depe
                     post_rows = (await db.execute(stmt)).all()
                     id_to_hash = {row.id: row.hash_id for row in post_rows}
             
+            seen_hashes = set()
             for r in res:
                 similarity = 1.0 - (r["_distance"] / 2.0)
                 if similarity >= req.threshold:
                     h_id = r.get("hash_id") or id_to_hash.get(r["post_id"])
-                    if h_id:
+                    if h_id and h_id not in seen_hashes:
+                        seen_hashes.add(h_id)
                         results.append({"hash_id": h_id, "score": similarity})
         except Exception as e:
             logger.error(f"Vector query error: {e}")
@@ -1018,11 +1020,13 @@ async def vector_batch_query(req: BatchVectorQueryRequest, request: Request, api
             for vec in req.vectors:
                 res = brain.table.search(vec).limit(actual_k).to_list()
                 local_res = []
+                seen_hashes = set()
                 for r in res:
                     similarity = 1.0 - (r["_distance"] / 2.0)
                     if similarity >= req.threshold:
                         h_id = r.get("hash_id")
-                        if h_id:
+                        if h_id and h_id not in seen_hashes:
+                            seen_hashes.add(h_id)
                             local_res.append({"hash_id": h_id, "score": similarity})
                 batch_results.append(local_res)
         except Exception as e:
