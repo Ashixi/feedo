@@ -78,7 +78,7 @@ You do not need to download the entire source code. Everything runs via pre-buil
          retries: 5
    
      feedo_node:
-       image: feedo-network/feedo-node:latest
+       image: itsshas/feedo-node:latest
        restart: always
        ports:
          - "8000:8040"
