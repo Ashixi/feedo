@@ -112,19 +112,44 @@ You do not need to download the entire source code. Everything runs via pre-buil
 
 3. Create a `.env` file and configure the key parameters:
    ```env
-   # Your node's private key (in Hex). You can generate one with any Nostr tool.
-   NODE_WALLET_PRIVATE_KEY=your_private_key
-   
-   # Your node's public key. This is where your earned 1.9 satoshis per search will be credited.
-   NODE_WALLET_ADDRESS=your_public_key
-   
-   # (MANDATORY for Compute nodes) — URL of the Main Bank.
-   # If left empty, your node becomes a bank itself (managing local balances).
-   # However, to receive search traffic from the official Spider, you MUST use the official bank.
+   # --- Database ---
+   POSTGRES_USER=feedo_user
+   POSTGRES_PASSWORD=super_secure_password_123
+   POSTGRES_DB=feedo_db
+
+   # --- Security & Cryptography ---
+   # Generate a random string for encryption
+   RSS_NODE_SECRET=change_me_to_something_random_like_a_long_string
+
+   # Your node's private key (hex format, 64 characters)
+   NODE_WALLET_PRIVATE_KEY=your_private_hex_key_here
+
+   # --- Tokenomics & Lightning Network ---
+   # If this is a Compute Node, specify the URL of your Main Bank (Treasury).
+   # If left empty, this node becomes a Main Bank itself.
+   # To receive search traffic from the official Spider, you MUST use the official bank.
    TREASURY_URL=https://api.feedo.ink
-   
+   TREASURY_API_KEY=your_super_secret_api_key_for_treasury
+
+   # Your node's Nostr Pubkey, where earned satoshis for searches will be credited (95% of revenue)
+   NODE_WALLET_ADDRESS=your_nostr_pubkey_for_node
+
+   # Alby token (getalby.com) for generating and paying invoices
+   ALBY_BEARER_TOKEN=your_alby_access_token_here
+
+   # If using your own LNBits instead of Alby:
+   # LNBITS_URL=https://legend.lnbits.com
+   # LNBITS_API_KEY=your_lnbits_api_key_here
+
+   # --- Network Settings (P2P & Web3) ---
+   # Optional: Specify the bootstrap node IP here to connect to the P2P network
+   BOOTSTRAP_NODES=/ip4/1.2.3.4/udp/4001/p2p/YOUR_PEER_ID
+
    # Your public domain or IP. If specified, your node will advertise itself in the P2P network.
    PUBLIC_API_URL=https://mynode.com
+
+   # Optional: RPC URL for smart contracts (Polygon)
+   POLYGON_RPC_URL=https://polygon.rpc.thirdweb.com
    ```
 
 4. Run the node in the background:
