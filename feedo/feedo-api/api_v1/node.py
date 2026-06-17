@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import secrets
 import hashlib
 import psutil
+import os
 
 from database import get_db
 from models import ApiKey, ApiKeyRole, Post
@@ -23,7 +24,8 @@ async def get_node_health(request: Request, db: AsyncSession = Depends(get_db)):
         "python_api": "ok",
         "database": "unknown",
         "p2p": "unknown",
-        "vector_db": "unknown"
+        "vector_db": "unknown",
+        "treasury_url": os.environ.get("TREASURY_URL", "local")
     }
     
     # DB Check

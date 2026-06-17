@@ -232,6 +232,7 @@ struct PeerAnnounce {
     public_key: Option<String>,
     storage_status: Option<String>,
     is_supernode: Option<bool>,
+    api_url: Option<String>,
 }
 
 async fn handle_publish(
@@ -1366,6 +1367,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             public_key: Some(pubkey_b64.clone()),
                             storage_status: Some(storage_status),
                             is_supernode: Some(env::var("IS_SUPERNODE").unwrap_or_else(|_| "false".to_string()).to_lowercase() == "true"),
+                            api_url: env::var("PUBLIC_API_URL").ok().filter(|s| !s.trim().is_empty()),
                         };
 
                         if let Ok(payload) = serde_json::to_vec(&announce) {
@@ -2351,12 +2353,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                                 let is_supernode = announce.is_supernode.unwrap_or(false);
                                                 let peer_id_clone = announce.peer_id.clone();
+                                                let api_url_clone = announce.api_url.clone();
+                                                let timestamp_clone = announce.timestamp;
+                                                let signature_clone = announce.signature.clone();
                                                 
                                                 tokio::spawn(async move {
                                                     let req_body = serde_json::json!({
                                                         "peer_id": peer_id_clone,
                                                         "pubkey_hex": pubkey_hex,
-                                                        "is_supernode": is_supernode
+                                                        "is_supernode": is_supernode,
+                                                        "api_url": api_url_clone,
+                                                        "timestamp": timestamp_clone,
+                                                        "sig": signature_clone
                                                     });
                                                     let _ = client_clone.post(&url_clone).json(&req_body).send().await;
                                                 });

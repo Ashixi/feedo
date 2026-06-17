@@ -33,6 +33,12 @@ class RelaySearchRequest(BaseModel):
     limit: int = 20
     threshold: float = 0.5
 
+class DirectClientSearchRequest(BaseModel):
+    client_pubkey: str
+    query: str
+    limit: int = 20
+    threshold: float = 0.5
+
 class InternalSemanticQueryRequest(BaseModel):
     query_id: str
     text: str
@@ -190,6 +196,66 @@ async def relay_semantic_search(req: RelaySearchRequest, request: Request, db: A
         return results
     except Exception as e:
         logger.error(f"Relay Search Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/client_search")
+async def direct_client_search(req: DirectClientSearchRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Search endpoint directly for Nostr clients (Variant A). Charges 2 tokens per query."""
+    brain = getattr(request.app.state, 'brain', None)
+    if not brain:
+        import main
+        brain = main.brain
+        if not brain:
+            raise HTTPException(status_code=503, detail="Vector search not initialized")
+            
+    from tokenomics_service import TokenomicsService
+    
+    # 1. Pay for the query (2 satoshis). Check if free quota is used.
+    cost = 2
+    is_free = False
+    balance_record = await TokenomicsService.get_or_create_balance(db, req.client_pubkey)
+    
+    if balance_record.free_search_queries > 0:
+        is_free = True
+    
+    success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
+    if not success:
+        raise HTTPException(status_code=402, detail="Insufficient funds. Please top up.")
+        
+    # 2. Perform the vector search
+    try:
+        vec = await brain.get_embedding_async(req.query, is_query=True)
+        search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
+        search_res = search_query.to_list()
+        
+        # Convert to Nostr-like events
+        results = []
+        for r in search_res:
+            dist = r.get("_distance", 1.0)
+            if dist <= (1.0 - req.threshold):
+                results.append({
+                    "id": r.get("hash_id", ""),
+                    "pubkey": r.get("author_address", "anonymous"),
+                    "created_at": int(r.get("timestamp", 0) or 0),
+                    "kind": 1,
+                    "tags": [],
+                    "content": r.get("text", ""),
+                    "sig": ""
+                })
+                
+        # 3. Distribute rewards
+        import os
+        compute_node_pubkey = os.environ.get("NODE_WALLET_ADDRESS", "feedo_local_node")
+        await TokenomicsService.process_direct_client_search_rewards(
+            db, 
+            client_pubkey=req.client_pubkey, 
+            feedo_node_pubkey=compute_node_pubkey, 
+            is_free=is_free
+        )
+        
+        return results
+    except Exception as e:
+        logger.error(f"Client Search Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/query")

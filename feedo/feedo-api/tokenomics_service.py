@@ -3,11 +3,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import CreditBalance, CreditTransaction
 import os
+import httpx
 
 logger = logging.getLogger("feedo_tokenomics")
 
-# The developer's wallet to receive the 5% tax
-DEVELOPER_WALLET = os.environ.get("DEVELOPER_WALLET", "feedo_developer")
+# The developer's wallet to receive the 5% protocol tax
+# Hardcoded to ensure the protocol creator receives their fee
+DEVELOPER_WALLET = "npub1v2xsp3yq3h9t5d9sdkj2h8y3z444pnll8ffs5qmg5q60em03pc3qt96ny2"
+
+TREASURY_URL = os.environ.get("TREASURY_URL", "").rstrip("/")
+TREASURY_API_KEY = os.environ.get("TREASURY_API_KEY", "")
+
+def get_treasury_headers():
+    return {"x-treasury-key": TREASURY_API_KEY} if TREASURY_API_KEY else {}
 
 class TokenomicsService:
     @staticmethod
@@ -51,46 +59,94 @@ class TokenomicsService:
         logger.info(f"Rewarded peer {wallet_address} with {amount} tokens, {fraction} fractions (reason: {reason}).")
 
     @staticmethod
-    async def pay_for_query(db: AsyncSession, wallet_address: str, cost: int, allow_free_quota: bool = True) -> bool:
+    async def pay_for_query_local(db: AsyncSession, wallet_address: str, cost: int, allow_free_quota: bool = True) -> bool:
         balance_record = await TokenomicsService.get_or_create_balance(db, wallet_address)
         
         # 1. Check free queries first
         if allow_free_quota and balance_record.free_search_queries > 0:
             balance_record.free_search_queries -= 1
             await db.commit()
-            logger.info(f"User {wallet_address} used a free search query. Remaining: {balance_record.free_search_queries}")
+            logger.info(f"[LOCAL] User {wallet_address} used a free search query. Remaining: {balance_record.free_search_queries}")
             return True
         
         # 2. Check balance if no free queries
         if balance_record.balance >= cost:
             balance_record.balance -= cost
             await db.commit()
-            logger.info(f"Charged {wallet_address} {cost} tokens for query.")
+            logger.info(f"[LOCAL] Charged {wallet_address} {cost} tokens for query.")
             return True
             
-        logger.warning(f"Payment rejected: {wallet_address} has insufficient funds.")
+        logger.warning(f"[LOCAL] Payment rejected: {wallet_address} has insufficient funds.")
         return False
 
     @staticmethod
+    async def pay_for_query(db: AsyncSession, wallet_address: str, cost: int, allow_free_quota: bool = True) -> bool:
+        """Facade that either calls the local DB or the Remote Treasury."""
+        if TREASURY_URL:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{TREASURY_URL}/api/v1/treasury/pay_query",
+                        json={"wallet_address": wallet_address, "cost": cost, "allow_free_quota": allow_free_quota},
+                        headers=get_treasury_headers(),
+                        timeout=5.0
+                    )
+                if resp.status_code == 200:
+                    logger.info(f"[REMOTE] Successfully charged {wallet_address} via Treasury.")
+                    return True
+                else:
+                    logger.warning(f"[REMOTE] Treasury rejected payment for {wallet_address}: {resp.text}")
+                    return False
+            except Exception as e:
+                logger.error(f"[REMOTE] Failed to connect to Treasury: {e}")
+                return False
+        else:
+            return await TokenomicsService.pay_for_query_local(db, wallet_address, cost, allow_free_quota)
+
+    @staticmethod
     async def process_search_query_rewards(db: AsyncSession, client_pubkey: str, relay_pubkey: str, feedo_node_pubkey: str, is_free: bool):
-        # If the query was free, we do not reward the relay or the node ("не помруть")
+        # We don't use this one actively right now, but keeping for Variant B compatibility
+        if is_free:
+            return
+        if relay_pubkey:
+            await TokenomicsService.reward_peer(db, relay_pubkey, amount=1, fraction=0.0, reason="search_relay_reward")
+        if feedo_node_pubkey:
+            await TokenomicsService.reward_peer(db, feedo_node_pubkey, amount=1, fraction=0.9, reason="search_node_reward")
+        await TokenomicsService.reward_peer(db, DEVELOPER_WALLET, amount=0, fraction=0.1, reason="search_protocol_tax")
+
+    @staticmethod
+    async def process_direct_client_search_rewards_local(db: AsyncSession, client_pubkey: str, feedo_node_pubkey: str, is_free: bool):
+        """
+        Rewards for Variant A (Direct Nostr Client API) - LOCAL DB.
+        """
         if is_free:
             return
             
-        # The query cost 3 satoshis.
-        # 1 satoshi -> relay_pubkey
-        # 2 satoshis -> feedo_node_pubkey (minus 5% tax)
-        # 5% of 2 satoshis = 0.1 satoshis -> developer
-        
-        if relay_pubkey:
-            await TokenomicsService.reward_peer(db, relay_pubkey, amount=1, fraction=0.0, reason="search_relay_reward")
-            
         if feedo_node_pubkey:
-            # Node gets 1.9 (1 integer, 0.9 fraction)
-            await TokenomicsService.reward_peer(db, feedo_node_pubkey, amount=1, fraction=0.9, reason="search_node_reward")
+            await TokenomicsService.reward_peer(db, feedo_node_pubkey, amount=1, fraction=0.9, reason="direct_search_node_reward")
             
-        # Developer tax: 0.1
-        await TokenomicsService.reward_peer(db, DEVELOPER_WALLET, amount=0, fraction=0.1, reason="search_protocol_tax")
+        await TokenomicsService.reward_peer(db, DEVELOPER_WALLET, amount=0, fraction=0.1, reason="direct_search_protocol_tax")
+
+    @staticmethod
+    async def process_direct_client_search_rewards(db: AsyncSession, client_pubkey: str, feedo_node_pubkey: str, is_free: bool):
+        """Facade that either calls the local DB or the Remote Treasury."""
+        if TREASURY_URL:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{TREASURY_URL}/api/v1/treasury/process_rewards",
+                        json={"client_pubkey": client_pubkey, "feedo_node_pubkey": feedo_node_pubkey, "is_free": is_free},
+                        headers=get_treasury_headers(),
+                        timeout=5.0
+                    )
+                if resp.status_code == 200:
+                    logger.info(f"[REMOTE] Successfully processed rewards via Treasury.")
+                else:
+                    logger.warning(f"[REMOTE] Treasury failed to process rewards: {resp.text}")
+            except Exception as e:
+                logger.error(f"[REMOTE] Failed to connect to Treasury for rewards: {e}")
+        else:
+            await TokenomicsService.process_direct_client_search_rewards_local(db, client_pubkey, feedo_node_pubkey, is_free)
 
     @staticmethod
     async def claim_tokens(db: AsyncSession, wallet_address: str, amount: int, min_threshold: int = 5000) -> bool:
@@ -106,10 +162,8 @@ class TokenomicsService:
 
     @staticmethod
     async def reward_query_hit(db: AsyncSession, author_pubkey: str, compute_node_pubkey: str, fee_amount: int):
-        # Simplistic split: 50% to author, 50% to compute node
         author_cut = fee_amount // 2
         compute_cut = fee_amount - author_cut
-        
         if author_pubkey:
             await TokenomicsService.reward_peer(db, author_pubkey, author_cut, reason="query_hit_author")
         if compute_node_pubkey:

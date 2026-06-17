@@ -44,6 +44,7 @@ class WithdrawRequest(BaseModel):
     wallet_address: str
     invoice_string: str
     amount: int
+    event: dict  # The Nostr event authorizing the withdrawal
 
 @router.post("/deposit/request")
 async def request_deposit(req: DepositRequest, request: Request, db: AsyncSession = Depends(get_db)):
@@ -148,8 +149,48 @@ async def webhook_handler(request: Request, db: AsyncSession = Depends(get_db)):
 @router.post("/withdraw")
 async def withdraw_funds(req: WithdrawRequest, db: AsyncSession = Depends(get_db)):
     """Node operators / Relay owners withdraw their internal balance to a real Lightning wallet."""
+    import json
+    import hashlib
+    import time
+    from feedo_parser.crypto_utils import verify_signature
     from lightning_service import LightningService
     from tokenomics_service import TokenomicsService
+    
+    # 1. Verify the Nostr Event
+    event = req.event
+    if not event or "pubkey" not in event or "sig" not in event:
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization event.")
+        
+    if event["pubkey"] != req.wallet_address:
+        raise HTTPException(status_code=401, detail="Pubkey mismatch in authorization event.")
+        
+    # Rebuild event ID to prevent spoofing
+    serialized = json.dumps([
+        0,
+        event.get("pubkey"),
+        event.get("created_at"),
+        event.get("kind"),
+        event.get("tags", []),
+        event.get("content", "")
+    ], separators=(',', ':'), ensure_ascii=False)
+    
+    expected_id = hashlib.sha256(serialized.encode('utf-8')).hexdigest()
+    if expected_id != event.get("id"):
+        raise HTTPException(status_code=401, detail="Event ID spoofing detected.")
+        
+    # Check signature
+    if not verify_signature(expected_id, event.get("sig"), event.get("pubkey")):
+        raise HTTPException(status_code=401, detail="Invalid Nostr signature.")
+        
+    # Prevent replay attacks: Check if invoice string is in the content and event is recent (within 5 minutes)
+    if req.invoice_string not in event.get("content", ""):
+        raise HTTPException(status_code=401, detail="Invoice not found in signed content.")
+        
+    now = int(time.time())
+    if abs(now - event.get("created_at", 0)) > 300:
+        raise HTTPException(status_code=401, detail="Authorization event expired (Replay protection).")
+
+    # 2. Process withdrawal
     if req.amount < 1000:
         raise HTTPException(status_code=400, detail="Minimum withdrawal is 1000 satoshis.")
         
@@ -170,6 +211,7 @@ async def withdraw_funds(req: WithdrawRequest, db: AsyncSession = Depends(get_db
         await db.commit()
         logger.error(f"Withdrawal failed. Refunded {req.amount} to {req.wallet_address}.")
         raise HTTPException(status_code=500, detail="Failed to pay lightning invoice. Funds refunded.")
+
 @router.get("/topup", response_class=HTMLResponse)
 async def get_topup_page():
     """Serves the Web UI for Lightning Top Up."""

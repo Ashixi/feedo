@@ -296,9 +296,11 @@ app = FastAPI(title="Feedo P2P Gateway", lifespan=lifespan)
 
 from api_v1.router import api_v1_router
 from api_v1.wallet import router as wallet_router
+from api_v1.treasury import router as treasury_router
 
 app.include_router(api_v1_router, prefix="/api/v1")
 app.include_router(wallet_router, prefix="/api/v1/wallet", tags=["Wallet"])
+app.include_router(treasury_router, prefix="/api/v1/treasury", tags=["Treasury"])
 
 app.add_middleware(
     CORSMiddleware,
@@ -932,7 +934,28 @@ async def proxy_local_upload_media(file: UploadFile = File(...), db: AsyncSessio
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach Rust core: {e}")
 
+ACTIVE_NETWORK_PEERS = {}
 
+@app.post("/internal/p2p/register_peer")
+async def register_peer(request: Request):
+    data = await request.json()
+    pubkey = data.get("pubkey_hex")
+    api_url = data.get("api_url")
+    timestamp = data.get("timestamp")
+    sig = data.get("sig")
+    
+    if pubkey and api_url and sig:
+        ACTIVE_NETWORK_PEERS[pubkey] = {
+            "pubkey": pubkey,
+            "api_url": api_url,
+            "timestamp": timestamp,
+            "sig": sig
+        }
+    return {"status": "ok"}
+
+@app.get("/api/v1/network/peers")
+async def get_network_peers():
+    return list(ACTIVE_NETWORK_PEERS.values())
 
 @app.post("/internal/p2p_receive")
 async def receive_from_p2p(request: Request, db: AsyncSession = Depends(get_db)):
