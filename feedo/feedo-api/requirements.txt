@@ -32,4 +32,6 @@ protobuf
 scikit-learn
 psutil
 Pillow
-einops
+einops
+optimum
+onnxruntime

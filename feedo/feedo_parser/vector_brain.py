@@ -18,8 +18,8 @@ from PIL import Image
 
 class VectorBrain:
     def __init__(self, db_path="./lancedb_data"):
-        print("🧠 Завантаження ML-моделі (Alibaba-NLP/gte-multilingual-base) в економному режимі (FP16)...")
-        self.model = SentenceTransformer('Alibaba-NLP/gte-multilingual-base', model_kwargs={"torch_dtype": torch.float16}, trust_remote_code=True)
+        print("🧠 Завантаження ML-моделі (intfloat/multilingual-e5-small) через ONNX Runtime...")
+        self.model = SentenceTransformer('intfloat/multilingual-e5-small', backend="onnx")
         print("👁️ Завантаження Multimodal-моделі (clip-ViT-B-32)...")
         self.image_model = SentenceTransformer('clip-ViT-B-32', model_kwargs={"torch_dtype": torch.float16})
         self.db = lancedb.connect(db_path)
@@ -31,7 +31,7 @@ class VectorBrain:
         schema = pa.schema([
             pa.field("post_id", pa.int32()),
             pa.field("hash_id", pa.string()),
-            pa.field("vector", pa.list_(pa.float32(), 768)),
+            pa.field("vector", pa.list_(pa.float32(), 384)),
             pa.field("image_vector", pa.list_(pa.float32(), 512)),
             pa.field("timestamp", pa.float64()),
             pa.field("source_type", pa.string()),
@@ -50,7 +50,7 @@ class VectorBrain:
         except ValueError:
             self.table = self.db.open_table(self.table_name)
             vector_field = self.table.schema.field("vector")
-            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 768 or "item_type" not in self.table.schema.names:
+            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 384 or "item_type" not in self.table.schema.names:
                 print("⚠️ Схема LanceDB змінилася. Перестворюємо таблицю...")
                 self.db.drop_table(self.table_name)
                 self.table = self.db.create_table(self.table_name, schema=schema)
@@ -59,6 +59,8 @@ class VectorBrain:
         
         self.emb_cache = OrderedDict()
         self.max_emb_cache = 10000
+        
+        self.inserts_since_optimize = 0
         
         self.search_cache = {}
         self.max_search_cache = 2000
@@ -90,8 +92,8 @@ class VectorBrain:
             raise ValueError(f"Vector must be a list of floats, got {type(vector)!r}")
 
         coerced = [float(v) for v in vector]
-        if len(coerced) != 768:
-            raise ValueError(f"Vector must have exactly 768 dimensions, got {len(coerced)}")
+        if len(coerced) != 384:
+            raise ValueError(f"Vector must have exactly 384 dimensions, got {len(coerced)}")
         return coerced
 
     def is_gibberish(self, text: str) -> bool:
@@ -102,6 +104,12 @@ class VectorBrain:
         entropy = -sum(count/lns * math.log2(count/lns) for count in p.values())
         return entropy < 2.0 or entropy > 6.5
 
+    def chunk_text(self, text: str, max_words: int = 350) -> list[str]:
+        words = text.split()
+        if len(words) <= max_words:
+            return [text]
+        return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
+
     def get_embedding(self, text: str, is_query: bool = False) -> list[float]:
         if text in self.emb_cache:
             self.emb_cache.move_to_end(text)
@@ -111,19 +119,28 @@ class VectorBrain:
         self._cache_emb_set(text, vec)
         return vec
 
-    def get_embeddings_batch(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
-        results = [None] * len(texts)
+    def get_embeddings_batch(self, texts: list[str], batch_size: int = 32) -> list[list[list[float]]]:
+        results = []
+        all_chunks_flat = []
+        chunk_counts = []
+        
+        for text in texts:
+            chunks = self.chunk_text(text)
+            chunk_counts.append(len(chunks))
+            all_chunks_flat.extend(chunks)
+            
+        computed_flat = [None] * len(all_chunks_flat)
         to_compute_idx = []
         to_compute_texts = []
         
-        for i, text in enumerate(texts):
-            if text in self.emb_cache:
-                self.emb_cache.move_to_end(text)
-                results[i] = self.emb_cache[text]
+        for i, chunk in enumerate(all_chunks_flat):
+            if chunk in self.emb_cache:
+                self.emb_cache.move_to_end(chunk)
+                computed_flat[i] = self.emb_cache[chunk]
             else:
                 to_compute_idx.append(i)
-                to_compute_texts.append(text)
-        
+                to_compute_texts.append(chunk)
+                
         if to_compute_texts:
             prefixed_texts = ["passage: " + t for t in to_compute_texts]
             computed = self.model.encode(
@@ -133,11 +150,25 @@ class VectorBrain:
                 show_progress_bar=False
             ).tolist()
             
-            for idx, text, vec in zip(to_compute_idx, to_compute_texts, computed):
-                results[idx] = vec
-                self._cache_emb_set(text, vec)
+            for idx, chunk, vec in zip(to_compute_idx, to_compute_texts, computed):
+                computed_flat[idx] = vec
+                self._cache_emb_set(chunk, vec)
                 
+        offset = 0
+        for count in chunk_counts:
+            results.append(computed_flat[offset:offset + count])
+            offset += count
+            
         return results
+
+    def optimize_index(self):
+        try:
+            if len(self.table) >= 500:
+                print("⚡ Оптимізація LanceDB: Створення INT8 індексу...")
+                self.table.create_index(metric="cosine", vector_column_name="vector", num_partitions=256, num_sub_vectors=96, replace=True)
+                print("✅ Індекс успішно створено (Квантизація увімкнена).")
+        except Exception as e:
+            print(f"⚠️ Не вдалося створити індекс LanceDB: {e}")
 
     def find_duplicate_by_vector(self, vector: list[float], threshold: float = 0.95, hours: int = 24) -> str | None:
         cutoff_time = time.time() - (hours * 3600)
@@ -206,6 +237,11 @@ class VectorBrain:
             "geo": geo or "",
             "relay_url": relay_url or ""
         }])
+        
+        self.inserts_since_optimize += 1
+        if self.inserts_since_optimize >= 500:
+            self.inserts_since_optimize = 0
+            self.executor.submit(self.optimize_index)
 
     def get_image_embedding(self, image_url: str) -> list[float]:
         try:
@@ -226,8 +262,8 @@ class VectorBrain:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self.executor, self.get_embedding, text, is_query)
 
-    async def get_embeddings_batch_async(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
-        loop = asyncio.get_event_loop()
+    async def get_embeddings_batch_async(self, texts: list[str], batch_size: int = 32) -> list[list[list[float]]]:
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self.executor, self.get_embeddings_batch, texts, batch_size)
 
     async def find_duplicate_async(self, text: str, threshold: float = 0.95, hours: int = 24) -> str | None:

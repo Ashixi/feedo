@@ -219,7 +219,7 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                         exact_match = p_data.pop("exact_match")
                         parent_id = None
                         skip_dht_upload = False
-                        vector = None
+                        vectors = None
                         source_id = None
     
                         if is_rss:
@@ -239,9 +239,15 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                                 len(p_data.get("text_content") or ""),
                             )
                         else:
-                            vector = chunk_embeddings[emb_idx]
+                            vectors = chunk_embeddings[emb_idx] if chunk_embeddings else []
                             emb_idx += 1
-                            parent_hash = brain.find_duplicate_by_vector(vector, threshold=0.95, hours=24)
+                            parent_hash = None
+                            for vec in vectors:
+                                p_hash = brain.find_duplicate_by_vector(vec, threshold=0.95, hours=24)
+                                if p_hash:
+                                    parent_hash = p_hash
+                                    break
+                                    
                             parent_id = None
                             if parent_hash:
                                 stmt_parent_check = select(Post.id).where(Post.hash_id == parent_hash)
@@ -302,7 +308,7 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                         await db.flush()
                         pending_inserts += 1
     
-                        if vector is not None and not parent_id and source_type != "media_blob":
+                        if vectors and not parent_id and source_type != "media_blob":
                             geo = (p_data.get("metadata_") or {}).get("geo", "")
                             
                             # Multimodal Image Vectorization
@@ -322,17 +328,18 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                                 logger.info(f"📸 Знайдено зображення для векторизації: {img_url}")
                                 image_vector = await brain.get_image_embedding_async(img_url)
                                 
-                            brain.add_vector_by_emb(
-                                post_id=new_post.id,
-                                hash_id=new_post.hash_id,
-                                vector=vector,
-                                source_type=source_type,
-                                item_type=item_type,
-                                language=new_post.language or "",
-                                geo=geo,
-                                relay_url=relay_url or "",
-                                image_vector=image_vector
-                            )
+                            for vec in vectors:
+                                brain.add_vector_by_emb(
+                                    post_id=new_post.id,
+                                    hash_id=new_post.hash_id,
+                                    vector=vec,
+                                    source_type=source_type,
+                                    item_type=item_type,
+                                    language=new_post.language or "",
+                                    geo=geo,
+                                    relay_url=relay_url or "",
+                                    image_vector=image_vector
+                                )
     
                         # logger.info(f"Трансляція нового посту з {source_type} у мережу Feedo...")
                         # await broadcast_to_p2p(p_data, skip_dht_upload=skip_dht_upload)
