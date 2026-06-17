@@ -158,7 +158,7 @@ To prevent client developers from writing new code, we built the **Feedo Proxy**
 For modern clients who want to use a direct API (without WebSocket hacks) and completely decentralized search, we offer **Direct Integration**.
 
 ### The Centralization Problem
-If the developer of Amethyst simply hardcoded `https://api.feedo.space` into their app, it would violate the principles of decentralization. If that server goes down, search breaks for everyone.
+If the developer simply hardcoded `https://api.feedo.space` into their app, it would violate the principles of decentralization. If that server goes down, search breaks for everyone.
 
 ### The Solution: Feedo Tracker (Spider) 🕷️
 To solve this problem, we created a P2P gossip ecosystem:
@@ -230,5 +230,4 @@ If you want full control and the speed of a REST API:
    ```
    This array of objects is completely compatible with existing Nostr client parsers, so you can render them directly in the news feed.
 
----
-*Documentation generated as part of the Feedo Layer 3 Ledger architecture.*
+
