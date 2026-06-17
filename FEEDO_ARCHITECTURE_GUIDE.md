@@ -134,8 +134,6 @@ You do not need to download the entire source code. Everything runs via pre-buil
    # Your node's Nostr Pubkey, where earned satoshis for searches will be credited (95% of revenue)
    NODE_WALLET_ADDRESS=your_nostr_pubkey_for_node
 
-   # Alby token (getalby.com) for generating and paying invoices
-   ALBY_BEARER_TOKEN=your_alby_access_token_here
 
    # If using your own LNBits instead of Alby:
    # LNBITS_URL=https://legend.lnbits.com
