@@ -195,6 +195,20 @@ async def background_centroid_updater():
             
         await asyncio.sleep(60)
 
+async def background_stats_updater():
+    await asyncio.sleep(10)
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                total_posts = await session.scalar(select(func.count(Post.id))) or 0
+                rust_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish")
+                stats_url = rust_url.replace("/local/publish", "/local/set_stats")
+                async with httpx.AsyncClient() as client:
+                    await client.post(stats_url, json={"indexed_posts": total_posts}, timeout=5.0)
+        except Exception as e:
+            logger.warning(f"Failed to update stats in Rust core: {e}")
+        await asyncio.sleep(60)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -254,6 +268,7 @@ async def lifespan(app: FastAPI):
     
     asyncio.create_task(node_heartbeat_loop())
     asyncio.create_task(background_centroid_updater())
+    asyncio.create_task(background_stats_updater())
     
     try:
         BOOTSTRAP_NODES_RAW = os.getenv("BOOTSTRAP_NODES", "")
@@ -280,7 +295,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Feedo P2P Gateway", lifespan=lifespan)
 
 from api_v1.router import api_v1_router
+from api_v1.wallet import router as wallet_router
+
 app.include_router(api_v1_router, prefix="/api/v1")
+app.include_router(wallet_router, prefix="/api/v1/wallet", tags=["Wallet"])
 
 app.add_middleware(
     CORSMiddleware,
@@ -299,7 +317,9 @@ async def get_db():
 
 @app.get("/explorer/stats")
 async def get_explorer_stats(db: AsyncSession = Depends(get_db)):
-    active_nodes = 0
+    active_nodes = 1
+    network_health = "Healthy"
+
     try:
         rust_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish")
         base_rust_url = rust_url.rsplit("/local/", 1)[0]
@@ -308,16 +328,20 @@ async def get_explorer_stats(db: AsyncSession = Depends(get_db)):
             async with session.get(network_info_url, timeout=2.0) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    if data and "total_nodes" in data:
-                        active_nodes = data["total_nodes"]
+                    if data:
+                        active_nodes = data.get("total_nodes", 1)
+                        network_health = "Healthy" if active_nodes > 1 else "Syncing"
     except Exception as e:
         logger.warning(f"Failed to fetch stats from Rust core: {e}")
 
-    if active_nodes == 0:
-        active_nodes = await db.scalar(select(func.count(User.id)).where(User.api_url.is_not(None))) or 0
+    total_posts = await db.scalar(select(func.count(Post.id))) or 0
 
-    total_posts = await db.scalar(select(func.count(Post.id)))
-    return {"active_nodes": active_nodes, "indexed_posts": total_posts or 0, "vector_sync": 99.9}
+    return {
+        "active_nodes": active_nodes,
+        "indexed_posts": total_posts,
+        "network_health": network_health
+    }
+
 
 def _normalize_wallet_address(wallet_address: str) -> str:
     cleaned = wallet_address.strip().lower()

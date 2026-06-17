@@ -39,6 +39,7 @@ services:
       - NODE_WALLET_PRIVATE_KEY=${NODE_WALLET_PRIVATE_KEY}
       - POLYGON_RPC_URL=${POLYGON_RPC_URL:-""}
       - BOOTSTRAP_NODES=${BOOTSTRAP_NODES:-""}
+      - ALBY_BEARER_TOKEN=${ALBY_BEARER_TOKEN:-""}
     depends_on:
       db:
         condition: service_healthy

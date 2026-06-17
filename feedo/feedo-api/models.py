@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 import uuid
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey, Table, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, Float, String, Text, DateTime, Enum, ForeignKey, Table, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship, foreign  
 from sqlalchemy import JSON
 from database import Base
@@ -183,7 +183,20 @@ class CreditBalance(Base):
     id = Column(Integer, primary_key=True)
     wallet_address = Column(String, nullable=False, index=True, unique=True)
     balance = Column(Integer, default=0) 
+    accumulated_fractions = Column(Float, default=0.0)
+    free_search_queries = Column(Integer, default=10)
     updated_at = Column(DateTime, default=_naive_utc_now, onupdate=_naive_utc_now)
+
+
+class LightningInvoice(Base):
+    __tablename__ = "lightning_invoices"
+    id = Column(Integer, primary_key=True)
+    payment_hash = Column(String, nullable=False, unique=True, index=True)
+    wallet_address = Column(String, nullable=False, index=True) # User's pubkey
+    amount = Column(Integer, nullable=False)
+    status = Column(String, default="PENDING") # PENDING, PAID, EXPIRED
+    invoice_string = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_naive_utc_now)
 
 
 class CreditTransaction(Base):
