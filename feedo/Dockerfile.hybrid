@@ -35,7 +35,7 @@ COPY --from=rust-builder /build/feedo-core/target/release/feedo-nostr /app/feedo
 
 # Копіюємо скрипт запуску для гібридної ноди
 COPY start-hybrid.sh /app/start-hybrid.sh
-RUN chmod +x /app/start-hybrid.sh
+RUN tr -d '\r' < /app/start-hybrid.sh > /app/start-hybrid-clean.sh && mv /app/start-hybrid-clean.sh /app/start-hybrid.sh && chmod +x /app/start-hybrid.sh
 
 # Відкриваємо порти (8040 - FastAPI, 4001 - P2P мережа, 8080 - Nostr Relay)
 EXPOSE 8040 4001 8080

@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch --index-url https://download.pytorch.org/whl/cpu
-sentence-transformers
+sentence-transformers[onnx]
 fastapi
 uvicorn
 sqlalchemy>=2.0
@@ -31,3 +31,7 @@ google-auth-httplib2
 protobuf
 scikit-learn
 psutil
+Pillow
+einops
+optimum
+onnxruntime

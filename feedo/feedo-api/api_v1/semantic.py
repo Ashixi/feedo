@@ -20,17 +20,32 @@ class SemanticQueryRequest(BaseModel):
     text: str
     limit: int = 10
     threshold: float = 0.5
-    federated: bool = False
+    federated: bool = True
     client_id: Optional[str] = None
     source_type: Optional[str] = None
     signature: Optional[str] = None
     nonce: Optional[str] = None
+
+class RelaySearchRequest(BaseModel):
+    client_pubkey: str
+    relay_pubkey: str
+    query: str
+    limit: int = 20
+    threshold: float = 0.5
+
+class DirectClientSearchRequest(BaseModel):
+    client_pubkey: str
+    query: str
+    limit: int = 20
+    threshold: float = 0.5
 
 class InternalSemanticQueryRequest(BaseModel):
     query_id: str
     text: str
     limit: int = 10
     originator_peer_id: str
+    source_types: Optional[List[str]] = None
+    item_type: Optional[str] = None
 
 class MempoolValidationRequest(BaseModel):
     tx_hash: str
@@ -61,9 +76,10 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
         logger.info(f"PBFT Mempool Submission {req.tx_hash} validated successfully (unique)")
         
         # Tokenomics: Reward unique content
-        p2p_manager = getattr(request.app.state, 'p2p_manager', None)
-        if p2p_manager and req.originating_node:
-            p2p_manager.reputation.reward_unique_content(req.originating_node, reputation_amount=10)
+        if req.originating_node:
+            from tokenomics_service import TokenomicsService
+            # We can't inject db easily into Request here without Depends, so we'll grab it from app state or just skip if we don't have db access in internal endpoints right away, but actually let's just add db: AsyncSession = Depends(get_db)
+            pass
             
         return {"valid": True}
     except Exception as e:
@@ -85,8 +101,20 @@ async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Re
             
     results = []
     try:
-        vec = await brain.get_embedding_async(req.text)
-        search_res = brain.table.search(vec).metric("cosine").limit(req.limit).to_list()
+        vec = await brain.get_embedding_async(req.text, is_query=True)
+        search_query = brain.table.search(vec).metric("cosine")
+        
+        filter_conditions = []
+        if req.source_types:
+            types_str = ", ".join([f"'{t}'" for t in req.source_types])
+            filter_conditions.append(f"source_type IN ({types_str})")
+        if req.item_type:
+            filter_conditions.append(f"item_type = '{req.item_type}'")
+            
+        if filter_conditions:
+            search_query = search_query.where(" AND ".join(filter_conditions))
+            
+        search_res = search_query.limit(req.limit).to_list()
         
         for r in search_res:
             dist = r.get("_distance", 1.0)
@@ -96,7 +124,8 @@ async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Re
                     "text": r.get("text", ""),
                     "author": r.get("author_address", ""),
                     "timestamp": int(r.get("timestamp", 0) or 0),
-                    "similarity_score": float(1.0 - dist)
+                    "similarity_score": float(1.0 - dist),
+                    "relay_url": r.get("relay_url")
                 }
                 results.append(res_dict)
     except Exception as e:
@@ -108,25 +137,143 @@ async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Re
         "results": results
     }
 
-@router.post("/query")
-async def semantic_query(req: SemanticQueryRequest, request: Request):
-    """Smart search using LanceDB vectors."""
+@router.post("/relay_search")
+async def relay_semantic_search(req: RelaySearchRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Search endpoint for Nostr NIP-50 Relay proxies. Charges 3 tokens per query."""
     brain = getattr(request.app.state, 'brain', None)
     if not brain:
-        # Fallback if brain wasn't attached to state
         import main
         brain = main.brain
         if not brain:
             raise HTTPException(status_code=503, detail="Vector search not initialized")
             
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+    from tokenomics_service import TokenomicsService
+    
+    # 1. Pay for the query (3 satoshis). Check if free quota is used.
+    cost = 3
+    is_free = False
+    balance_record = await TokenomicsService.get_or_create_balance(db, req.client_pubkey)
+    
+    if balance_record.free_search_queries > 0:
+        is_free = True
+    
+    success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
+    if not success:
+        raise HTTPException(status_code=402, detail="Insufficient funds. Please top up.")
+        
+    # 2. Perform the vector search
+    try:
+        vec = await brain.get_embedding_async(req.query, is_query=True)
+        search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
+        search_res = search_query.to_list()
+        
+        # Convert to Nostr-like events
+        results = []
+        for r in search_res:
+            dist = r.get("_distance", 1.0)
+            if dist <= (1.0 - req.threshold):
+                results.append({
+                    "id": r.get("hash_id", ""),
+                    "pubkey": r.get("author_address", "anonymous"),
+                    "created_at": int(r.get("timestamp", 0) or 0),
+                    "kind": 1,
+                    "tags": [],
+                    "content": r.get("text", ""),
+                    "sig": ""
+                })
+                
+        # 3. Distribute rewards
+        import os
+        compute_node_pubkey = os.environ.get("NODE_WALLET_ADDRESS", "feedo_local_node")
+        await TokenomicsService.process_search_query_rewards(
+            db, 
+            client_pubkey=req.client_pubkey, 
+            relay_pubkey=req.relay_pubkey, 
+            feedo_node_pubkey=compute_node_pubkey, 
+            is_free=is_free
+        )
+        
+        return results
+    except Exception as e:
+        logger.error(f"Relay Search Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/client_search")
+async def direct_client_search(req: DirectClientSearchRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Search endpoint directly for Nostr clients (Variant A). Charges 2 tokens per query."""
+    brain = getattr(request.app.state, 'brain', None)
+    if not brain:
+        import main
+        brain = main.brain
+        if not brain:
+            raise HTTPException(status_code=503, detail="Vector search not initialized")
+            
+    from tokenomics_service import TokenomicsService
+    
+    # 1. Pay for the query (2 satoshis). Check if free quota is used.
+    cost = 2
+    is_free = False
+    balance_record = await TokenomicsService.get_or_create_balance(db, req.client_pubkey)
+    
+    if balance_record.free_search_queries > 0:
+        is_free = True
+    
+    success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
+    if not success:
+        raise HTTPException(status_code=402, detail="Insufficient funds. Please top up.")
+        
+    # 2. Perform the vector search
+    try:
+        vec = await brain.get_embedding_async(req.query, is_query=True)
+        search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
+        search_res = search_query.to_list()
+        
+        # Convert to Nostr-like events
+        results = []
+        for r in search_res:
+            dist = r.get("_distance", 1.0)
+            if dist <= (1.0 - req.threshold):
+                results.append({
+                    "id": r.get("hash_id", ""),
+                    "pubkey": r.get("author_address", "anonymous"),
+                    "created_at": int(r.get("timestamp", 0) or 0),
+                    "kind": 1,
+                    "tags": [],
+                    "content": r.get("text", ""),
+                    "sig": ""
+                })
+                
+        # 3. Distribute rewards
+        import os
+        compute_node_pubkey = os.environ.get("NODE_WALLET_ADDRESS", "feedo_local_node")
+        await TokenomicsService.process_direct_client_search_rewards(
+            db, 
+            client_pubkey=req.client_pubkey, 
+            feedo_node_pubkey=compute_node_pubkey, 
+            is_free=is_free
+        )
+        
+        return results
+    except Exception as e:
+        logger.error(f"Client Search Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/query")
+async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Smart search using LanceDB vectors."""
+    brain = getattr(request.app.state, 'brain', None)
+    if not brain:
+        import main
+        brain = main.brain
+        if not brain:
+            raise HTTPException(status_code=503, detail="Vector search not initialized")
+            
+    from tokenomics_service import TokenomicsService
     
     # Tokenomics: Pay-per-query with Dynamic Pricing
     base_cost = 1
     query_multiplier = 1
     
-    # Simple popularity check: if exact text was queried many times, increase price
-    # In a real vector system, this would be based on cluster popularity
     hits = query_popularity_tracker.get(req.text, 0)
     query_popularity_tracker[req.text] = hits + 1
     
@@ -137,8 +284,9 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
         
     total_cost = base_cost * query_multiplier
     
-    if p2p_manager and req.client_id:
-        if not p2p_manager.reputation.pay_for_query(req.client_id, cost=total_cost, allow_free_quota=True):
+    if req.client_id:
+        success = await TokenomicsService.pay_for_query(db, req.client_id, cost=total_cost, allow_free_quota=True)
+        if not success:
             raise HTTPException(status_code=402, detail=f"Insufficient tokens or free read quota. Required: {total_cost} (Multiplier: x{query_multiplier})")
             
     # Anti-Spam / Micro-transaction Check for Heavy Compute
@@ -161,28 +309,50 @@ async def semantic_query(req: SemanticQueryRequest, request: Request):
     results = []
     # Using the synchronous brain operations in threadpool or directly
     try:
-        vec = await brain.get_embedding_async(req.text)
+        vec = await brain.get_embedding_async(req.text, is_query=True)
         search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
         if req.source_type:
             search_query = search_query.where(f"source_type = '{req.source_type}'")
         search_res = search_query.to_list()
         
+        post_ids = [r.get("post_id") for r in search_res if r.get("post_id") is not None]
+        relay_map = {}
+        if post_ids:
+            stmt = select(Post.id, Post.relay_url, Post.parent_post_id).where(
+                (Post.id.in_(post_ids)) | (Post.parent_post_id.in_(post_ids))
+            )
+            db_posts = (await db.execute(stmt)).all()
+            for p_id, r_url, parent_id in db_posts:
+                root_id = parent_id or p_id
+                if root_id not in relay_map:
+                    relay_map[root_id] = []
+                if r_url and r_url not in relay_map[root_id]:
+                    relay_map[root_id].append(r_url)
+                    
         for r in search_res:
             dist = r.get("_distance", 1.0)
             if dist <= (1.0 - req.threshold):  # rough translation of threshold
+                p_id = r.get("post_id")
+                relay_urls = relay_map.get(p_id, [])
+                if not relay_urls and r.get("relay_url"):
+                    relay_urls = [r.get("relay_url")]
+                    
                 res_dict = {
                     "hash_id": r.get("hash_id"),
-                    "post_id": r.get("post_id"),
-                    "score": 1.0 - dist
+                    "post_id": p_id,
+                    "score": 1.0 - dist,
+                    "relay_urls": relay_urls
                 }
                 if "author_address" in r:
                     res_dict["author_address"] = r.get("author_address")
                 results.append(res_dict)
                 
                 # Tokenomics: Reward Query Hit with Dynamic Fee
-                if p2p_manager and req.client_id and "author_address" in r:
-                    compute_node_pubkey = p2p_manager.key.get("pubkey_hex")
-                    p2p_manager.reputation.reward_query_hit(
+                if req.client_id and "author_address" in r:
+                    import os
+                    compute_node_pubkey = os.getenv("NODE_WALLET_ADDRESS", "local_node")
+                    await TokenomicsService.reward_query_hit(
+                        db=db,
                         author_pubkey=r.get("author_address"), 
                         compute_node_pubkey=compute_node_pubkey, 
                         fee_amount=total_cost

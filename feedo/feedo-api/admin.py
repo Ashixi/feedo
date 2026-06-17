@@ -156,12 +156,11 @@ async def get_p2p_reputation(admin_wallet: str, timestamp: int, signature: str, 
     await verify_admin(admin_wallet, timestamp, signature, db)
     
     try:
-        from main import app
-        p2p = getattr(app.state, 'p2p_manager', None)
-        if p2p and hasattr(p2p, "reputation"):
-            return {"balances": p2p.reputation._balances}
-        else:
-            return {"message": "ReputationManager not found in P2PManager"}
+        from tokenomics_service import TokenomicsService
+        # Return global reputation/balances or paginated version.
+        # For now, let's just return a placeholder or query the top balances.
+        # This will be fully implemented when Admin dashboard is built out.
+        return {"message": "Reputation is now handled by TokenomicsService and PostgreSQL"}
     except Exception as e:
         logger.error(f"Failed to fetch p2p reputation: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch P2P reputation")

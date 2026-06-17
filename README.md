@@ -140,7 +140,7 @@ docker-compose up --build
 ### Initialization
 
 After starting, the node automatically:
-1.  Generates a new ED25519 key pair if missing (however, it is highly recommended to generate your own keys using the 'feedo/generate_keys.py' script and save them to your '.env' file).
+1.  Generates a new ED25519 key pair if missing (however, it is highly recommended to generate your own keys using the 'keys.py' script and save them to your '.env' file).
 2.  Opens a TCP/UDP (QUIC) port for `libp2p`.
 3.  Loads `Kademlia` bootstrap addresses.
 4.  Creates local directories for the `sled` database and `LanceDB`.
@@ -299,7 +299,7 @@ docker-compose up --build
 ### Ініціалізація
 
 Після запуску нода автоматично:
-1.  Генерує нову пару ключів ED25519, якщо вона відсутня (проте, наполегливо рекомендується генерувати власні ключі за допомогою скрипта 'feedo/generate_keys.py' та зберігати їх у '.env' файлі).
+1.  Генерує нову пару ключів ED25519, якщо вона відсутня (проте, наполегливо рекомендується генерувати власні ключі за допомогою скрипта 'keys.py' та зберігати їх у '.env' файлі).
 2.  Відкриває порт TCP/UDP (QUIC) для `libp2p`.
 3.  Завантажує `Kademlia` bootstrap-адреси.
 4.  Створює локальні директорії для `sled` бази та `LanceDB`.

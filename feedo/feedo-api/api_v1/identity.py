@@ -73,11 +73,8 @@ async def announce_identity(req: AnnounceRequest, request: Request, db: AsyncSes
 
     await db.commit()
     
-    # Broadcast to P2P
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p:
-        pass # Handle P2P broadcast logic here
-        
+    # P2P Broadcasting should be handled by feedo-core via gossipsub now
+    # We just save it locally and rely on the Node's background sync
     return {"status": "success", "wallet_address": wallet_address}
 
 @router.get("/")

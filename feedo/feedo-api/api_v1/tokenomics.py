@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import Dict
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_db
+from tokenomics_service import TokenomicsService
 
 router = APIRouter()
 
@@ -13,46 +16,35 @@ class ClaimRequest(BaseModel):
     amount: int
 
 @router.get("/{pubkey}")
-async def get_tokenomics(pubkey: str, request: Request):
+async def get_tokenomics(pubkey: str, db: AsyncSession = Depends(get_db)):
     """Get the full balance and reputation struct for a given user."""
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
-    if not p2p_manager:
-        raise HTTPException(status_code=503, detail="P2P Manager not initialized")
-        
-    balances = p2p_manager.reputation.get_balances(pubkey)
+    balances = await TokenomicsService.get_balances(db, pubkey)
     return {"pubkey": pubkey, "balances": balances}
 
 @router.post("/deposit")
-async def deposit_tokens(req: DepositRequest, request: Request):
+async def deposit_tokens(req: DepositRequest, db: AsyncSession = Depends(get_db)):
     """Mock endpoint to simulate purchasing tokens for testing AI Consumer flows."""
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
-    if not p2p_manager:
-        raise HTTPException(status_code=503, detail="P2P Manager not initialized")
-        
-    p2p_manager.reputation.reward_peer(req.pubkey, req.amount)
-    
+    await TokenomicsService.reward_peer(db, req.pubkey, req.amount, reason="deposit")
+    balances = await TokenomicsService.get_balances(db, req.pubkey)
     return {
         "status": "success",
         "message": f"Deposited {req.amount} tokens to {req.pubkey}",
-        "balances": p2p_manager.reputation.get_balances(req.pubkey)
+        "balances": balances
     }
 
 @router.post("/claim")
-async def claim_tokens(req: ClaimRequest, request: Request):
+async def claim_tokens(req: ClaimRequest, db: AsyncSession = Depends(get_db)):
     """Initiate withdrawal of off-chain tokens to smart contract."""
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
-    if not p2p_manager:
-        raise HTTPException(status_code=503, detail="P2P Manager not initialized")
-        
     # Standard threshold is 5000, we can use a smaller one for testing if needed
-    success = p2p_manager.reputation.claim_tokens(req.pubkey, req.amount, min_threshold=5000)
+    success = await TokenomicsService.claim_tokens(db, req.pubkey, req.amount, min_threshold=5000)
     
     if not success:
         raise HTTPException(status_code=400, detail="Insufficient funds or threshold not met for claim.")
         
+    balances = await TokenomicsService.get_balances(db, req.pubkey)
     return {
         "status": "success",
         "message": f"Successfully claimed {req.amount} tokens. Proceed to Smart Contract with Proof.",
         "proof": "mock_cryptographic_proof_signature",
-        "remaining_balances": p2p_manager.reputation.get_balances(req.pubkey)
+        "remaining_balances": balances
     }

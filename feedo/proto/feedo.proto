@@ -132,6 +132,7 @@ message SemanticSearchResultItem {
   string author = 3;
   uint64 timestamp = 4;
   float similarity_score = 5;
+  optional string relay_url = 6;
 }
 
 message SemanticSearchResult {

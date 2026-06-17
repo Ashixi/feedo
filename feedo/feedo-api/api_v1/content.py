@@ -88,11 +88,8 @@ async def get_content(hash_id: str, request: Request, db: AsyncSession = Depends
             "status": "finalized" if post.is_finalized else "mempool"
         }
         
-    # If not local, try fetching via DHT
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p:
-        # P2P fetching logic
-        pass
+    # If not local, we should fetch via feedo-core Rust DA layer in the future
+    # Currently handled asynchronously by gossipsub in the core
         
     raise HTTPException(status_code=404, detail="Content not found locally or in DHT")
 
@@ -115,9 +112,7 @@ async def get_content_status(hash_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/blob")
 async def upload_blob(request: Request, file: UploadFile = File(...), signature: str = Form(...)):
     """Upload heavy media. Returns blob_hash."""
-    upload_mgr = getattr(request.app.state, '_p2p_upload_manager', None)
-    if not upload_mgr:
-        raise HTTPException(status_code=503, detail="Upload manager not available")
+    # TODO: Pass blob to feedo-core for IPFS/Sharded DA storage
         
     file_bytes = await file.read()
     # Mocking actual save and getting hash
@@ -128,14 +123,15 @@ async def upload_blob(request: Request, file: UploadFile = File(...), signature:
     return {"blob_hash": blob_hash, "size": len(file_bytes)}
 
 @router.get("/blob/{blob_hash}")
-async def get_blob(blob_hash: str, request: Request, client_id: Optional[str] = None):
+async def get_blob(blob_hash: str, request: Request, client_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Stream media file. Retrieves from DHT if not in local cache."""
-    p2p_manager = getattr(request.app.state, 'p2p_manager', None)
+    from tokenomics_service import TokenomicsService
     
     # Tokenomics: Pay-per-download
     download_cost = 5 # arbitrary higher cost for blobs
-    if p2p_manager and client_id:
-        if not p2p_manager.reputation.pay_for_query(client_id, cost=download_cost, allow_free_quota=False):
+    if client_id:
+        success = await TokenomicsService.pay_for_query(db, client_id, cost=download_cost, allow_free_quota=False)
+        if not success:
             raise HTTPException(status_code=402, detail="Insufficient tokens for download.")
             
     cache_root = "/app/db" if os.path.isdir("/app/db") else "./db_data"
@@ -144,22 +140,17 @@ async def get_blob(blob_hash: str, request: Request, client_id: Optional[str] = 
     
     if os.path.exists(file_path):
         # Local hit: Reward the local node as the storage node
-        if p2p_manager and client_id:
-            local_pubkey = p2p_manager.key.get("pubkey_hex")
-            p2p_manager.reputation.reward_download_hit(
-                author_pubkey=None, # In a real scenario we need the blob metadata to know the author
-                routing_node_pubkey=local_pubkey,
-                storage_nodes=[local_pubkey],
-                fee_amount=download_cost
-            )
+        if client_id:
+            import os
+            local_pubkey = os.getenv("NODE_WALLET_ADDRESS", "local_node")
+            # In a real scenario we need the blob metadata to know the author
+            await TokenomicsService.reward_query_hit(db, None, local_pubkey, fee_amount=download_cost)
+            
         with open(file_path, "rb") as f:
             return Response(content=f.read(), media_type="application/octet-stream")
             
-    # Mocking DHT Fetch Tokenomics
-    # If DHT fails:
-    if p2p_manager:
-        # Example of slashing a node that failed to deliver
-        failed_node = "mock_failed_node_pubkey"
-        p2p_manager.reputation.slash_storage_node(failed_node, penalty_amount=10)
+    # If not found locally, we would query the Rust core
+    # For now, just slash a hypothetical failed node
+    # await TokenomicsService.slash_node(db, "failed_node", penalty_amount=10)
         
-    raise HTTPException(status_code=404, detail="Blob not found in local cache and DHT fetch failed")
+    raise HTTPException(status_code=404, detail="Blob not found in local cache and DA fetch failed")

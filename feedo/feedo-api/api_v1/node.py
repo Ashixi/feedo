@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import secrets
 import hashlib
 import psutil
+import os
 
 from database import get_db
 from models import ApiKey, ApiKeyRole, Post
@@ -23,7 +24,8 @@ async def get_node_health(request: Request, db: AsyncSession = Depends(get_db)):
         "python_api": "ok",
         "database": "unknown",
         "p2p": "unknown",
-        "vector_db": "unknown"
+        "vector_db": "unknown",
+        "treasury_url": os.environ.get("TREASURY_URL", "local")
     }
     
     # DB Check
@@ -34,9 +36,7 @@ async def get_node_health(request: Request, db: AsyncSession = Depends(get_db)):
         health["database"] = "error"
         
     # P2P Check
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p:
-        health["p2p"] = "ok"
+    health["p2p"] = "managed_by_rust_core"
         
     # Vector DB Check
     brain = getattr(request.app.state, 'brain', None)
@@ -60,10 +60,7 @@ async def get_node_metrics(request: Request, db: AsyncSession = Depends(get_db))
     
     total_posts = await db.scalar(select(func.count(Post.id)))
     
-    p2p_peers = 0
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if p2p and hasattr(p2p, "peer_registry"):
-        p2p_peers = len(p2p.peer_registry.peers)
+    p2p_peers = 0 # TODO: Fetch from Rust core
         
     return {
         "cpu_percent": cpu_usage,
@@ -75,20 +72,8 @@ async def get_node_metrics(request: Request, db: AsyncSession = Depends(get_db))
 @router.get("/peers")
 async def get_peers(request: Request):
     """List all connected gossipsub peers."""
-    p2p = getattr(request.app.state, 'p2p_manager', None)
-    if not p2p or not hasattr(p2p, "peer_registry"):
-        return {"peers": []}
-        
-    peers_info = []
-    for peer_id, info in p2p.peer_registry.peers.items():
-        peers_info.append({
-            "peer_id": peer_id,
-            "pubkey": info.get("pubkey"),
-            "last_seen": info.get("last_seen"),
-            "is_supernode": info.get("is_supernode", False)
-        })
-        
-    return {"peers": peers_info}
+    # TODO: Fetch from Rust core via HTTP
+    return {"peers": []}
 
 @router.post("/commercial/api_key")
 async def create_commercial_key(req: CreateCommercialKeyRequest, db: AsyncSession = Depends(get_db)):
@@ -112,4 +97,22 @@ async def create_commercial_key(req: CreateCommercialKeyRequest, db: AsyncSessio
         "status": "created",
         "api_key": raw_key, # Send raw key only once!
         "owner": req.owner_address
+    }
+
+@router.get("/network/sync_state/{source_type}")
+async def get_network_sync_state(source_type: str, db: AsyncSession = Depends(get_db)):
+    """Return local max timestamp for a source type to help new nodes sync cursor."""
+    stmt_last_post = select(func.max(Post.published_at)).where(Post.source_type == source_type)
+    last_post_date = (await db.execute(stmt_last_post)).scalar()
+    
+    timestamp = 0
+    if last_post_date:
+        import datetime
+        if last_post_date.tzinfo is None:
+            last_post_date = last_post_date.replace(tzinfo=datetime.timezone.utc)
+        timestamp = int(last_post_date.timestamp())
+        
+    return {
+        "source_type": source_type,
+        "max_timestamp": timestamp
     }

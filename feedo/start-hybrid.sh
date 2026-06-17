@@ -15,4 +15,9 @@ echo "🚀 Запуск Nostr Relay (NIP-01, 11, 50)..."
 echo "🚀 Запуск FastAPI (API + Monitor)..."
 python -m uvicorn main:app --host 0.0.0.0 --port 8040 &
 
+# Запускаємо Continuous Backfill Spider у фоні (чекаємо 10 сек, щоб FastAPI ініціалізував БД)
+echo "🕸️ Запуск Nostr Backfill Spider..."
+sleep 10
+python backfill_nostr.py --days 180 &
+
 wait -n
