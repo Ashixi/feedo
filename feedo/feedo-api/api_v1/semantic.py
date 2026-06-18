@@ -39,6 +39,12 @@ class DirectClientSearchRequest(BaseModel):
     limit: int = 20
     threshold: float = 0.5
 
+class VectorClientSearchRequest(BaseModel):
+    client_pubkey: str
+    vector: List[float]
+    limit: int = 20
+    threshold: float = 0.5
+
 class InternalSemanticQueryRequest(BaseModel):
     query_id: str
     text: str
@@ -53,7 +59,7 @@ class MempoolValidationRequest(BaseModel):
     text: str
 
 @router.post("/validate_uniqueness")
-async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
+async def validate_uniqueness(req: MempoolValidationRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Internal endpoint for Rust Core.
     Validates if text is semantically unique across the network.
@@ -78,8 +84,7 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request):
         # Tokenomics: Reward unique content
         if req.originating_node:
             from tokenomics_service import TokenomicsService
-            # We can't inject db easily into Request here without Depends, so we'll grab it from app state or just skip if we don't have db access in internal endpoints right away, but actually let's just add db: AsyncSession = Depends(get_db)
-            pass
+            await TokenomicsService.reward_unique_content(db, req.originating_node, reputation_amount=1)
             
         return {"valid": True}
     except Exception as e:
@@ -159,7 +164,9 @@ async def relay_semantic_search(req: RelaySearchRequest, request: Request, db: A
     
     success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
     if not success:
-        raise HTTPException(status_code=402, detail="Insufficient funds. Please top up.")
+        if not TokenomicsService.check_free_tier_rate_limit(req.client_pubkey):
+            raise HTTPException(status_code=429, detail="Free tier rate limit exceeded (5 req/min). Please top up balance for unlimited access.")
+        is_free = True
         
     # 2. Perform the vector search
     try:
@@ -220,7 +227,9 @@ async def direct_client_search(req: DirectClientSearchRequest, request: Request,
     
     success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
     if not success:
-        raise HTTPException(status_code=402, detail="Insufficient funds. Please top up.")
+        if not TokenomicsService.check_free_tier_rate_limit(req.client_pubkey):
+            raise HTTPException(status_code=429, detail="Free tier rate limit exceeded (5 req/min). Please top up balance for unlimited access.")
+        is_free = True
         
     # 2. Perform the vector search
     try:
@@ -258,6 +267,67 @@ async def direct_client_search(req: DirectClientSearchRequest, request: Request,
         logger.error(f"Client Search Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/client_search_vector")
+async def client_search_vector(req: VectorClientSearchRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Search endpoint for AI developers sending raw vectors. Charges only 1 token per query."""
+    brain = getattr(request.app.state, 'brain', None)
+    if not brain:
+        import main
+        brain = main.brain
+        if not brain:
+            raise HTTPException(status_code=503, detail="Vector search not initialized")
+            
+    from tokenomics_service import TokenomicsService
+    
+    # 1. Pay for the query (1 token, discounted). Check if free quota is used.
+    cost = 1
+    is_free = False
+    balance_record = await TokenomicsService.get_or_create_balance(db, req.client_pubkey)
+    
+    if balance_record.free_search_queries > 0:
+        is_free = True
+    
+    success = await TokenomicsService.pay_for_query(db, req.client_pubkey, cost=cost, allow_free_quota=True)
+    if not success:
+        if not TokenomicsService.check_free_tier_rate_limit(req.client_pubkey):
+            raise HTTPException(status_code=429, detail="Free tier rate limit exceeded (5 req/min). Please top up balance for unlimited access.")
+        is_free = True
+        
+    # 2. Perform the vector search directly using the provided vector
+    try:
+        search_query = brain.table.search(req.vector).metric("cosine").limit(req.limit)
+        search_res = search_query.to_list()
+        
+        # Convert to Nostr-like events
+        results = []
+        for r in search_res:
+            dist = r.get("_distance", 1.0)
+            if dist <= (1.0 - req.threshold):
+                results.append({
+                    "id": r.get("hash_id", ""),
+                    "pubkey": r.get("author_address", "anonymous"),
+                    "created_at": int(r.get("timestamp", 0) or 0),
+                    "kind": 1,
+                    "tags": [],
+                    "content": r.get("text", ""),
+                    "sig": ""
+                })
+                
+        # 3. Distribute rewards (we reuse direct client rewards)
+        import os
+        compute_node_pubkey = os.environ.get("NODE_WALLET_ADDRESS", "feedo_local_node")
+        await TokenomicsService.process_direct_client_search_rewards(
+            db, 
+            client_pubkey=req.client_pubkey, 
+            feedo_node_pubkey=compute_node_pubkey, 
+            is_free=is_free
+        )
+        
+        return results
+    except Exception as e:
+        logger.error(f"Client Vector Search Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/query")
 async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Smart search using LanceDB vectors."""
@@ -287,7 +357,9 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
     if req.client_id:
         success = await TokenomicsService.pay_for_query(db, req.client_id, cost=total_cost, allow_free_quota=True)
         if not success:
-            raise HTTPException(status_code=402, detail=f"Insufficient tokens or free read quota. Required: {total_cost} (Multiplier: x{query_multiplier})")
+            if not TokenomicsService.check_free_tier_rate_limit(req.client_id):
+                raise HTTPException(status_code=429, detail=f"Free tier rate limit exceeded (5 req/min). Please top up balance. Required: {total_cost} (Multiplier: x{query_multiplier})")
+            # is_free is not handled explicitly here for semantic_query, but if needed we could.
             
     # Anti-Spam / Micro-transaction Check for Heavy Compute
     if req.client_id:
@@ -317,17 +389,27 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
         
         post_ids = [r.get("post_id") for r in search_res if r.get("post_id") is not None]
         relay_map = {}
+        post_data_map = {}
         if post_ids:
-            stmt = select(Post.id, Post.relay_url, Post.parent_post_id).where(
+            from sqlalchemy.orm import selectinload
+            stmt = select(Post).options(selectinload(Post.author)).where(
                 (Post.id.in_(post_ids)) | (Post.parent_post_id.in_(post_ids))
             )
-            db_posts = (await db.execute(stmt)).all()
-            for p_id, r_url, parent_id in db_posts:
-                root_id = parent_id or p_id
+            db_posts = (await db.execute(stmt)).scalars().all()
+            for p in db_posts:
+                root_id = p.parent_post_id or p.id
                 if root_id not in relay_map:
                     relay_map[root_id] = []
-                if r_url and r_url not in relay_map[root_id]:
-                    relay_map[root_id].append(r_url)
+                if p.relay_url and p.relay_url not in relay_map[root_id]:
+                    relay_map[root_id].append(p.relay_url)
+                
+                # Use the root post data if available, or the child's data
+                if p.id in post_ids:
+                    post_data_map[p.id] = {
+                        "text": p.text_content,
+                        "author_address": p.author_address,
+                        "author_name": p.original_author_name or (p.author.original_author_name if p.author else None)
+                    }
                     
         for r in search_res:
             dist = r.get("_distance", 1.0)
@@ -337,14 +419,22 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
                 if not relay_urls and r.get("relay_url"):
                     relay_urls = [r.get("relay_url")]
                     
+                p_data = post_data_map.get(p_id, {})
+                text = p_data.get("text") or r.get("text", "")
+                author_addr = p_data.get("author_address") or r.get("author_address", "Unknown")
+                author_name = p_data.get("author_name")
+                
+                # If author_name is present, use it; else fallback to author_addr
+                display_author = author_name if author_name else author_addr;
+                    
                 res_dict = {
                     "hash_id": r.get("hash_id"),
                     "post_id": p_id,
                     "score": 1.0 - dist,
-                    "relay_urls": relay_urls
+                    "relay_urls": relay_urls,
+                    "text": text,
+                    "author_address": display_author
                 }
-                if "author_address" in r:
-                    res_dict["author_address"] = r.get("author_address")
                 results.append(res_dict)
                 
                 # Tokenomics: Reward Query Hit with Dynamic Fee
