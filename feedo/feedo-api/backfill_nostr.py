@@ -94,8 +94,9 @@ async def run_backfill(max_days: int):
             logger.info(f"🕷️ SPIDER: Batch complete. Moving cursor back to {datetime.fromtimestamp(new_cursor, tz=timezone.utc)}")
             save_cursor(new_cursor)
         else:
-            logger.warning("SPIDER: Could not determine an older cursor. Sleeping 5 mins to try again.")
-            await asyncio.sleep(300)
+            logger.warning("SPIDER: Could not determine an older cursor. Force-stepping back 1 day.")
+            new_cursor = current_cursor - 86400
+            save_cursor(new_cursor)
             
         logger.info("Sleeping 60 seconds before next batch...")
         await asyncio.sleep(60)

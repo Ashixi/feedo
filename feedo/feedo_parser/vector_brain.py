@@ -105,26 +105,44 @@ class VectorBrain:
         return coerced
 
     def is_gibberish(self, text: str) -> bool:
-        if len(text) < 20: 
-            return False 
+        import re
+        clean_text = re.sub(r'https?://\S+', '', text)
+        clean_text = re.sub(r'nostr:\S+', '', clean_text)
+        clean_text = re.sub(r':\w+:', '', clean_text)
+        clean_text = clean_text.strip()
+        
+        # If text is mostly links/emojis or too short, it's gibberish
+        if len(clean_text) < 15:
+            return True
             
-        p, lns = Counter(text), float(len(text))
+        p, lns = Counter(clean_text), float(len(clean_text))
+        if lns == 0: return True
+        
         entropy = -sum(count/lns * math.log2(count/lns) for count in p.values())
         return entropy < 2.0 or entropy > 6.5
 
+    def clean_text_for_embedding(self, text: str) -> str:
+        import re
+        clean = re.sub(r'https?://\S+', '', text)
+        clean = re.sub(r'nostr:\S+', '', clean)
+        clean = re.sub(r':\w+:', '', clean)
+        return clean.strip() or text  # Fallback to original if empty
+
     def chunk_text(self, text: str, max_words: int = 350) -> list[str]:
+        text = self.clean_text_for_embedding(text)
         words = text.split()
         if len(words) <= max_words:
             return [text]
         return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
 
     def get_embedding(self, text: str, is_query: bool = False) -> list[float]:
-        if text in self.emb_cache:
-            self.emb_cache.move_to_end(text)
-            return self.emb_cache[text]
+        clean_text = self.clean_text_for_embedding(text)
+        if clean_text in self.emb_cache:
+            self.emb_cache.move_to_end(clean_text)
+            return self.emb_cache[clean_text]
         prefix = "query: " if is_query else "passage: "
-        vec = self.model.encode(prefix + text, normalize_embeddings=True, show_progress_bar=False).tolist()
-        self._cache_emb_set(text, vec)
+        vec = self.model.encode(prefix + clean_text, normalize_embeddings=True, show_progress_bar=False).tolist()
+        self._cache_emb_set(clean_text, vec)
         return vec
 
     def get_embeddings_batch(self, texts: list[str], batch_size: int = 32) -> list[list[list[float]]]:

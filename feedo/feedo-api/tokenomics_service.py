@@ -183,3 +183,43 @@ class TokenomicsService:
         balance_record.balance = max(0, balance_record.balance - penalty_amount)
         await db.commit()
         logger.info(f"Slashed {wallet_address} for {penalty_amount} tokens.")
+
+    FREE_TIER_LIMITS = {}
+    FREE_TIER_MAX_PER_MINUTE = 5
+    
+    IP_RATE_LIMITS = {}
+    IP_MAX_PER_MINUTE = 5
+
+    @staticmethod
+    def check_ip_rate_limit(ip_address: str) -> bool:
+        """Check if an anonymous IP is within their free tier limit."""
+        import time
+        now = time.time()
+        record = TokenomicsService.IP_RATE_LIMITS.get(ip_address)
+        
+        if not record or now > record["reset_at"]:
+            TokenomicsService.IP_RATE_LIMITS[ip_address] = {"count": 1, "reset_at": now + 60}
+            return True
+            
+        if record["count"] >= TokenomicsService.IP_MAX_PER_MINUTE:
+            return False
+            
+        record["count"] += 1
+        return True
+
+    @staticmethod
+    def check_free_tier_rate_limit(wallet_address: str) -> bool:
+        """Check if an unpaying user is within their free tier limit (5 req/min)."""
+        import time
+        now = time.time()
+        record = TokenomicsService.FREE_TIER_LIMITS.get(wallet_address)
+        
+        if not record or now > record["reset_at"]:
+            TokenomicsService.FREE_TIER_LIMITS[wallet_address] = {"count": 1, "reset_at": now + 60}
+            return True
+            
+        if record["count"] < TokenomicsService.FREE_TIER_MAX_PER_MINUTE:
+            record["count"] += 1
+            return True
+            
+        return False

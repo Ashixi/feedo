@@ -74,24 +74,109 @@ async def publish_content(req: PublishRequest, request: Request, db: AsyncSessio
             raise HTTPException(status_code=500, detail=f"Failed to contact rust core: {str(e)}")
 
 @router.get("/{hash_id}")
-async def get_content(hash_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Get a specific note/article. Fetch via Kademlia DHT if missing locally."""
+async def get_content(hash_id: str, request: Request, client_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Get a specific note/article. Fetch via Kademlia DHT or Proxy if missing locally."""
+    from tokenomics_service import TokenomicsService
+    import httpx
+    import websockets
+    import asyncio
+    import json
+    
+    if not client_id:
+        raise HTTPException(status_code=402, detail="Payment required: client_id must be provided for proxy fetching.")
+        
+    cost = 1
+    is_free = False
+    success = await TokenomicsService.pay_for_query(db, client_id, cost=cost, allow_free_quota=True)
+    if not success:
+        if not TokenomicsService.check_free_tier_rate_limit(client_id):
+            raise HTTPException(status_code=429, detail="Free tier rate limit exceeded (5 req/min). Please top up funds for proxy fetching.")
+        is_free = True
+
     stmt = select(Post).where(Post.hash_id == hash_id)
     post = (await db.execute(stmt)).scalar_one_or_none()
     
-    if post:
+    if not post:
+        raise HTTPException(status_code=404, detail="Content not found locally or in DHT")
+        
+    # If text is present, return it directly
+    if post.text_content:
+        # Give author a cut since we hit their content
+        if not is_free:
+            await TokenomicsService.reward_query_hit(db, post.author_address, None, fee_amount=cost)
         return {
             "hash_id": post.hash_id,
             "text": post.text_content,
             "author": post.author_address,
             "metadata": post.metadata_,
-            "status": "finalized" if post.is_finalized else "mempool"
+            "status": "finalized" if post.is_finalized else "mempool",
+            "source": "local_db"
         }
         
-    # If not local, we should fetch via feedo-core Rust DA layer in the future
-    # Currently handled asynchronously by gossipsub in the core
+    # Proxy Fetching Logic
+    fetched_text = None
+    source = "proxy"
+    
+    if post.source_type == "paragraph" and post.metadata_:
+        tx_id = post.metadata_.get("tx_id")
+        if tx_id:
+            try:
+                async with httpx.AsyncClient() as client:
+                    res = await client.get(f"https://arweave.net/{tx_id}", timeout=5.0)
+                    if res.status_code == 200:
+                        data = res.json()
+                        fetched_text = data.get("content", {}).get("body") or data.get("text", "")
+                        source = "proxy_arweave"
+            except Exception as e:
+                logger.error(f"Arweave fetch failed for {tx_id}: {e}")
+                
+    elif post.source_type == "nostr" and post.relay_url:
+        try:
+            # Connect to Nostr relay and send REQ
+            async with websockets.connect(post.relay_url, open_timeout=3.0) as ws:
+                req_msg = ["REQ", "feedo_fetch", {"ids": [hash_id]}]
+                await ws.send(json.dumps(req_msg))
+                
+                # Wait for response with timeout
+                start_time = asyncio.get_event_loop().time()
+                while asyncio.get_event_loop().time() - start_time < 3.0:
+                    try:
+                        msg_str = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                        msg = json.loads(msg_str)
+                        if msg[0] == "EVENT" and msg[1] == "feedo_fetch":
+                            fetched_text = msg[2].get("content")
+                            source = "proxy_nostr"
+                            break
+                        elif msg[0] == "EOSE":
+                            break
+                    except asyncio.TimeoutError:
+                        continue
+        except Exception as e:
+            logger.error(f"Nostr fetch failed for {hash_id} at {post.relay_url}: {e}")
+            
+    if fetched_text:
+        if not is_free:
+            await TokenomicsService.reward_query_hit(db, post.author_address, None, fee_amount=cost)
+        return {
+            "hash_id": post.hash_id,
+            "text": fetched_text,
+            "author": post.author_address,
+            "metadata": post.metadata_,
+            "status": "finalized" if post.is_finalized else "mempool",
+            "source": source
+        }
         
-    raise HTTPException(status_code=404, detail="Content not found locally or in DHT")
+    # Fallback to returning metadata and relay_url
+    return {
+        "hash_id": post.hash_id,
+        "text": None,
+        "author": post.author_address,
+        "metadata": post.metadata_,
+        "relay_url": post.relay_url,
+        "status": "finalized" if post.is_finalized else "mempool",
+        "source": "metadata_only",
+        "warning": "Content not available locally and proxy fetch failed."
+    }
 
 @router.get("/status/{hash_id}")
 async def get_content_status(hash_id: str, db: AsyncSession = Depends(get_db)):

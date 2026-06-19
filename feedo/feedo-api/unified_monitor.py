@@ -35,10 +35,17 @@ RSS_NODE_WALLET = os.getenv("RSS_NODE_WALLET", bytes(nacl.signing.SigningKey(_sk
 
 GLOBAL_REGISTRY_URL = "https://raw.githubusercontent.com/Ashixi/feedo-sources/825d8d28815a12ab61a347aa7893773949f3ca0c/analyzed_sources.json"
 
-SOURCES = [
-    # Uncomment the source below if you want to run a dedicated parsing node
+# Dynamically load sources based on NODE_TYPE
+node_type = os.getenv("NODE_TYPE", "unified").lower()
+
+_all_sources = [
     NostrSource()
 ]
+
+if node_type == "nostr":
+    SOURCES = [s for s in _all_sources if s.source_type == "nostr"]
+else:
+    SOURCES = _all_sources
 
 
 def _to_naive_utc(value):
@@ -304,9 +311,15 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                             item_type=item_type
                         )
     
-                        db.add(new_post)
-                        await db.flush()
-                        pending_inserts += 1
+                        from sqlalchemy.exc import IntegrityError
+                        try:
+                            async with db.begin_nested():
+                                db.add(new_post)
+                                await db.flush()
+                            pending_inserts += 1
+                        except IntegrityError:
+                            logger.info(f"Конкурентний запис: {p_data['source_specific_id']} вже існує в БД. Пропускаємо.")
+                            continue
     
                         if vectors and not parent_id and source_type != "media_blob":
                             geo = (p_data.get("metadata_") or {}).get("geo", "")

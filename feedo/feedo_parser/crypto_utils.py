@@ -46,3 +46,24 @@ def verify_signature(hash_id: str, signature_hex: str, wallet_address_hex: str) 
     except (nacl.exceptions.BadSignatureError, ValueError, Exception):
         return False
 
+def verify_nostr_signature(pubkey_hex: str, message_or_hash: str, signature_hex: str, is_hash: bool = False) -> bool:
+    try:
+        import coincurve
+        if is_hash:
+            msg_hash = bytes.fromhex(message_or_hash)
+        else:
+            msg_hash = hashlib.sha256(message_or_hash.encode('utf-8')).digest()
+        
+        # Nostr pubkeys are 32-byte x-only. Try PublicKeyXOnly first (newer coincurve)
+        if hasattr(coincurve, 'PublicKeyXOnly'):
+            pk = coincurve.PublicKeyXOnly(bytes.fromhex(pubkey_hex))
+            return pk.schnorr_verify(bytes.fromhex(signature_hex), msg_hash)
+        else:
+            # Fallback for older coincurve versions
+            pk = coincurve.PublicKey(bytes.fromhex('02' + pubkey_hex))
+            if hasattr(pk, 'schnorr_verify'):
+                return pk.schnorr_verify(bytes.fromhex(signature_hex), msg_hash)
+            return False
+    except Exception as e:
+        print(f"Signature verification error: {e}")
+        return False

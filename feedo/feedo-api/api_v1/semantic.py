@@ -16,6 +16,7 @@ router = APIRouter()
 # Maps a rough semantic vector hash or text to an access count
 query_popularity_tracker: Dict[str, int] = {}
 
+from typing import Dict, Any, List, Optional
 class SemanticQueryRequest(BaseModel):
     text: str
     limit: int = 10
@@ -23,8 +24,10 @@ class SemanticQueryRequest(BaseModel):
     federated: bool = True
     client_id: Optional[str] = None
     source_type: Optional[str] = None
+    item_type: Optional[str] = None
     signature: Optional[str] = None
     nonce: Optional[str] = None
+    auth_event: Optional[Dict[str, Any]] = None
 
 class RelaySearchRequest(BaseModel):
     client_pubkey: str
@@ -355,25 +358,50 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
     total_cost = base_cost * query_multiplier
     
     if req.client_id:
+        # User is providing a client_id (Wallet). Enforce Payment & Signature.
+        if not req.signature or not req.nonce:
+            raise HTTPException(
+                status_code=402, 
+                detail="Payment Required: Provide signature and nonce to authorize micro-transaction."
+            )
+            
+        if req.auth_event:
+            # Reconstruct the Nostr event hash to verify signature
+            import json, hashlib
+            auth_event = req.auth_event
+            event_data = [
+                0,
+                auth_event.get('pubkey'),
+                auth_event.get('created_at'),
+                auth_event.get('kind'),
+                auth_event.get('tags', []),
+                auth_event.get('content', '')
+            ]
+            serialized = json.dumps(event_data, separators=(',', ':'), ensure_ascii=False)
+            event_id = hashlib.sha256(serialized.encode('utf-8')).hexdigest()
+            
+            if event_id != auth_event.get('id'):
+                raise HTTPException(status_code=403, detail="Invalid auth event ID computation")
+                
+            from feedo_parser.crypto_utils import verify_nostr_signature
+            if not verify_nostr_signature(req.client_id, event_id, req.signature, is_hash=True):
+                raise HTTPException(status_code=403, detail="Invalid payment signature (auth_event)")
+        else:
+            # Fallback simple string hash
+            expected_msg = f"semantic_query:{req.text}:{req.nonce}"
+            from feedo_parser.crypto_utils import verify_nostr_signature
+            if not verify_nostr_signature(req.client_id, expected_msg, req.signature):
+                raise HTTPException(status_code=403, detail="Invalid payment signature")
+                
         success = await TokenomicsService.pay_for_query(db, req.client_id, cost=total_cost, allow_free_quota=True)
         if not success:
             if not TokenomicsService.check_free_tier_rate_limit(req.client_id):
                 raise HTTPException(status_code=429, detail=f"Free tier rate limit exceeded (5 req/min). Please top up balance. Required: {total_cost} (Multiplier: x{query_multiplier})")
-            # is_free is not handled explicitly here for semantic_query, but if needed we could.
-            
-    # Anti-Spam / Micro-transaction Check for Heavy Compute
-    if req.client_id:
-        if not req.signature or not req.nonce:
-            raise HTTPException(
-                status_code=402, 
-                detail="Payment Required: Semantic search is a Heavy Compute action. Provide signature and nonce to authorize micro-transaction."
-            )
-        # Verify that the client actually signed the intent to pay for THIS specific query
-        # Msg format: "semantic_query:<text>:<nonce>"
-        expected_msg = f"semantic_query:{req.text}:{req.nonce}"
-        # In a real setup, we use crypto_utils to verify:
-        # if not verify_signature(req.client_id, expected_msg, req.signature):
-        #     raise HTTPException(status_code=403, detail="Invalid payment signature")
+    else:
+        # Anonymous Web User: Enforce strict IP rate limiting
+        client_ip = request.client.host if request.client else "unknown"
+        if not TokenomicsService.check_ip_rate_limit(client_ip):
+            raise HTTPException(status_code=429, detail="Anonymous rate limit exceeded (5 req/min). Please connect Nostr Wallet for unlimited access.")
         
         # Here we would forward the valid payment intent to Rust's accounting.rs via HTTP/mpsc
         logger.info(f"Valid micro-transaction received from {req.client_id} for {total_cost} tokens.")
@@ -382,9 +410,12 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
     # Using the synchronous brain operations in threadpool or directly
     try:
         vec = await brain.get_embedding_async(req.text, is_query=True)
-        search_query = brain.table.search(vec).metric("cosine").limit(req.limit)
+        # Fetch more than requested to account for spam filtering
+        search_query = brain.table.search(vec).metric("cosine").limit(req.limit * 5)
         if req.source_type:
             search_query = search_query.where(f"source_type = '{req.source_type}'")
+        if req.item_type:
+            search_query = search_query.where(f"item_type = '{req.item_type}'")
         search_res = search_query.to_list()
         
         post_ids = [r.get("post_id") for r in search_res if r.get("post_id") is not None]
@@ -421,6 +452,7 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
                     
                 p_data = post_data_map.get(p_id, {})
                 text = p_data.get("text") or r.get("text", "")
+                
                 author_addr = p_data.get("author_address") or r.get("author_address", "Unknown")
                 author_name = p_data.get("author_name")
                 
@@ -433,7 +465,8 @@ async def semantic_query(req: SemanticQueryRequest, request: Request, db: AsyncS
                     "score": 1.0 - dist,
                     "relay_urls": relay_urls,
                     "text": text,
-                    "author_address": display_author
+                    "author_address": display_author,
+                    "item_type": r.get("item_type", "post")
                 }
                 results.append(res_dict)
                 

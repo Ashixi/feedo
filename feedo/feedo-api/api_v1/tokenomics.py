@@ -48,3 +48,84 @@ async def claim_tokens(req: ClaimRequest, db: AsyncSession = Depends(get_db)):
         "proof": "mock_cryptographic_proof_signature",
         "remaining_balances": balances
     }
+
+class VerifyDepositRequest(BaseModel):
+    tx_hash: str
+    wallet_address: str
+
+import os
+import httpx
+
+POLYGON_TREASURY_ADDRESS = os.getenv("POLYGON_TREASURY_ADDRESS", "0x0000000000000000000000000000000000000000").lower()
+POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+
+# Store verified hashes to prevent double-spending in this simple implementation
+# In production, this should be a DB table
+verified_txs = set()
+
+@router.post("/verify_deposit")
+async def verify_deposit(req: VerifyDepositRequest, db: AsyncSession = Depends(get_db)):
+    """Verifies a Polygon transaction and credits tokens to the user."""
+    if req.tx_hash in verified_txs:
+        raise HTTPException(status_code=400, detail="Transaction already verified")
+        
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Get Transaction Details
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "eth_getTransactionByHash",
+                "params": [req.tx_hash],
+                "id": 1
+            }
+            res = await client.post(POLYGON_RPC_URL, json=payload, timeout=10.0)
+            tx_data = res.json().get("result")
+            
+            if not tx_data:
+                raise HTTPException(status_code=404, detail="Transaction not found on Polygon")
+                
+            # 2. Verify receiver is our Treasury
+            to_address = tx_data.get("to", "").lower()
+            if to_address != POLYGON_TREASURY_ADDRESS:
+                raise HTTPException(status_code=400, detail="Transaction was not sent to the Feedo Treasury")
+                
+            # 3. Check Receipt for Success Status
+            receipt_payload = {
+                "jsonrpc": "2.0",
+                "method": "eth_getTransactionReceipt",
+                "params": [req.tx_hash],
+                "id": 2
+            }
+            rec_res = await client.post(POLYGON_RPC_URL, json=receipt_payload, timeout=10.0)
+            receipt_data = rec_res.json().get("result")
+            
+            if not receipt_data or receipt_data.get("status") != "0x1":
+                raise HTTPException(status_code=400, detail="Transaction failed or is pending")
+                
+            # 4. Calculate Tokens (e.g. 1 MATIC = 1000 Feedo Tokens)
+            value_wei_hex = tx_data.get("value", "0x0")
+            value_wei = int(value_wei_hex, 16)
+            matic_amount = value_wei / (10 ** 18)
+            
+            if matic_amount <= 0:
+                raise HTTPException(status_code=400, detail="Transaction value is zero")
+                
+            tokens_to_credit = int(matic_amount * 1000)
+            
+            # 5. Credit Account
+            await TokenomicsService.reward_peer(db, req.wallet_address, tokens_to_credit, reason=f"polygon_deposit_{req.tx_hash}")
+            verified_txs.add(req.tx_hash)
+            
+            balances = await TokenomicsService.get_balances(db, req.wallet_address)
+            
+            return {
+                "status": "success",
+                "message": f"Verified deposit of {matic_amount} MATIC. Credited {tokens_to_credit} tokens.",
+                "balances": balances
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RPC Error: {str(e)}")
+

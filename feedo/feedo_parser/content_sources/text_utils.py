@@ -74,3 +74,60 @@ def sanitize_for_storage(value: str | None) -> str:
     s = '\n'.join(normalized_lines).strip()
 
     return s
+
+
+def chunk_long_text(text: str, chunk_size: int = 512, overlap: int = 50) -> list[str]:
+    """
+    Split a long text into smaller chunks of approximately `chunk_size` characters or words.
+    Here we split by paragraphs/lines and build chunks up to a roughly specified character limit,
+    with an optional small overlap to preserve context across boundaries.
+    """
+    if not text:
+        return []
+    
+    # We will chunk by roughly character count for simplicity, aiming for 512-1000 chars.
+    # In a production AI setting, this might use a tokenizer (like tiktoken).
+    # For now, splitting by paragraphs and combining them up to the chunk_size is safe.
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    
+    for p in paragraphs:
+        if current_length + len(p) > chunk_size and current_chunk:
+            # Yield current chunk
+            chunks.append(" ".join(current_chunk))
+            # Keep the last paragraph as overlap if overlap > 0
+            # For simplicity, we just keep the last paragraph if it's not too huge
+            if overlap > 0 and len(current_chunk) > 1:
+                current_chunk = [current_chunk[-1]]
+                current_length = len(current_chunk[0])
+            else:
+                current_chunk = []
+                current_length = 0
+        
+        # If a single paragraph is bigger than the chunk size, we should split it by sentences/words
+        if len(p) > chunk_size * 2:
+            # simple word split fallback
+            words = p.split(' ')
+            sub_chunk = []
+            sub_len = 0
+            for w in words:
+                if sub_len + len(w) > chunk_size and sub_chunk:
+                    chunks.append(" ".join(sub_chunk))
+                    sub_chunk = []
+                    sub_len = 0
+                sub_chunk.append(w)
+                sub_len += len(w) + 1
+            if sub_chunk:
+                current_chunk.append(" ".join(sub_chunk))
+                current_length += sub_len
+        else:
+            current_chunk.append(p)
+            current_length += len(p) + 1
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+        
+    return chunks

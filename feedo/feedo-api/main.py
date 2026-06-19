@@ -45,6 +45,8 @@ from unified_monitor import monitor_all, run_monitor_process
 import threading
 from admin import router as admin_router
 from users import router as users_router
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("feedo_api")
@@ -262,9 +264,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Не вдалося виконати міграцію префіксів 04: {e}")
 
+    node_type = os.getenv("NODE_TYPE", "unified").lower()
     monitor_stop_event = threading.Event()
-    monitor_thread = threading.Thread(target=lambda: run_monitor_process(monitor_stop_event), daemon=True)
-    monitor_thread.start()
+    
+    if node_type != "proxy":
+        logger.info(f"Starting background monitor process (NODE_TYPE={node_type})")
+        monitor_thread = threading.Thread(target=lambda: run_monitor_process(monitor_stop_event), daemon=True)
+        monitor_thread.start()
+    else:
+        logger.info("Running in PROXY mode. Background monitor process is disabled.")
     
     asyncio.create_task(node_heartbeat_loop())
     asyncio.create_task(background_centroid_updater())
@@ -293,6 +301,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Feedo P2P Gateway", lifespan=lifespan)
+
+import os
+os.makedirs("static", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/dashboard", response_class=HTMLResponse, tags=["Web UI"])
+async def get_dashboard(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 from api_v1.router import api_v1_router
 from api_v1.wallet import router as wallet_router

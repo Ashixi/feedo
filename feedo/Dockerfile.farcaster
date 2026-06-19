@@ -1,0 +1,9 @@
+FROM itsshas/feedo-node:hybrid
+
+COPY feedo-api/ /app/
+COPY feedo_parser/ /app/feedo_parser/
+COPY start-hybrid.sh /app/start-hybrid.sh
+
+ENV NODE_TYPE=farcaster
+
+CMD ["/app/start-hybrid.sh"]
