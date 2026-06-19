@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'post_card.dart';
+import 'services/auth_service.dart';
 
 class FeedTab extends StatefulWidget {
   const FeedTab({super.key});
@@ -29,9 +30,10 @@ class _FeedTabState extends State<FeedTab> {
 
     try {
       final String apiUrl = const String.fromEnvironment('API_URL', defaultValue: 'https://api.feedo.ink');
-      final url = Uri.parse('$apiUrl/feed?limit=50');
       
-      final response = await http.get(url);
+      // Запитуємо саме nostr пости
+      final url = Uri.parse('$apiUrl/feed?limit=50&source_type=nostr');
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

@@ -1350,7 +1350,8 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
         base_score = 1.0
         dup_count = len(p.duplicates)
         popularity_boost = dup_count * 0.5
-        age_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - p.published_at).total_seconds() / 3600.0
+        pub_date = p.published_at or datetime.now(timezone.utc).replace(tzinfo=None)
+        age_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - pub_date).total_seconds() / 3600.0
         time_penalty = max(0, age_hours * 0.05)
         
         noise = random.uniform(-0.35, 0.35)
