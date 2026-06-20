@@ -86,6 +86,7 @@ You do not need to download the entire source code. Everything runs via pre-buil
        env_file:
          - .env
        environment:
+         - NODE_TYPE=full
          - POSTGRES_USER=${POSTGRES_USER:-feedo_user}
          - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_db_password_123}
          - POSTGRES_DB=${POSTGRES_DB:-feedo_db}
