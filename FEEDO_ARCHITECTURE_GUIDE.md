@@ -104,6 +104,8 @@ You do not need to download the entire source code. Everything runs via pre-buil
            condition: service_healthy
        volumes:
          - rust_db_data:/app/db
+         - ./api_v1/tokenomics.py:/app/api_v1/tokenomics.py
+         - lancedb_data:/app/lancedb_data
    
    volumes:
      postgres_data:
