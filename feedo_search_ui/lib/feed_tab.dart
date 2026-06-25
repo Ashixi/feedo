@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:timeago/timeago.dart' as timeago;
+import 'utils/feed_filter_config.dart';
 import 'post_card.dart';
 import 'services/auth_service.dart';
+import 'nostr_resolver.dart';
+import 'feed_layout.dart';
 
 class FeedTab extends StatefulWidget {
   const FeedTab({super.key});
@@ -13,63 +17,248 @@ class FeedTab extends StatefulWidget {
 
 class _FeedTabState extends State<FeedTab> {
   List<dynamic> _posts = [];
+  int _fetchedCount = 0;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  String? _oldestTimestamp;
   String? _errorMessage;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _fetchFeed();
+    
+    globalFeedFilter.addListener(_onFilterChanged);
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+        _loadMoreFeed();
+      }
+    });
+  }
+
+  void _onFilterChanged() {
+    if (mounted) {
+      _fetchFeed();
+    }
+  }
+
+  @override
+  void dispose() {
+    globalFeedFilter.removeListener(_onFilterChanged);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  String _buildUrl(String base) {
+    final filter = globalFeedFilter.value;
+    String url = base;
+    if (filter.keywords.isNotEmpty) url += '&text=${Uri.encodeComponent(filter.keywords)}';
+    if (filter.language != 'all') url += '&language=${filter.language}';
+    if (filter.since != null) url += '&since=${filter.since!.millisecondsSinceEpoch ~/ 1000}';
+    // _oldestTimestamp is handled separately
+    return url;
   }
 
   Future<void> _fetchFeed() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _posts = [];
+      _fetchedCount = 0;
+      _hasMore = true;
+      _oldestTimestamp = null;
     });
 
     try {
       final String apiUrl = const String.fromEnvironment('API_URL', defaultValue: 'https://api.feedo.ink');
       
-      // Запитуємо саме nostr пости
-      final url = Uri.parse('$apiUrl/feed?limit=50&source_type=nostr');
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      int newlyAdded = 0;
+      int maxLoops = 5;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _posts = data;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load feed: ${response.statusCode}';
-        });
+      while (newlyAdded < 10 && maxLoops > 0) {
+        maxLoops--;
+        String urlStr = '$apiUrl/feed?limit=50&source_type=nostr&offset=$_fetchedCount';
+            
+        urlStr = _buildUrl(urlStr);
+        final url = Uri.parse(urlStr);
+        final response = await http.get(url).timeout(const Duration(seconds: 45));
+
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          if (data.isEmpty) {
+            _hasMore = false;
+            break;
+          }
+          
+          _oldestTimestamp = data.last['published_at'] ?? _oldestTimestamp;
+          _fetchedCount += data.length;
+          
+          final filter = globalFeedFilter.value;
+          
+          if (filter.keywords.isNotEmpty) {
+            await NostrResolver.resolve(data);
+          } else {
+            NostrResolver.resolve(data, onUpdate: () {
+              if (mounted) setState(() {});
+            });
+          }
+          
+          List<dynamic> validPosts = [];
+          for (var item in data) {
+            String t = item['text'] ?? item['content'] ?? '';
+            
+            if (filter.keywords.isNotEmpty) {
+               if (!t.toLowerCase().contains(filter.keywords.toLowerCase()) && 
+                   !(item['author_name']?.toString().toLowerCase().contains(filter.keywords.toLowerCase()) ?? false)) {
+                 continue;
+               }
+            }
+            
+            if (filter.language != 'all') {
+               String lang = item['language'] ?? item['metadata']?['language'] ?? '';
+               if (lang.isNotEmpty && lang != filter.language) continue;
+            }
+            
+            if (filter.since != null && item['published_at'] != null) {
+               try {
+                 DateTime pubDate = DateTime.parse(item['published_at']);
+                 if (pubDate.isBefore(filter.since!)) continue;
+               } catch(_) {}
+            }
+            
+            if (filter.until != null && item['published_at'] != null) {
+               try {
+                 DateTime pubDate = DateTime.parse(item['published_at']);
+                 if (pubDate.isAfter(filter.until!.add(const Duration(days: 1)))) continue;
+               } catch(_) {}
+            }
+            
+            validPosts.add(item);
+          }
+          
+          newlyAdded += validPosts.length;
+          setState(() {
+            _posts.addAll(validPosts);
+          });
+        } else {
+          setState(() {
+            if (_posts.isEmpty) _errorMessage = 'Failed to load feed: ${response.statusCode}';
+          });
+          break;
+        }
       }
-    } catch (e) {
+    } catch (e, stack) {
+      print('Exception in _fetchFeed: $e');
+      print(stack);
       setState(() {
-        _errorMessage = 'Error connecting to Feedo Network';
+        if (_posts.isEmpty) _errorMessage = 'Error connecting to Feedo Network: $e';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMoreFeed() async {
+    if (_isLoadingMore || _isLoading || !_hasMore) return;
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final String apiUrl = const String.fromEnvironment('API_URL', defaultValue: 'https://api.feedo.ink');
+      
+      int newlyAdded = 0;
+      int maxLoops = 5;
+
+      while (newlyAdded < 5 && maxLoops > 0) {
+        maxLoops--;
+        String urlStr = '$apiUrl/feed?limit=50&source_type=nostr&offset=$_fetchedCount';
+            
+        urlStr = _buildUrl(urlStr);
+        final url = Uri.parse(urlStr);
+        final response = await http.get(url).timeout(const Duration(seconds: 45));
+
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          if (data.isEmpty) {
+            _hasMore = false;
+            break;
+          }
+          
+          _oldestTimestamp = data.last['published_at'] ?? _oldestTimestamp;
+          _fetchedCount += data.length;
+          
+          final filter = globalFeedFilter.value;
+          
+          if (filter.keywords.isNotEmpty) {
+            await NostrResolver.resolve(data);
+          } else {
+            NostrResolver.resolve(data, onUpdate: () {
+              if (mounted) setState(() {});
+            });
+          }
+          
+          List<dynamic> validPosts = [];
+          for (var item in data) {
+            String t = item['text'] ?? item['content'] ?? '';
+            
+            if (filter.keywords.isNotEmpty) {
+               if (!t.toLowerCase().contains(filter.keywords.toLowerCase()) && 
+                   !(item['author_name']?.toString().toLowerCase().contains(filter.keywords.toLowerCase()) ?? false)) {
+                 continue;
+               }
+            }
+            
+            if (filter.language != 'all') {
+               String lang = item['language'] ?? item['metadata']?['language'] ?? '';
+               if (lang.isNotEmpty && lang != filter.language) continue;
+            }
+            
+            if (filter.since != null && item['published_at'] != null) {
+               try {
+                 DateTime pubDate = DateTime.parse(item['published_at']);
+                 if (pubDate.isBefore(filter.since!)) continue;
+               } catch(_) {}
+            }
+            
+            if (filter.until != null && item['published_at'] != null) {
+               try {
+                 DateTime pubDate = DateTime.parse(item['published_at']);
+                 if (pubDate.isAfter(filter.until!.add(const Duration(days: 1)))) continue;
+               } catch(_) {}
+            }
+            
+            validPosts.add(item);
+          }
+          
+          newlyAdded += validPosts.length;
+          setState(() {
+            _posts.addAll(validPosts);
+          });
+        } else {
+          break;
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Feedo Timeline'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchFeed,
-          ),
-        ],
-      ),
-      body: _buildBody(),
-    );
+    return _buildBody();
   }
 
   Widget _buildBody() {
@@ -105,14 +294,36 @@ class _FeedTabState extends State<FeedTab> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _fetchFeed,
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _posts.length,
-        itemBuilder: (context, index) {
-          return PostCard(post: _posts[index]);
-        },
+    return FeedLayout(
+      child: RefreshIndicator(
+        onRefresh: _fetchFeed,
+        child: ListView.builder(
+          controller: _scrollController,
+          itemCount: _posts.length + 1,
+          itemBuilder: (context, index) {
+            if (index == _posts.length) {
+              if (_isLoadingMore) {
+                return const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              } else if (!_hasMore && _posts.isNotEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Center(
+                    child: Text(
+                      'No more posts',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                );
+              } else {
+                return const SizedBox(height: 32);
+              }
+            }
+            return PostCard(post: _posts[index]);
+          },
+        ),
       ),
     );
   }

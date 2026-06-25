@@ -123,11 +123,17 @@ async def update_identity(public_key: str, req: UpdateProfileRequest, db: AsyncS
     
     if not user:
         raise HTTPException(status_code=404, detail="Identity not found")
+    new_name = req.metadata.get("name") or req.metadata.get("display_name") or req.metadata.get("username")
+    if new_name is not None:
+        user.display_name = new_name
         
-    user.display_name = req.metadata.get("name", user.display_name)
-    user.bio = req.metadata.get("bio", user.bio)
-    user.avatar_media_hash = req.metadata.get("avatar", user.avatar_media_hash)
-    
+    new_bio = req.metadata.get("bio") or req.metadata.get("about")
+    if new_bio is not None:
+        user.bio = new_bio
+        
+    new_avatar = req.metadata.get("avatar") or req.metadata.get("picture") or req.metadata.get("avatar_url")
+    if new_avatar is not None:
+        user.avatar_media_hash = new_avatar    
     await db.commit()
     return {"status": "updated"}
 

@@ -9,6 +9,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'nostr_resolver.dart';
 import 'nostr_wallet.dart';
 import 'post_card.dart';
+import 'feed_layout.dart';
 
 class SearchTab extends StatefulWidget {
   const SearchTab({super.key});
@@ -19,13 +20,34 @@ class SearchTab extends StatefulWidget {
 
 class _SearchTabState extends State<SearchTab> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final List<String> _apiNodes = ['https://api.feedo.ink', 'https://api2.feedo.ink'];
   bool _hasSearched = false;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
   List<dynamic> _results = [];
+  int _fetchedCount = 0;
   String _selectedItemType = 'all';
   String? _errorMessage;
   String? _pubkey;
+  
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+        _loadMoreResults();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _connectWallet() async {
     bool available = await NostrWallet.isAvailable();
@@ -58,58 +80,29 @@ class _SearchTabState extends State<SearchTab> {
       _isLoading = true;
       _errorMessage = null;
       _results = [];
+      _hasMore = true;
     });
 
     try {
       final randomNode = _apiNodes[Random().nextInt(_apiNodes.length)];
-      final url = Uri.parse('$randomNode/api/v1/semantic/query');
-      
-      Map<String, dynamic> payload = {
-        'text': query,
-        'limit': 50,
-        'federated': true,
-        'source_type': 'nostr',
-      };
-      
-      if (_selectedItemType != 'all') {
-        payload['item_type'] = _selectedItemType;
-      }
+      final encodedQuery = Uri.encodeComponent(query);
+      final url = Uri.parse('$randomNode/query?text=$encodedQuery&limit=50&federated=true');
 
-      // If wallet connected, sign the request
-      if (_pubkey != null) {
-        String nonce = DateTime.now().millisecondsSinceEpoch.toString();
-        Map<String, dynamic> eventToSign = {
-          "kind": 22222,
-          "created_at": (DateTime.now().millisecondsSinceEpoch / 1000).floor(),
-          "tags": [["nonce", nonce]],
-          "content": "semantic_query:$query:$nonce",
-          "pubkey": _pubkey
-        };
-        
-        Map<String, dynamic>? signedEvent = await NostrWallet.signEvent(eventToSign);
-        if (signedEvent != null) {
-          payload['client_id'] = _pubkey;
-          payload['signature'] = signedEvent['sig'];
-          payload['nonce'] = nonce;
-          payload['auth_event'] = signedEvent;
-        } else {
-           if (mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Failed to sign request. Falling back to anonymous mode.')),
-            );
-           }
-        }
-      }
+      // Note: Backend GET /query currently doesn't natively support wallet auth signatures.
+      // If needed in the future, pass signature via headers.
 
-      final response = await http.post(
+      final response = await http.get(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
+        headers: {'Accept': 'application/json'},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         List<dynamic> results = data['results'] ?? [];
+        if (results.isEmpty) {
+          _hasMore = false;
+        }
+        _fetchedCount = results.length;
         
         // Use Stateless Indexer Resolver to fetch missing text and author data from Relays
         await NostrResolver.resolve(results);
@@ -117,6 +110,15 @@ class _SearchTabState extends State<SearchTab> {
         // Dynamic Spam Filter: After fetching texts from relays, remove any spam posts
         List<dynamic> validResults = [];
         for (var item in results) {
+          // Source type filter: since old backend filtered by nostr, we do it here
+          if (item['source_type'] != 'nostr' && item['source_type'] != null) continue;
+          
+          final meta = item['metadata'] ?? {};
+          if (meta['is_reply'] == true) continue;
+          
+          // Item type filter
+          if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
+
           String t = item['text'] ?? '';
           String cleanText = t.replaceAll(RegExp(r'https?://\S+'), '')
                               .replaceAll(RegExp(r'nostr:\S+'), '')
@@ -139,17 +141,88 @@ class _SearchTabState extends State<SearchTab> {
         });
       } else {
         setState(() {
-          _errorMessage = 'Server error: ${response.statusCode}';
-          _isLoading = false;
+          _errorMessage = 'Search failed with status ${response.statusCode}';
         });
-        print('Error: ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Network error. Please try again.';
-        _isLoading = false;
+        _errorMessage = 'Network error while searching';
       });
-      print('Exception: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMoreResults() async {
+    if (_isLoadingMore || _isLoading || !_hasSearched || _searchController.text.trim().isEmpty || !_hasMore) return;
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final randomNode = _apiNodes[Random().nextInt(_apiNodes.length)];
+      final encodedQuery = Uri.encodeComponent(_searchController.text.trim());
+      
+      int newlyAdded = 0;
+      int maxLoops = 5;
+
+      while (newlyAdded < 5 && maxLoops > 0) {
+        maxLoops--;
+        final offset = _fetchedCount;
+        final url = Uri.parse('$randomNode/query?text=$encodedQuery&limit=50&federated=true&offset=$offset');
+
+        final response = await http.get(url, headers: {'Accept': 'application/json'});
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          List<dynamic> results = data['results'] ?? [];
+          if (results.isEmpty) {
+            _hasMore = false;
+            break;
+          }
+          
+          _fetchedCount += results.length;
+          await NostrResolver.resolve(results);
+          
+          List<dynamic> validResults = [];
+          for (var item in results) {
+            if (item['source_type'] != 'nostr' && item['source_type'] != null) continue;
+            
+            final meta = item['metadata'] ?? {};
+            if (meta['is_reply'] == true) continue;
+            
+            if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
+
+            String t = item['text'] ?? '';
+            String cleanText = t.replaceAll(RegExp(r'https?://\S+'), '')
+                                .replaceAll(RegExp(r'nostr:\S+'), '')
+                                .replaceAll(RegExp(r':\w+:'), '')
+                                .trim();
+
+            if (item['item_type'] == 'profile' || cleanText.isNotEmpty) {
+              validResults.add(item);
+            }
+          }
+          
+          newlyAdded += validResults.length;
+          setState(() {
+            _results.addAll(validResults);
+          });
+        } else {
+          break;
+        }
+      }
+    } catch (e) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
     }
   }
 
@@ -162,14 +235,12 @@ class _SearchTabState extends State<SearchTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
+    return Container(
+      color: Colors.white,
+      child: FeedLayout(
+        child: SafeArea(
+          child: Column(
+            children: [
             const SizedBox(height: 16),
             // Search Bar
             Container(
@@ -237,8 +308,29 @@ class _SearchTabState extends State<SearchTab> {
                                 )
                               )
                             : ListView.builder(
-                                itemCount: _results.length,
+                                controller: _scrollController,
+                                itemCount: _results.length + 1,
                                 itemBuilder: (context, index) {
+                                  if (index == _results.length) {
+                                    if (_isLoadingMore) {
+                                      return const Padding(
+                                        padding: EdgeInsets.all(16.0),
+                                        child: Center(child: CircularProgressIndicator()),
+                                      );
+                                    } else if (!_hasMore && _results.isNotEmpty) {
+                                      return const Padding(
+                                        padding: EdgeInsets.all(32.0),
+                                        child: Center(
+                                          child: Text(
+                                            'No more results',
+                                            style: TextStyle(color: Colors.black54),
+                                          ),
+                                        ),
+                                      );
+                                    } else {
+                                      return const SizedBox(height: 32);
+                                    }
+                                  }
                                   final item = _results[index];
                                   return PostCard(post: item);
                                 },
@@ -247,7 +339,7 @@ class _SearchTabState extends State<SearchTab> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildFilterChip(String label, String value) {

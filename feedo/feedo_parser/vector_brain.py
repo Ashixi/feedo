@@ -297,6 +297,12 @@ class VectorBrain:
         return self.find_duplicate_by_vector(vector, threshold, hours)
 
     async def add_vector_async(self, post_id: int, hash_id: str, text: str, source_type: str = "native", item_type: str = "post", language: str = "", geo: str = ""):
+        if not language and text and len(text.strip()) > 5:
+            try:
+                from langdetect import detect
+                language = detect(text)
+            except Exception:
+                pass
         vector = await self.get_embedding_async(text)
         self.add_vector_by_emb(post_id, hash_id, vector, source_type, item_type=item_type, language=language, geo=geo)
 

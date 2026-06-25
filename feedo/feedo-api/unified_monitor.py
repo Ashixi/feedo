@@ -175,6 +175,21 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                     if not p_data["text_content"]:
                         logger.info(f"␡ Пропущено після санітизації: {p_data.get('source_specific_id')}")
                         continue
+                        
+                    if not p_data.get("language") and len(p_data["text_content"].strip()) > 5:
+                        try:
+                            from langdetect import detect
+                            p_data["language"] = detect(p_data["text_content"])
+                        except Exception:
+                            logger.info("Language detection failed, defaulting to uk")
+                            p_data["language"] = "uk"
+                    
+                    meta_dict = p_data.get("metadata_", {})
+                    if not isinstance(meta_dict, dict):
+                        meta_dict = {}
+                    meta_dict["language"] = p_data.get("language", "uk")
+                    p_data["metadata_"] = meta_dict
+
                     stmt_exists = select(Post).where(
                         Post.source_type == source_type,
                         Post.source_specific_id == p_data["source_specific_id"]
@@ -183,6 +198,8 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                     
                     if existing_post:
                         existing_post.metadata_ = p_data.get("metadata_", existing_post.metadata_)
+                        if p_data.get("language") and existing_post.language is None:
+                            existing_post.language = p_data["language"]
                         updated_count += 1
                         logger.info(f"↺ Сховано/оновлено існуючий пост (source_specific_id={p_data.get('source_specific_id')})")
                         logger.info(
@@ -289,6 +306,9 @@ async def process_source(source, node_index: int = 0, total_nodes: int = 1):
                         relay_url = p_data.get("relay_url") or (p_data.get("metadata_") or {}).get("relay")
                         db_text_content = None if relay_url else p_data.get("text_content")
                         item_type = p_data.get("item_type", "post")
+                        
+                        p_data["metadata_"] = meta_dict
+
     
                         new_post = Post(
                             source_id=source_id,

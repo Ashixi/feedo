@@ -45,8 +45,82 @@ async def fetch_from_relay(relay_url):
             logger.error(f"Proxy error for {relay_url}: {e}")
             await asyncio.sleep(5) # Wait before reconnecting
 
+import urllib.request
+import urllib.error
+
+def fetch_pending():
+    req = urllib.request.Request("http://127.0.0.1:8040/internal/nostr/pending_broadcasts")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        logger.error(f"Failed to fetch pending broadcasts: {e}")
+        return {"posts": []}
+
+def mark_broadcasted(hash_ids, successful_relays):
+    if not hash_ids or not successful_relays:
+        return
+    req = urllib.request.Request(
+        "http://127.0.0.1:8040/internal/nostr/mark_broadcasted",
+        data=json.dumps({"hash_ids": hash_ids, "relay_urls": successful_relays}).encode('utf-8'),
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            pass
+    except Exception as e:
+        logger.error(f"Failed to mark broadcasted: {e}")
+
+async def broadcast_pending_loop():
+    while True:
+        try:
+            data = await asyncio.to_thread(fetch_pending)
+            posts = data.get("posts", [])
+            for p in posts:
+                # Construct event
+                metadata = p.get("metadata_", {})
+                event = {
+                    "id": p["hash_id"],
+                    "pubkey": p.get("author", "").replace("did:feedo:schnorr:", ""),
+                    "created_at": metadata.get("nostr_created_at", int(time.time())),
+                    "kind": metadata.get("nostr_kind", 1),
+                    "tags": metadata.get("nostr_tags", []),
+                    "content": p["text"],
+                    "sig": p["signature"]
+                }
+                
+                msg = json.dumps(["EVENT", event])
+                success_relays = []
+                
+                async def _send(url):
+                    try:
+                        async with websockets.connect(url, open_timeout=2.0) as ws:
+                            await ws.send(msg)
+                            resp = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                            resp_data = json.loads(resp)
+                            if isinstance(resp_data, list) and len(resp_data) >= 3 and resp_data[0] == "OK" and resp_data[2]:
+                                return url
+                    except Exception:
+                        pass
+                    return None
+                
+                import random
+                target_relays = random.sample(GLOBAL_RELAYS, min(3, len(GLOBAL_RELAYS)))
+                results = await asyncio.gather(*[_send(r) for r in target_relays])
+                success_relays = [r for r in results if r]
+                
+                if success_relays:
+                    await asyncio.to_thread(mark_broadcasted, [p["hash_id"]], success_relays)
+                    logger.info(f"Broadcasted {p['hash_id']} to {len(success_relays)} relays.")
+                    
+        except Exception as e:
+            logger.error(f"Broadcast loop error: {e}")
+            
+        await asyncio.sleep(10)
+
 async def main():
     tasks = [fetch_from_relay(url) for url in GLOBAL_RELAYS]
+    tasks.append(broadcast_pending_loop())
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":

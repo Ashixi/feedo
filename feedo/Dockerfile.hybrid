@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt grpcio-tools && \
 
 COPY feedo-api/ /app/
 COPY feedo_parser/ /app/feedo_parser/
+COPY feedo_proxy/ /app/feedo_proxy/
 COPY proto/ /app/proto/
 RUN python3 -m grpc_tools.protoc -I=/app/proto --python_out=/app /app/proto/feedo.proto
 

@@ -9,6 +9,7 @@ from .crdt import router as crdt_router
 from .tokenomics import router as tokenomics_router
 from .website import router as website_router
 from .wallet import router as wallet_router
+from .app_features import router as app_features_router
 
 api_v1_router = APIRouter()
 
@@ -21,3 +22,4 @@ api_v1_router.include_router(crdt_router, prefix="/crdt", tags=["Dynamic CRDT St
 api_v1_router.include_router(tokenomics_router, prefix="/tokenomics", tags=["Tokenomics & Reputation"])
 api_v1_router.include_router(website_router, prefix="/website", tags=["Web3 Websites"])
 api_v1_router.include_router(wallet_router, prefix="/wallet", tags=["Wallet & Balances"])
+api_v1_router.include_router(app_features_router, prefix="/app", tags=["App Features"])

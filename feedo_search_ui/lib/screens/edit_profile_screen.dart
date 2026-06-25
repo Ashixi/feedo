@@ -42,8 +42,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         try {
           final channel = WebSocketChannel.connect(Uri.parse(url));
           channel.sink.add(eventJson);
-          // Wait a bit to ensure it sends, then close
-          await Future.delayed(const Duration(milliseconds: 500));
+          try {
+            // Wait for the relay to respond (usually OK), ensuring the message was sent
+            await channel.stream.first.timeout(const Duration(seconds: 2));
+          } catch (_) {}
           channel.sink.close();
         } catch (e) {
           print('Failed to publish to $url: $e');

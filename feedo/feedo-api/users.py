@@ -59,6 +59,8 @@ class SearchResponseItem(BaseModel):
 @router.get("/search", response_model=List[SearchResponseItem])
 async def search_users(q: str, requester_wallet: str | None = None, db: AsyncSession = Depends(get_db)):
     """Search by public_id, username or display name."""
+    from main import _author_avatar_url
+    
     term = q.lstrip("@ ").strip()
     if not term:
         return []
@@ -95,7 +97,7 @@ async def search_users(q: str, requester_wallet: str | None = None, db: AsyncSes
             "wallet_address": u.wallet_address,
             "display_name": u.display_name or u.username or u.public_id,
             "label": _user_display_label(u, u.wallet_address),
-            "avatar_url": f"/p2p-media/{u.avatar_media_hash}" if u.avatar_media_hash else None,
+            "avatar_url": _author_avatar_url(u),
             "bio": u.bio,
             "pub_enc_key": key.pub_enc_key if key else None
         })
@@ -118,6 +120,8 @@ class SearchPostItem(BaseModel):
 
 @router.get("/search/posts", response_model=List[SearchPostItem])
 async def search_posts(q: str, db: AsyncSession = Depends(get_db)):
+    from main import _author_avatar_url
+    
     term = q.lstrip("@ ").strip()
     if not term:
         return []
@@ -154,7 +158,7 @@ async def search_posts(q: str, db: AsyncSession = Depends(get_db)):
                 "display_author": display_author,
                 "source_type": post.source_type,
                 "metadata": post.metadata_ or {},
-                "avatar_url": f"/p2p-media/{author.avatar_media_hash}" if author and author.avatar_media_hash else None,
+                "avatar_url": _author_avatar_url(author),
                 "sequence_number": post.sequence_number,
             }
         )

@@ -4,6 +4,8 @@ import 'services/auth_service.dart';
 import 'screens/relay_settings_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/login_screen.dart';
+import 'nostr_resolver.dart';
+import 'services/relay_service.dart';
 
 class ProfileTab extends StatefulWidget {
   const ProfileTab({super.key});
@@ -14,6 +16,8 @@ class ProfileTab extends StatefulWidget {
 
 class _ProfileTabState extends State<ProfileTab> {
   String? _pubkey;
+  String _authorName = 'My Nostr Account';
+  String? _authorAvatar;
 
   @override
   void initState() {
@@ -23,7 +27,23 @@ class _ProfileTabState extends State<ProfileTab> {
 
   Future<void> _loadKey() async {
     final key = await AuthService.getPublicKey();
-    setState(() => _pubkey = key);
+    if (key != null) {
+      final relays = await RelayService.getRelays();
+      final Map<String, dynamic> mockItem = {
+        'author_address': key,
+        'relay_urls': relays,
+        'hash_id': '0000000000000000000000000000000000000000000000000000000000000000',
+        'item_type': 'profile',
+      };
+      await NostrResolver.resolve([mockItem]);
+      if (mounted) {
+        setState(() {
+          _pubkey = key;
+          _authorName = mockItem['author_name'] ?? 'My Nostr Account';
+          _authorAvatar = mockItem['author_avatar'];
+        });
+      }
+    }
   }
 
   void _copyToClipboard(String text) {
@@ -44,13 +64,9 @@ class _ProfileTabState extends State<ProfileTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: const Text('Profile & Settings', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-      ),
-      body: SafeArea(
+    return Container(
+      color: Colors.grey[50],
+      child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -71,14 +87,15 @@ class _ProfileTabState extends State<ProfileTab> {
                     CircleAvatar(
                       radius: 30,
                       backgroundColor: Colors.blueAccent.withOpacity(0.1),
-                      child: const Icon(Icons.person, size: 30, color: Colors.blueAccent),
+                      backgroundImage: _authorAvatar != null ? NetworkImage(_authorAvatar!) : null,
+                      child: _authorAvatar == null ? const Icon(Icons.person, size: 30, color: Colors.blueAccent) : null,
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('My Nostr Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          Text(_authorName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                           const SizedBox(height: 4),
                           if (_pubkey != null)
                             GestureDetector(
@@ -188,13 +205,17 @@ class _ProfileTabState extends State<ProfileTab> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[200]!),
       ),
-      child: ListTile(
-        leading: Icon(icon, color: Colors.black87),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
-        subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-        trailing: trailing ?? const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: onTap,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: ListTile(
+          leading: Icon(icon, color: Colors.black87),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
+          subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+          trailing: trailing ?? const Icon(Icons.chevron_right, color: Colors.grey),
+          onTap: onTap,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
       ),
     );
   }

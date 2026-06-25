@@ -118,12 +118,17 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                               border: Border.all(color: Colors.grey[200]!),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: ListTile(
-                              leading: const Icon(Icons.storage, color: Colors.black54),
-                              title: Text(relay, style: const TextStyle(fontWeight: FontWeight.w500)),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                onPressed: () => _removeRelay(relay),
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              child: ListTile(
+                                leading: const Icon(Icons.storage, color: Colors.black54),
+                                title: Text(relay, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                  onPressed: () => _removeRelay(relay),
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                           );

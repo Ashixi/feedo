@@ -23,6 +23,9 @@ sleep 10
 if [[ -z "$NODE_TYPE" || "$NODE_TYPE" == "unified" || "$NODE_TYPE" == "nostr" ]]; then
     echo "🕸️ Запуск Nostr Backfill Spider..."
     python backfill_nostr.py --days 180 &
+    
+    echo "🌉 Запуск Nostr Bridge (Backend)..."
+    python feedo_proxy/nostr_bridge.py &
 fi
 
 

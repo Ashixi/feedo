@@ -29,6 +29,9 @@ COPY feedo-api/ /app/
 # Копіюємо протокольну бібліотеку, щоб вона була імпортована як `feedo_parser`
 COPY feedo_parser/ /app/feedo_parser/
 
+# Копіюємо nostr bridge (proxy)
+COPY feedo_proxy/ /app/feedo_proxy/
+
 # Копіюємо proto і генеруємо python класи
 COPY proto/ /app/proto/
 RUN python3 -m grpc_tools.protoc -I=/app/proto --python_out=/app /app/proto/feedo.proto
