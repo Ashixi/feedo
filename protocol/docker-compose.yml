@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  feedo-db:
+    image: postgres:15-alpine
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-feedo_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_db_password_123}
+      - POSTGRES_DB=${POSTGRES_DB:-feedo_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-feedo_user} -d $${POSTGRES_DB:-feedo_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  feedo-backend:
+    image: ${DOCKER_USERNAME:-feedoproject}/feedo-backend:latest
+    build:
+      context: ./backend
+    restart: always
+    ports:
+      - "8040:8040"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-feedo_user}:${POSTGRES_PASSWORD:-secure_db_password_123}@feedo-db:5432/${POSTGRES_DB:-feedo_db}
+      - RUST_CORE_URL=http://feedo-p2p:8041/local/publish
+    depends_on:
+      feedo-db:
+        condition: service_healthy
+
+  feedo-p2p:
+    image: ${DOCKER_USERNAME:-feedoproject}/feedo-p2p:latest
+    build:
+      context: ./p2p-node
+    restart: always
+    ports:
+      - "4001:4001/udp"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-feedo_user}:${POSTGRES_PASSWORD:-secure_db_password_123}@feedo-db:5432/${POSTGRES_DB:-feedo_db}
+      - PYTHON_API_URL=http://feedo-backend:8040
+    depends_on:
+      feedo-db:
+        condition: service_healthy
+    volumes:
+      - rust_db_data:/app/db
+
+  feedo-nostr-bridge:
+    image: ${DOCKER_USERNAME:-feedoproject}/feedo-nostr-bridge:latest
+    build:
+      context: ./ingesters/nostr-bridge
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - INGEST_URL=http://feedo-backend:8040/api/v1/ingest/post
+      - INGEST_API_KEY=${INGEST_API_KEY:-feedo_default_ingest_key_2026}
+    depends_on:
+      - feedo-backend
+
+volumes:
+  postgres_data:
+  rust_db_data:

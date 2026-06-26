@@ -1,0 +1,16 @@
+﻿version: '3.8'
+services:
+  feedo-nostr-bridge:
+    image: itsshas/feedo-nostr-bridge:latest
+    container_name: feedo-nostr-bridge
+    restart: always
+    env_file:
+      - .env
+    environment:
+      # Заміни localhost на IP-адресу або домен головної ноди, якщо Nostr працює на іншому сервері
+      - INGEST_URL=${INGEST_URL:-http://localhost:8040/api/v1/ingest/post}
+      - INGEST_API_KEY=${INGEST_API_KEY}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
