@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'services/auth_service.dart';
@@ -112,6 +112,7 @@ class NostrResolver {
                   if (res['author_address'] == ev['pubkey']) {
                     res['author_name'] = content['name'] ?? content['display_name'] ?? res['author_name'];
                     res['author_avatar'] = content['picture'];
+                    res['author_lud16'] = content['lud16'] ?? content['lud06'];
                     if (res['item_type'] == 'profile') {
                       res['text'] = content['about'] ?? '';
                     }
@@ -187,3 +188,4 @@ class NostrResolver {
     }
   }
 }
+

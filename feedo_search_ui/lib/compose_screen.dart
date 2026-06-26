@@ -1,8 +1,10 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'services/auth_service.dart';
 import 'services/relay_service.dart';
+import 'package:http/http.dart' as http;
+import 'utils/constants.dart';
 
 class ComposeScreen extends StatefulWidget {
   const ComposeScreen({super.key});
@@ -86,6 +88,19 @@ class _ComposeScreenState extends State<ComposeScreen> {
         successCount++;
       } catch (e) {
         print("Failed to broadcast to $relayUrl: $e");
+      }
+    }
+
+    if (successCount > 0) {
+      // Instant Indexing: Ping Feedo Backend
+      try {
+        await http.post(
+          Uri.parse(Constants.ingestUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(event.toMap()),
+        );
+      } catch (e) {
+        print("Failed to ping Feedo backend: $e");
       }
     }
 
@@ -180,3 +195,4 @@ class _ComposeScreenState extends State<ComposeScreen> {
     );
   }
 }
+

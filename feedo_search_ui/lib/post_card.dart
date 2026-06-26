@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'services/nostr_publisher.dart';
+import 'services/nwc_service.dart';
 import 'screens/user_profile_screen.dart';
 import 'screens/post_screen.dart';
 import 'widgets/linkified_text.dart';
@@ -107,6 +109,57 @@ class _PostCardState extends State<PostCard> {
       setState(() {
         widget.post['user_reposted'] = false;
         widget.post['reposts_count'] = (widget.post['reposts_count'] ?? 1) - 1;
+      });
+    }
+  }
+
+  Future<void> _handleZap() async {
+    final hasWallet = await NwcService.hasWallet();
+    if (!hasWallet) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please connect a Lightning Wallet in Settings to Zap!')));
+      return;
+    }
+
+    final lud16 = widget.post['author_lud16'];
+    if (lud16 == null || !lud16.contains('@')) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Author has no Lightning Address (lud16) set up.')));
+      return;
+    }
+
+    setState(() {
+      widget.post['zaps_count'] = (widget.post['zaps_count'] ?? widget.post['metrics']?['tips'] ?? 0) + 1;
+    });
+    
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zapping 50 sats...')));
+
+    try {
+      final parts = lud16.split('@');
+      final url = 'https://${parts[1]}/.well-known/lnurlp/${parts[0]}';
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final lnurlData = jsonDecode(response.body);
+        final callback = lnurlData['callback'];
+        final invoiceResponse = await http.get(Uri.parse('$callback?amount=50000'));
+        if (invoiceResponse.statusCode == 200) {
+          final invoiceData = jsonDecode(invoiceResponse.body);
+          final pr = invoiceData['pr'];
+          if (pr != null) {
+            final success = await NwcService.payInvoice(pr);
+            if (success && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zap successful! ⚡')));
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Zap error: $e');
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to Zap. Please check your wallet connection.')));
+      setState(() {
+        widget.post['zaps_count'] = (widget.post['zaps_count'] ?? 1) - 1;
       });
     }
   }
@@ -267,7 +320,7 @@ class _PostCardState extends State<PostCard> {
                               _buildInteractionBtn(Icons.chat_bubble_outline, '${widget.post['comments_count'] ?? (widget.post['metrics']?['comments'] ?? 0)}', false, _handleComment),
                               _buildInteractionBtn(Icons.repeat, '${widget.post['reposts_count'] ?? (widget.post['metrics']?['reposts'] ?? 0)}', widget.post['user_reposted'] == true, _handleRepost),
                               _buildInteractionBtn(widget.post['user_liked'] == true ? Icons.favorite : Icons.favorite_border, '${widget.post['likes_count'] ?? (widget.post['metrics']?['likes'] ?? 0)}', widget.post['user_liked'] == true, _handleLike),
-                              _buildInteractionBtn(Icons.flash_on, '${widget.post['zaps_count'] ?? (widget.post['metrics']?['tips'] ?? 0)}', (widget.post['zaps_count'] ?? widget.post['metrics']?['tips'] ?? 0) > 0, () {}),
+                              _buildInteractionBtn(Icons.flash_on, '${widget.post['zaps_count'] ?? (widget.post['metrics']?['tips'] ?? 0)}', (widget.post['zaps_count'] ?? widget.post['metrics']?['tips'] ?? 0) > 0, _handleZap),
                             ],
                           ),
                         if (score > 0.0)

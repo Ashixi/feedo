@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+﻿from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -136,7 +136,7 @@ async def get_smart_feed(
     if user.premium_until and user.premium_until.replace(tzinfo=dt.timezone.utc) > now_utc:
         is_premium = True
         
-    feed_layers = FeedEngine.generate_smart_feed(brain, user.user_vector, limit=limit + offset, source_type=source_type, user_languages=user_langs, user_geo=user_geo, is_premium=is_premium)
+    feed_layers = await FeedEngine.generate_smart_feed(db, brain, user.user_vector, limit=limit + offset, source_type=source_type, user_languages=user_langs, user_geo=user_geo, is_premium=is_premium)
     
     rel_offset = int(offset * 0.7)
     disc_offset = offset - rel_offset
@@ -158,9 +158,9 @@ async def get_smart_feed(
 
     feed_response = []
     categories = [
-        ("📢 Promoted (Ad)", [(pid, 1.0) for pid in promoted]),
-        ("🎯 Relevant (Your interests)", feed_layers.get("relevant", [])), 
-        ("💥 Bubble Pop (Discovery)", feed_layers.get("discovery", []))
+        ("ðŸ“¢ Promoted (Ad)", [(pid, 1.0) for pid in promoted]),
+        ("ðŸŽ¯ Relevant (Your interests)", feed_layers.get("relevant", [])), 
+        ("ðŸ’¥ Bubble Pop (Discovery)", feed_layers.get("discovery", []))
     ]
     
     for category_name, tuples_list in categories:
@@ -171,7 +171,7 @@ async def get_smart_feed(
             if is_nsfw(p.text_content):
                 continue
             
-            if category_name == "📢 Promoted (Ad)":
+            if category_name == "ðŸ“¢ Promoted (Ad)":
                 await AdsManager.charge_ad_impression(db, p.id, DEVELOPER_WALLET, cost=5)
 
             author = p.author or await _load_user_by_wallet(db, p.author_address)
@@ -227,7 +227,7 @@ async def upload_avatar(
     stmt = select(User).where(User.wallet_address == author_address)
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+        raise HTTPException(status_code=404, detail="ÐšÐ¾Ñ€Ð¸ÑÑ‚ÑƒÐ²Ð°Ñ‡Ð° Ð½Ðµ Ð·Ð½Ð°Ð¹Ð´ÐµÐ½Ð¾")
 
     if not verify_signature(hash_id, signature, user.wallet_address):
         raise HTTPException(status_code=401, detail="Invalid signature!")
@@ -236,7 +236,7 @@ async def upload_avatar(
     content = await file.read()
     media_raw_size = len(content)
     if media_raw_size > max_media_bytes:
-        raise HTTPException(status_code=400, detail="Максимум 10 МБ")
+        raise HTTPException(status_code=400, detail="ÐœÐ°ÐºÑÐ¸Ð¼ÑƒÐ¼ 10 ÐœÐ‘")
 
     b64_text = base64.b64encode(content).decode('utf-8')
     media_hash = generate_content_hash(b64_text)
@@ -516,7 +516,7 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
         if wallet_address and p.is_repost and p.author_address == wallet_address:
             reason = "Duplicate"
         elif p.hash_id in rel_hash_id_set:
-            reason = "За вашими інтересами"
+            reason = "Ð—Ð° Ð²Ð°ÑˆÐ¸Ð¼Ð¸ Ñ–Ð½Ñ‚ÐµÑ€ÐµÑÐ°Ð¼Ð¸"
         elif p.hash_id in disc_hash_id_set:
             reason = "Anti-bubble"
         elif p.id in rand_res_set:
@@ -586,7 +586,7 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
                 dup_dict["display_author"] = dup_author
                 dup_dict["author_address"] = rand_dup.author_address
                 dup_dict["avatar_url"] = _author_avatar_url(rand_dup.author)
-                dup_dict["recommendation_reason"] = "Інша думка на цю тему"
+                dup_dict["recommendation_reason"] = "Ð†Ð½ÑˆÐ° Ð´ÑƒÐ¼ÐºÐ° Ð½Ð° Ñ†ÑŽ Ñ‚ÐµÐ¼Ñƒ"
                 
                 copy_also_posted = []
                 orig_author = _display_author_name(p.author, p.original_author_name, p.author_address)
@@ -665,7 +665,7 @@ async def get_profile_feed(target_wallet_address: str, limit: int = 50, offset: 
             "is_finalized": p.is_finalized,
             "is_verified": p.is_verified,
             "is_repost": p.is_repost,
-            "recommendation_reason": "Профіль користувача",
+            "recommendation_reason": "ÐŸÑ€Ð¾Ñ„Ñ–Ð»ÑŒ ÐºÐ¾Ñ€Ð¸ÑÑ‚ÑƒÐ²Ð°Ñ‡Ð°",
             "metadata": p.metadata_ or {}, 
             "user_liked": False,
             "user_saved": False,
@@ -697,26 +697,26 @@ async def delete_post(req: DeletePostRequest, db: AsyncSession = Depends(get_db)
     stmt = select(Post).where(Post.id == req.post_id)
     post = (await db.execute(stmt)).scalar_one_or_none()
     if not post:
-        raise HTTPException(status_code=404, detail="Пост не знайдено")
+        raise HTTPException(status_code=404, detail="ÐŸÐ¾ÑÑ‚ Ð½Ðµ Ð·Ð½Ð°Ð¹Ð´ÐµÐ½Ð¾")
         
     post_author = post.author_address or ""
     req_author = req.wallet_address
     if post_author.startswith("0x"): post_author = post_author[2:]
     if req_author.startswith("0x"): req_author = req_author[2:]
     if post_author.lower() != req_author.lower():
-        raise HTTPException(status_code=403, detail="Ви не є автором цього поста")
+        raise HTTPException(status_code=403, detail="Ð’Ð¸ Ð½Ðµ Ñ” Ð°Ð²Ñ‚Ð¾Ñ€Ð¾Ð¼ Ñ†ÑŒÐ¾Ð³Ð¾ Ð¿Ð¾ÑÑ‚Ð°")
         
     now_ts = datetime.datetime.now(timezone.utc).timestamp()
     pub_ts = _to_naive_utc(post.published_at).replace(tzinfo=timezone.utc).timestamp()
     if (now_ts - pub_ts) > 900:
-        raise HTTPException(status_code=400, detail="Час для видалення поста (15 хвилин) закінчився")
+        raise HTTPException(status_code=400, detail="Ð§Ð°Ñ Ð´Ð»Ñ Ð²Ð¸Ð´Ð°Ð»ÐµÐ½Ð½Ñ Ð¿Ð¾ÑÑ‚Ð° (15 Ñ…Ð²Ð¸Ð»Ð¸Ð½) Ð·Ð°ÐºÑ–Ð½Ñ‡Ð¸Ð²ÑÑ")
         
     if post.is_finalized:
-        raise HTTPException(status_code=400, detail="Цей пост вже фіналізовано в блокчейні і його не можна видалити")
+        raise HTTPException(status_code=400, detail="Ð¦ÐµÐ¹ Ð¿Ð¾ÑÑ‚ Ð²Ð¶Ðµ Ñ„Ñ–Ð½Ð°Ð»Ñ–Ð·Ð¾Ð²Ð°Ð½Ð¾ Ð² Ð±Ð»Ð¾ÐºÑ‡ÐµÐ¹Ð½Ñ– Ñ– Ð¹Ð¾Ð³Ð¾ Ð½Ðµ Ð¼Ð¾Ð¶Ð½Ð° Ð²Ð¸Ð´Ð°Ð»Ð¸Ñ‚Ð¸")
         
     await db.delete(post)
     await db.commit()
-    return {"status": "success", "message": "Пост видалено"}
+    return {"status": "success", "message": "ÐŸÐ¾ÑÑ‚ Ð²Ð¸Ð´Ð°Ð»ÐµÐ½Ð¾"}
 
 from media_storage import get_media_storage
 from fastapi import Response
@@ -737,3 +737,4 @@ async def download_encrypted_media(media_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Media not found")
     return Response(content=data, media_type="application/octet-stream")
+

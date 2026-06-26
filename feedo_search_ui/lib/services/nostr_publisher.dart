@@ -1,7 +1,9 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'auth_service.dart';
 import 'relay_service.dart';
+import 'package:http/http.dart' as http;
+import '../utils/constants.dart';
 
 class NostrPublisher {
   static Future<String?> publishEvent(int kind, String content, List<List<String>> tags) async {
@@ -30,6 +32,19 @@ class NostrPublisher {
     }
     
     await Future.wait(futures);
+
+    if (success) {
+      try {
+        await http.post(
+          Uri.parse(Constants.ingestUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(event.toMap()),
+        );
+      } catch (e) {
+        print("Failed to ping Feedo backend for event: $e");
+      }
+    }
+
     return success ? event.id : null;
   }
 
@@ -205,3 +220,4 @@ class NostrPublisher {
     return isSubscribed;
   }
 }
+

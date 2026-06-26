@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Security, status, Request
+﻿from fastapi import APIRouter, Depends, HTTPException, Security, status, Request
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -40,4 +40,15 @@ async def ingest_post(request: Request, post_data: IngestPostSchema, db: AsyncSe
         return await IngestService.process_post(db, brain, post_data)
     except Exception as e:
         logger.error(f"Error ingesting post: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/nostr", status_code=status.HTTP_201_CREATED)
+async def ingest_raw_nostr(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        raw_json = await request.json()
+        from services.ingest_service import IngestService
+        brain = getattr(request.app.state, "brain", None)
+        return await IngestService.process_nostr_event(db, brain, raw_json)
+    except Exception as e:
+        logger.error(f"Error ingesting raw nostr: {e}")
         raise HTTPException(status_code=500, detail=str(e))

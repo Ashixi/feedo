@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
-import '../main_screen.dart';
-import '../nostr_wallet.dart';
+import 'package:dart_nostr/dart_nostr.dart';
+import '../main_screen.dart'; // We'll need to route to main screen on success
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,132 +12,142 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _nsecController = TextEditingController();
+  final TextEditingController _keyController = TextEditingController();
   bool _isLoading = false;
 
-  void _navigateToHome() {
+  void _navigateToMain() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainScreen()),
+      MaterialPageRoute(builder: (context) => const MainScreen()),
     );
   }
 
-  Future<void> _generateAccount() async {
+  Future<void> _loginWithExtension() async {
     setState(() => _isLoading = true);
-    await AuthService.generateNewAccount();
-    if (mounted) _navigateToHome();
-  }
-
-  Future<void> _loginWithNsec() async {
-    final nsec = _nsecController.text.trim();
-    if (nsec.isEmpty) return;
-
-    setState(() => _isLoading = true);
-    final success = await AuthService.loginWithNsec(nsec);
-    if (mounted) {
-      if (success) {
-        _navigateToHome();
-      } else {
-        setState(() => _isLoading = false);
+    final success = await AuthService.loginWithExtension();
+    setState(() => _isLoading = false);
+    
+    if (success) {
+      _navigateToMain();
+    } else {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid private key')),
+          const SnackBar(content: Text('Could not find Nostr extension. Are you using Alby/nos2x?')),
         );
       }
     }
   }
 
-  Future<void> _loginWithExtension() async {
-    bool available = await NostrWallet.isAvailable();
-    if (!available) {
+  Future<void> _loginWithNsec() async {
+    final text = _keyController.text.trim();
+    if (text.isEmpty) return;
+    
+    if (!text.startsWith('nsec')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nostr extension not found!')),
+        const SnackBar(content: Text('Invalid key format. Must start with nsec')),
       );
       return;
     }
-    // We don't have nsec, so we just proceed to Home. 
-    // In a real app, you might want a global flag indicating extension auth mode.
-    _navigateToHome();
+
+    setState(() => _isLoading = true);
+    final success = await AuthService.loginWithNsec(text);
+    setState(() => _isLoading = false);
+
+    if (success) {
+      _navigateToMain();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid nsec key')),
+        );
+      }
+    }
+  }
+
+  Future<void> _generateNewAccount() async {
+    setState(() => _isLoading = true);
+    final pubkey = await AuthService.generateNewAccount();
+    setState(() => _isLoading = false);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('New account generated! Please backup your key later.')),
+      );
+      _navigateToMain();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white, // Minimalist light theme (or simple dark)
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.hub, size: 64, color: Colors.black87),
-              const SizedBox(height: 24),
-              const Text(
-                'Join the network.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.black87,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.hub, size: 80, color: Colors.purpleAccent),
+                const SizedBox(height: 16),
+                const Text(
+                  'Welcome to Feedo',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87),
                 ),
-              ),
-              const SizedBox(height: 48),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _generateAccount,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black87,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                const SizedBox(height: 8),
+                const Text(
+                  'The Unified Semantic Layer for Web4',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.black54),
                 ),
-                child: _isLoading 
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white))
-                    : const Text('Create Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Expanded(child: Divider()),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text('or', style: TextStyle(color: Colors.grey[600])),
+                const SizedBox(height: 48),
+                
+                if (kIsWeb) ...[
+                  ElevatedButton.icon(
+                    onPressed: _isLoading ? null : _loginWithExtension,
+                    icon: const Icon(Icons.extension),
+                    label: const Text('Login with Browser Extension'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purpleAccent,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                    ),
                   ),
-                  const Expanded(child: Divider()),
+                  const SizedBox(height: 24),
+                  const Text('OR', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 24),
                 ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _nsecController,
-                obscureText: true,
-                style: const TextStyle(color: Colors.black87),
-                decoration: InputDecoration(
-                  hintText: 'Private Key (nsec)',
-                  hintStyle: TextStyle(color: Colors.grey[400]),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(30),
-                    borderSide: BorderSide.none,
+                
+                TextField(
+                  controller: _keyController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Private Key (nsec)',
+                    hintText: 'nsec1...',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                    prefixIcon: const Icon(Icons.vpn_key),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _isLoading ? null : _loginWithNsec,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.black87,
-                  side: const BorderSide(color: Colors.black26),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _loginWithNsec,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black87,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  ),
+                  child: _isLoading 
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                    : const Text('Login with Key', style: TextStyle(fontSize: 16)),
                 ),
-                child: const Text('Log in', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: _loginWithExtension,
-                child: const Text('Log in with Browser Extension (Alby)'),
-              ),
-            ],
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: _isLoading ? null : _generateNewAccount,
+                  child: const Text('Create New Account', style: TextStyle(color: Colors.purpleAccent, fontSize: 16)),
+                ),
+              ],
+            ),
           ),
         ),
       ),
