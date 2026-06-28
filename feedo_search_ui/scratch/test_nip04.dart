@@ -1,9 +1,10 @@
-﻿import 'dart:mirrors';
 import 'package:dart_nostr/dart_nostr.dart';
-
 void main() {
-  final nostr = Nostr.instance;
-  for (var decl in reflect(nostr.keys).type.declarations.values) {
-    print("Keys member: ${MirrorSystem.getName(decl.simpleName)}");
+  final keys = NostrKeyPairs.generate();
+  final other = NostrKeyPairs.generate();
+  try {
+    print(Nostr.instance.keys.encrypt(keys.private, other.public, "test"));
+  } catch(e) {
+    print(e);
   }
 }

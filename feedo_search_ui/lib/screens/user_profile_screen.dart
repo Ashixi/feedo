@@ -1,3 +1,4 @@
+﻿import 'chat_screen.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -331,20 +332,50 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _isFollowingLoading ? null : _handleFollow,
-            icon: _isFollowingLoading 
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : Icon(_hasFollowed ? Icons.person_remove : Icons.person_add),
-            label: Text(_isFollowingLoading ? 'Updating...' : (_hasFollowed ? 'Unsubscribe' : 'Subscribe')),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _hasFollowed ? Colors.grey[800] : Colors.black87,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _isFollowingLoading ? null : _handleFollow,
+                icon: _isFollowingLoading 
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Icon(_hasFollowed ? Icons.person_remove : Icons.person_add),
+                label: Text(_isFollowingLoading ? 'Updating...' : (_hasFollowed ? 'Unsubscribe' : 'Subscribe')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _hasFollowed ? Colors.grey[800] : Colors.black87,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ChatScreen(
+                        peerPubkey: widget.pubkey,
+                        peerName: _name ?? 'Unknown User',
+                        peerPicture: _avatar ?? '',
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Message'),
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  foregroundColor: Colors.black87,
+                ),
+              ),
+            ],
           )
         ],
       ),
     );
   }
 }
+
+
+
+

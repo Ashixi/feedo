@@ -1,4 +1,4 @@
-﻿version: '3.8'
+version: '3.8'
 
 services:
   db:
@@ -35,6 +35,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - lancedb_data:/app/lancedb_data
 
   feedo-p2p:
     image: itsshas/feedo-p2p:latest
@@ -59,6 +61,32 @@ services:
     volumes:
       - rust_db_data:/app/db
 
+  feedo-frontend:
+    image: itsshas/feedo-client:latest
+    build:
+      context: ./feedo_search_ui
+    container_name: feedo-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - feedo-backend
+
+  feedo-algo:
+    image: itsshas/feedo-algo:latest
+    build:
+      context: ./protocol/algo-node
+    container_name: feedo-algo
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   rust_db_data:
+  lancedb_data:

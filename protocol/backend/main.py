@@ -319,9 +319,9 @@ from api_v1.router import api_v1_router
 from api_v1.wallet import router as wallet_router
 from api_v1.treasury import router as treasury_router
 
-app.include_router(api_v1_router, prefix="/api/v1")
-app.include_router(wallet_router, prefix="/api/v1/wallet", tags=["Wallet"])
-app.include_router(treasury_router, prefix="/api/v1/treasury", tags=["Treasury"])
+app.include_router(api_v1_router, prefix="/v1")
+app.include_router(wallet_router, prefix="/v1/wallet", tags=["Wallet"])
+app.include_router(treasury_router, prefix="/v1/treasury", tags=["Treasury"])
 
 app.add_middleware(
     CORSMiddleware,
@@ -433,6 +433,17 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
             "is_repost": dup.is_repost,
         })
 
+    item_type = "profile" if (post.metadata_ and isinstance(post.metadata_, dict) and post.metadata_.get("kind") == 0) else "post"
+
+    text = post.text_content
+    if item_type == "profile" and text:
+        try:
+            import json
+            parsed = json.loads(text)
+            text = parsed.get("about", "")
+        except:
+            pass
+
     return {
         "id": post.id,
         "title": post.title,
@@ -444,7 +455,8 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
         "author_address": post.author_address,
         "display_author": display_author,
         "source_type": post.source_type,
-        "text": post.text_content,
+        "item_type": item_type,
+        "text": text,
         "content_size": post.content_size,
         "is_full": post.is_full_content_loaded,
         "published_at": post.published_at,
@@ -454,6 +466,7 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
         "metadata": post.metadata_,
         "also_posted_by": also_posted_by,
         "avatar_url": _author_avatar_url(author),
+        "relay_urls": [post.relay_url] if getattr(post, "relay_url", None) else [],
     }
 
 
@@ -505,6 +518,28 @@ def _ensure_users_schema_columns(sync_conn) -> None:
         
     if "is_admin" not in columns:
         sync_conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+        
+    if "preferred_tags" not in columns:
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN preferred_tags JSON DEFAULT '[]'::json"))
+    else:
+        # Check type and fix if it's an array from previous buggy migration
+        try:
+            with sync_conn.begin_nested():
+                sync_conn.execute(text("ALTER TABLE users ALTER COLUMN preferred_tags TYPE JSON USING array_to_json(preferred_tags)"))
+        except Exception:
+            pass # Already JSON or cast failed
+            
+    if "preferred_languages" not in columns:
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN preferred_languages JSON DEFAULT '[]'::json"))
+    else:
+        try:
+            with sync_conn.begin_nested():
+                sync_conn.execute(text("ALTER TABLE users ALTER COLUMN preferred_languages TYPE JSON USING array_to_json(preferred_languages)"))
+        except Exception:
+            pass
+        
+    if "saved_chats" not in columns:
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN saved_chats JSON DEFAULT '[]'::json"))
 
     if "privacy" in columns:
         sync_conn.execute(
@@ -1284,7 +1319,7 @@ async def load_full_content(hash_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/feed")
-async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", language: str | None = Query(None), wallet_address: str | None = None, request: Request = None, db: AsyncSession = Depends(get_db)):
+async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", language: str | None = Query(None), text: str | None = Query(None), wallet_address: str | None = None, request: Request = None, db: AsyncSession = Depends(get_db)):
     _require_server_variant()
     if request:
         pubkey = request.headers.get("X-P2P-Pubkey")
@@ -1304,6 +1339,7 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
         offset=offset,
         source_type=source_type,
         language=language,
+        text=text,
         user=user,
         expose_vector_api=EXPOSE_VECTOR_API,
         vector_api_addr=VECTOR_API_ADDR,
@@ -1318,62 +1354,27 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
     rand_res_set = set(rand_res) if 'rand_res' in locals() else set()
     
     for score, p in scored_posts:
-        author = p.author or await _load_user_by_wallet(db, p.author_address)
-        display_author = p.original_author_name if p.original_author_name else _display_author_name(author, p.author_address)
+        # Use centralized serialization which handles JSON parsing for profiles, avatars, etc.
+        post_dict = await _serialize_post_for_client(db, p)
         
-        also_posted_by = []
-        for dup in p.duplicates:
-            dup_author_obj = dup.author or await _load_user_by_wallet(db, dup.author_address)
-            dup_author = dup.original_author_name if dup.original_author_name else _display_author_name(dup_author_obj, dup.author_address)
-            also_posted_by.append({
-                "id": dup.id,
-                "source_type": dup.source_type,
-                "link": dup.external_link,
-                "published_at": dup.published_at,
-                "metadata": dup.metadata_,
-                "text": dup.text_content,
-                "display_author": dup_author,
-                "author_address": dup.author_address,
-                "avatar_url": f"/p2p-media/{dup_author_obj.avatar_media_hash}" if dup_author_obj and dup_author_obj.avatar_media_hash else None,
-                "is_repost": dup.is_repost,
-            })
-            
+        # Filter out garbage Nostr events from the main feed (e.g. kind 4 DMs, kind 9735 Zaps, kind 0 Profiles)
+        metadata = post_dict.get("metadata") or {}
+        if isinstance(metadata, dict) and post_dict.get("source_type") == "nostr":
+            kind = metadata.get("kind")
+            if kind is not None and kind not in (1, 6): # Only show standard text notes and reposts
+                continue
+                
         reason = None
-        if wallet_address and p.is_repost and p.author_address == wallet_address:
+        if wallet_address and post_dict["is_repost"] and post_dict["author_address"] == wallet_address:
             reason = "Duplicate"
-        elif p.hash_id in rel_hash_id_set:
+        elif post_dict["hash_id"] in rel_hash_id_set:
             reason = "За вашими інтересами"
-        elif p.hash_id in disc_hash_id_set:
+        elif post_dict["hash_id"] in disc_hash_id_set:
             reason = "Anti-bubble"
-        elif p.id in rand_res_set:
+        elif post_dict["id"] in rand_res_set:
             reason = "Random discovery"
             
-        post_dict = {
-            "id": p.id,
-            "title": p.title, 
-            "hash_id": p.hash_id,
-            "content_blob_hash": p.content_blob_hash,
-            "prev_post_hash": p.prev_post_hash,
-            "sequence_number": p.sequence_number,
-            "signature": p.signature,
-            "author_address": p.author_address,
-            "display_author": display_author,
-            "source_type": p.source_type, 
-            "text": p.text_content,
-            "content_size": p.content_size,
-            "is_full": p.is_full_content_loaded,
-            "published_at": p.published_at,
-            "is_finalized": p.is_finalized,
-            "is_verified": p.is_verified,
-            "is_repost": p.is_repost,
-            "recommendation_reason": reason,
-            "metadata": p.metadata_, 
-            "language": p.language,
-            "relay_urls": p.relay_url.split(',') if p.relay_url else [],
-            "also_posted_by": also_posted_by,
-            "avatar_url": f"/p2p-media/{p.author.avatar_media_hash}" if p.author and p.author.avatar_media_hash else None
-        }
-        
+        post_dict["recommendation_reason"] = reason
         feed_response.append(post_dict)
         
         dup_count = len(p.duplicates)
@@ -1685,81 +1686,7 @@ async def get_posts_by_author(wallet_address: str, limit: int = 100, db: AsyncSe
 
 
 
-@app.get("/feed/anti-bubble")
-async def get_anti_bubble_feed(request: Request, wallet_address: str, limit: int = 50, offset: int = 0, source_type: str = "main", db: AsyncSession = Depends(get_db)):
-    pubkey = request.headers.get("X-P2P-Pubkey")
-    if pubkey and p2p and hasattr(p2p, "reputation"):
-        p2p.reputation.charge_peer(pubkey, limit)
-        p2p.reputation.can_afford(pubkey, limit)
 
-    stmt_user = select(User).where(User.wallet_address == wallet_address)
-    user = (await db.execute(stmt_user)).scalar_one_or_none()
-    
-    if not user or not user.user_vector:
-        return await get_feed(limit=limit, offset=offset, source_type=source_type, wallet_address=wallet_address, db=db)
-        
-    user_langs = user.preferred_languages or []
-    user_geo = (user.__dict__.get('metadata_') or {}).get('geo') if hasattr(user, 'metadata_') else None
-    feed_layers = brain.get_anti_bubble_feed(user.user_vector, limit=limit + offset, source_type=source_type, user_languages=user_langs, user_geo=user_geo)
-    
-    rel_offset = int(offset * 0.7)
-    disc_offset = offset - rel_offset
-    
-    rel = [pid for pid, _ in feed_layers.get("relevant", [])][rel_offset:]
-    disc = [pid for pid, _ in feed_layers.get("discovery", [])][disc_offset:]
-    all_target_ids = rel + disc
-    
-    if not all_target_ids:
-        # ДОДАНО: передаємо wallet_address
-        return await get_feed(limit=limit, offset=offset, source_type=source_type, wallet_address=wallet_address, db=db)
-        
-    stmt = select(Post).where(Post.id.in_(all_target_ids))
-    if source_type != "general":
-        stmt = stmt.where(Post.parent_post_id == None)
-    stmt = stmt.options(selectinload(Post.author), selectinload(Post.duplicates))
-    result = await db.execute(stmt)
-    posts = {p.id: p for p in result.scalars().all()}
-    
-
-    feed_response = []
-    
-    for category_name, tuples_list in [("🎯 Relevant (Your interests)", feed_layers.get("relevant", [])), 
-                                       ("💥 Bubble Pop (Discovery)", feed_layers.get("discovery", []))]:
-        for p_id, score in tuples_list:
-            p = posts.get(p_id)
-            if not p: continue
-            
-            author = p.author or await _load_user_by_wallet(db, p.author_address)
-            display_author = p.original_author_name if p.original_author_name else _display_author_name(author, p.author_address)
-            
-            also_posted_by = []
-            for dup in p.duplicates:
-                also_posted_by.append({
-                    "id": dup.id,
-                    "source_type": dup.source_type,
-                    "link": dup.external_link,
-                    "published_at": dup.published_at,
-                    "metadata": dup.metadata_
-                })
-            
-            feed_response.append({
-                "id": p.id,
-                "recommendation_reason": category_name,
-                "title": p.title, 
-                "hash_id": p.hash_id,
-                "content_blob_hash": p.content_blob_hash,
-                "display_author": display_author,
-                "source_type": p.source_type,
-                "text": p.text_content,
-                "content_size": p.content_size,
-                "published_at": p.published_at,
-                "also_posted_by": also_posted_by,
-                "metadata": p.metadata_,            
-                "avatar_url": f"/p2p-media/{p.author.avatar_media_hash}" if p.author and p.author.avatar_media_hash else None,
-                "sequence_number": p.sequence_number
-            })
-            
-    return feed_response
 
 @app.post("/users/upload_avatar")
 async def upload_avatar(
@@ -1938,23 +1865,52 @@ async def get_edges(post_hash: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/query")
-async def federated_query(text: str, limit: int = 10, federated: bool = False, db: AsyncSession = Depends(get_db)):
+async def federated_query(text: str, limit: int = 10, offset: int = 0, federated: bool = False, db: AsyncSession = Depends(get_db)):
     _require_server_variant()
     if not brain:
         raise HTTPException(status_code=503, detail="Vector Brain not initialized")
         
     try:
         vector = await brain.get_embedding_async(text)
-        res = brain.get_anti_bubble_feed(vector, limit=limit)
-        rel_hash_ids = [hid for hid, score, *_ in res.get("relevant", [])]
+        try:
+            # 1. Pseudo-Relevance Feedback: get top 3 closest items to capture contextual semantics
+            pr_results = brain.table.search(vector).limit(3).to_list()
+            pr_vectors = [r["vector"] for r in pr_results if "vector" in r]
+            if pr_vectors:
+                # Average the original vector (weight 0.6) with the retrieved vectors (weight 0.4 total)
+                avg_retrieved = [sum(v[i] for v in pr_vectors) / len(pr_vectors) for i in range(len(vector))]
+                vector = [0.6 * vector[i] + 0.4 * avg_retrieved[i] for i in range(len(vector))]
+            
+            # 2. Perform main search with pagination
+            raw_results = brain.table.search(vector).limit(limit + offset).to_list()[offset:]
+            rel_hash_ids = [r["hash_id"] for r in raw_results if "hash_id" in r and r.get("_distance", 0) < 1.6]
+            
+            # 3. Anti-Bubble Injection (only on first page to not mess up infinite scroll offsets)
+            if offset == 0 and len(rel_hash_ids) >= 5:
+                import random
+                # Random vector to discover out-of-topic posts
+                rand_vec = [random.uniform(-1, 1) for _ in range(len(vector))]
+                discovery_results = brain.table.search(rand_vec).limit(3).to_list()
+                disc_ids = [r["hash_id"] for r in discovery_results if "hash_id" in r and r["hash_id"] not in rel_hash_ids]
+                # Inject anti-bubble posts randomly into the list
+                for did in disc_ids:
+                    insert_idx = random.randint(1, len(rel_hash_ids))
+                    rel_hash_ids.insert(insert_idx, did)
+                    
+        except Exception as e:
+            print(f"LanceDB query error: {e}")
+            rel_hash_ids = []
         
         results = []
         if rel_hash_ids:
-            stmt = select(Post).where(Post.hash_id.in_(rel_hash_ids))
+            stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(Post.hash_id.in_(rel_hash_ids))
             posts = (await db.execute(stmt)).scalars().all()
-            for p in posts:
-                results.append(await _serialize_post_for_client(db, p))
-                
+            
+            # Sort posts to match the order of rel_hash_ids (most relevant first, with anti-bubble injected)
+            post_map = {p.hash_id: p for p in posts}
+            for hid in rel_hash_ids:
+                if hid in post_map:
+                    results.append(await _serialize_post_for_client(db, post_map[hid]))
         if federated:
             if p2p:
                 peer_addrs = set()

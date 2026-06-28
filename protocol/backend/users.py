@@ -232,3 +232,76 @@ async def delete_account(req: DeleteAccountRequest, db: AsyncSession = Depends(g
     await db.commit()
     
     return {"status": "success", "message": "Акаунт та всі пов'язані дані успішно видалено."}
+
+
+class ResolveProfilesRequest(BaseModel):
+    pubkeys: List[str]
+
+class ResolvedProfile(BaseModel):
+    pubkey: str
+    name: str | None = None
+    picture: str | None = None
+    bio: str | None = None
+    relays: List[str] = []
+
+@router.post("/resolve_profiles", response_model=List[ResolvedProfile])
+async def resolve_profiles(req: ResolveProfilesRequest, db: AsyncSession = Depends(get_db)):
+    """Resolve Nostr profiles and their active relays from the backend database."""
+    if not req.pubkeys:
+        return []
+        
+    pubkeys = list(set([_normalize_wallet(pk) for pk in req.pubkeys]))
+    
+    # 1. Fetch user data
+    from main import _author_avatar_url
+    stmt = select(User).where(func.lower(User.wallet_address).in_(pubkeys))
+    users_res = await db.execute(stmt)
+    users_dict = {u.wallet_address.lower(): u for u in users_res.scalars().all()}
+    
+    # 2. Fetch relay info from posts
+    # We find all distinct relay_urls for posts authored by these pubkeys
+    stmt_relays = select(Post.author_address, Post.relay_url).where(
+        func.lower(Post.author_address).in_(pubkeys),
+        Post.relay_url != None
+    ).group_by(Post.author_address, Post.relay_url)
+    
+    relays_res = await db.execute(stmt_relays)
+    
+    # Map pubkey -> set of relays
+    user_relays = {pk: set() for pk in pubkeys}
+    for author, relay_url in relays_res.all():
+        author_lower = author.lower()
+        if relay_url:
+            for r in str(relay_url).split(','):
+                r = r.strip()
+                if r:
+                    user_relays[author_lower].add(r)
+    
+    results = []
+    
+    for pk in pubkeys:
+        u = users_dict.get(pk)
+        relays = list(user_relays.get(pk, set()))
+        
+        # If no relays found, add some global fallbacks just in case
+        if not relays:
+            relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']
+            
+        if u:
+            results.append(ResolvedProfile(
+                pubkey=pk,
+                name=u.display_name or u.username or u.public_id,
+                picture=_author_avatar_url(u),
+                bio=u.bio,
+                relays=relays
+            ))
+        else:
+            results.append(ResolvedProfile(
+                pubkey=pk,
+                name=pk[:8] + "...",
+                picture=None,
+                bio=None,
+                relays=relays
+            ))
+            
+    return results

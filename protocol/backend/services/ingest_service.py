@@ -1,4 +1,4 @@
-﻿from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models import Post, ContentType
 from datetime import datetime
@@ -48,7 +48,8 @@ class IngestService:
                 source_type=post_data.source_type,
                 item_type="post",
                 language=post_data.language,
-                image_vector=image_vector
+                image_vector=image_vector,
+                relay_url=post_data.relay_url
             )
         elif brain and image_vector:
             # If there is no text but there is an image, we still want to add it!
@@ -59,7 +60,8 @@ class IngestService:
                 source_type=post_data.source_type,
                 item_type="post",
                 language=post_data.language,
-                image_vector=image_vector
+                image_vector=image_vector,
+                relay_url=post_data.relay_url
             )
             
         # Create Post (Stateless Indexer - do NOT save text)
@@ -73,6 +75,7 @@ class IngestService:
             external_link=post_data.external_link,
             language=post_data.language,
             metadata_=post_data.metadata_,
+            relay_url=post_data.relay_url,
             content_type=ContentType.TEXT,
             item_type="post"
         )
@@ -121,6 +124,7 @@ class IngestService:
                 source_specific_id=ev_id,
                 published_at=datetime.utcfromtimestamp(event.get('created_at')).isoformat(),
                 image_url=image_url,
+                relay_url=event.get('relay_url'),
                 metadata_={"is_reply": is_reply}
             )
             return await IngestService.process_post(db, brain, post_data)
@@ -142,15 +146,28 @@ class IngestService:
                 
             # Need to create a new dict to trigger SQLAlchemy JSON mutation
             meta = dict(target_post.metadata_ or {})
+            
+            # Fetch or create PostMetrics
+            from models import PostMetrics
+            stmt_metrics = select(PostMetrics).where(PostMetrics.hash_id == target_id)
+            metrics = (await db.execute(stmt_metrics)).scalars().first()
+            if not metrics:
+                metrics = PostMetrics(hash_id=target_id)
+                db.add(metrics)
+                
             if kind == 7:
                 meta['likes'] = meta.get('likes', 0) + 1
+                metrics.likes += 1
             elif kind == 6:
                 meta['reposts'] = meta.get('reposts', 0) + 1
+                metrics.reposts += 1
             elif kind == 9735:
                 meta['tips'] = meta.get('tips', 0) + 1
+                metrics.zaps += 1
                 
             target_post.metadata_ = meta
             db.add(target_post)
+            db.add(metrics)
             await db.commit()
             
             action = {6: "repost", 7: "like", 9735: "zap"}[kind]

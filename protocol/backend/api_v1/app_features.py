@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -149,7 +149,7 @@ async def get_smart_feed(
     if not all_target_ids:
         return await get_feed(limit=limit, offset=offset, source_type=source_type, wallet_address=wallet_address, db=db)
         
-    stmt = select(Post).where(Post.id.in_(all_target_ids))
+    stmt = select(Post).where(Post.id.in_(all_target_ids)).where(Post.text_content != None).where(Post.text_content != "")
     if source_type != "general":
         stmt = stmt.where(Post.parent_post_id == None)
     stmt = stmt.options(selectinload(Post.author), selectinload(Post.duplicates))

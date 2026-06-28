@@ -1,4 +1,5 @@
-﻿import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+﻿import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dart_nostr/dart_nostr.dart';
 import 'package:flutter/foundation.dart';
 import '../nostr_wallet.dart';
@@ -87,6 +88,8 @@ class AuthService {
     return false;
   }
 
+  static Future<String?> getPrivateKey() async { return await _storage.read(key: _keyNsec); }
+
   static Future<void> logout() async {
     await _storage.delete(key: _keyNsec);
     await _storage.delete(key: _keyAuthMethod);
@@ -133,5 +136,6 @@ class AuthService {
     return null;
   }
 }
+
 
 

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'auth_service.dart';
 import 'relay_service.dart';
@@ -48,12 +48,12 @@ class NostrPublisher {
     return success ? event.id : null;
   }
 
-  static Future<String?> publishChatMessage(String channelId, String message) {
+  static Future<String?> publishDirectMessage(String peerPubkey, String encryptedMessage) {
     return publishEvent(
-      42,
-      message,
+      4,
+      encryptedMessage,
       [
-        ['e', channelId, '', 'root']
+        ['p', peerPubkey]
       ],
     );
   }
@@ -218,6 +218,69 @@ class NostrPublisher {
     } catch (_) {}
 
     return isSubscribed;
+  }
+  
+  static Future<Map<String, dynamic>?> fetchEventById(String eventId, {List<String>? additionalRelays}) async {
+    final relays = await RelayService.getRelays();
+    if (additionalRelays != null) {
+      for (var r in additionalRelays) {
+        if (r.isNotEmpty && !relays.contains(r)) relays.add(r);
+      }
+    }
+    
+    final globalRelays = [
+      'wss://relay.nostr.band',
+      'wss://search.nos.today',
+      'wss://relay.snort.social',
+      'wss://nos.lol',
+    ];
+    for (var r in globalRelays) {
+      if (!relays.contains(r)) relays.add(r);
+    }
+    
+    final filter = {
+      "ids": [eventId],
+      "limit": 1
+    };
+    final reqId = 'get_event_${DateTime.now().millisecondsSinceEpoch}';
+    final reqStr = jsonEncode(['REQ', reqId, filter]);
+    
+    Map<String, dynamic>? eventData;
+    List<Future<void>> fetchFutures = [];
+    
+    for (var url in relays) {
+      fetchFutures.add(() async {
+        if (eventData != null) return;
+        try {
+          final channel = WebSocketChannel.connect(Uri.parse(url));
+          await channel.ready.timeout(const Duration(seconds: 3));
+          channel.sink.add(reqStr);
+          
+          await for (var msg in channel.stream.timeout(const Duration(seconds: 4))) {
+            if (eventData != null) {
+              channel.sink.close();
+              break;
+            }
+            final data = jsonDecode(msg);
+            if (data[0] == 'EVENT' && data[1] == reqId) {
+              eventData = data[2];
+              channel.sink.close();
+              break;
+            }
+            if (data[0] == 'EOSE' && data[1] == reqId) {
+              channel.sink.close();
+              break;
+            }
+          }
+        } catch (_) {}
+      }());
+    }
+
+    try {
+      await Future.wait(fetchFutures).timeout(const Duration(seconds: 5));
+    } catch (_) {}
+    
+    return eventData;
   }
 }
 

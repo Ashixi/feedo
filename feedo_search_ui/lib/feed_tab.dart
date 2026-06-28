@@ -7,6 +7,7 @@ import 'post_card.dart';
 import 'services/auth_service.dart';
 import 'nostr_resolver.dart';
 import 'feed_layout.dart';
+import 'utils/constants.dart';
 
 class FeedTab extends StatefulWidget {
   const FeedTab({super.key});
@@ -24,11 +25,15 @@ class _FeedTabState extends State<FeedTab> {
   String? _oldestTimestamp;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
+  String? _walletAddress;
 
   @override
   void initState() {
     super.initState();
-    _fetchFeed();
+    AuthService.getPublicKey().then((val) {
+      if (mounted) setState(() => _walletAddress = val);
+      _fetchFeed();
+    });
     
     globalFeedFilter.addListener(_onFilterChanged);
 
@@ -58,6 +63,7 @@ class _FeedTabState extends State<FeedTab> {
     if (filter.keywords.isNotEmpty) url += '&text=${Uri.encodeComponent(filter.keywords)}';
     if (filter.language != 'all') url += '&language=${filter.language}';
     if (filter.since != null) url += '&since=${filter.since!.millisecondsSinceEpoch ~/ 1000}';
+    if (_walletAddress != null) url += '&wallet_address=$_walletAddress';
     // _oldestTimestamp is handled separately
     return url;
   }
@@ -73,7 +79,7 @@ class _FeedTabState extends State<FeedTab> {
     });
 
     try {
-      final String apiUrl = const String.fromEnvironment('API_URL', defaultValue: 'https://api.feedo.ink');
+      final String apiUrl = Constants.apiUrl;
       
       int newlyAdded = 0;
       int maxLoops = 5;
@@ -110,16 +116,11 @@ class _FeedTabState extends State<FeedTab> {
           for (var item in data) {
             String t = item['text'] ?? item['content'] ?? '';
             
-            if (filter.keywords.isNotEmpty) {
-               if (!t.toLowerCase().contains(filter.keywords.toLowerCase()) && 
-                   !(item['author_name']?.toString().toLowerCase().contains(filter.keywords.toLowerCase()) ?? false)) {
-                 continue;
-               }
-            }
+            
             
             if (filter.language != 'all') {
                String lang = item['language'] ?? item['metadata']?['language'] ?? '';
-               if (lang.isNotEmpty && lang != filter.language) continue;
+               if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
             }
             
             if (filter.since != null && item['published_at'] != null) {
@@ -172,7 +173,7 @@ class _FeedTabState extends State<FeedTab> {
     });
 
     try {
-      final String apiUrl = const String.fromEnvironment('API_URL', defaultValue: 'https://api.feedo.ink');
+      final String apiUrl = Constants.apiUrl;
       
       int newlyAdded = 0;
       int maxLoops = 5;
@@ -209,16 +210,11 @@ class _FeedTabState extends State<FeedTab> {
           for (var item in data) {
             String t = item['text'] ?? item['content'] ?? '';
             
-            if (filter.keywords.isNotEmpty) {
-               if (!t.toLowerCase().contains(filter.keywords.toLowerCase()) && 
-                   !(item['author_name']?.toString().toLowerCase().contains(filter.keywords.toLowerCase()) ?? false)) {
-                 continue;
-               }
-            }
+            
             
             if (filter.language != 'all') {
                String lang = item['language'] ?? item['metadata']?['language'] ?? '';
-               if (lang.isNotEmpty && lang != filter.language) continue;
+               if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
             }
             
             if (filter.since != null && item['published_at'] != null) {
@@ -328,3 +324,5 @@ class _FeedTabState extends State<FeedTab> {
     );
   }
 }
+
+

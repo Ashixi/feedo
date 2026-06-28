@@ -44,6 +44,7 @@ class User(Base):
     avatar_media_hash = Column(String, nullable=True)
     preferred_languages = Column(JSON, default=[])    
     preferred_tags = Column(JSON, default=[])
+    saved_chats = Column(JSON, default=[])
     api_url = Column(String, nullable=True)
     user_vector = Column(JSON, nullable=True) 
     last_vector_updated_at = Column(DateTime(timezone=True), default=_naive_utc_now)
@@ -216,3 +217,15 @@ class DiscoveredRelay(Base):
     last_seen_at = Column(DateTime, default=_naive_utc_now)
     success_count = Column(Integer, default=0)
     fail_count = Column(Integer, default=0)
+
+class PostMetrics(Base):
+    __tablename__ = "post_metrics"
+    id = Column(Integer, primary_key=True)
+    hash_id = Column(String, nullable=False, index=True, unique=True) # References Post.hash_id
+    likes = Column(Integer, default=0)
+    zaps = Column(Integer, default=0)
+    reposts = Column(Integer, default=0)
+    comments = Column(Integer, default=0)
+    velocity = Column(Float, default=0.0)
+    trending_score = Column(Float, default=0.0, index=True)
+    last_updated_at = Column(DateTime, default=_naive_utc_now, onupdate=_naive_utc_now)

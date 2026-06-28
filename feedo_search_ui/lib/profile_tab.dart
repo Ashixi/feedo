@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'services/auth_service.dart';
 import 'screens/relay_settings_screen.dart';
 import 'screens/edit_profile_screen.dart';
+import 'screens/feed_preferences_screen.dart';
 import 'screens/login_screen.dart';
 import 'nostr_resolver.dart';
 import 'services/relay_service.dart';
@@ -65,7 +66,7 @@ class _ProfileTabState extends State<ProfileTab> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.grey[50],
+      color: Colors.transparent,
       child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -121,6 +122,13 @@ class _ProfileTabState extends State<ProfileTab> {
 
               const Text('Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black54)),
               const SizedBox(height: 8),
+
+              _buildSettingsTile(
+                icon: Icons.tune_rounded,
+                title: 'Feed Preferences',
+                subtitle: 'Customize your Anti-bubble Feed',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FeedPreferencesScreen())),
+              ),
               
               _buildSettingsTile(
                 icon: Icons.edit_note,

@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Security, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Security, status, Request
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -30,6 +30,7 @@ class IngestPostSchema(BaseModel):
     external_link: Optional[str] = None
     image_url: Optional[str] = None
     language: Optional[str] = "un"
+    relay_url: Optional[str] = None
     metadata_: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 @router.post("/post", status_code=status.HTTP_201_CREATED)

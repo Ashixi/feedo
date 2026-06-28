@@ -111,7 +111,10 @@ async def get_identity(public_key: str, db: AsyncSession = Depends(get_db)):
         "username": user.username,
         "display_name": user.display_name,
         "bio": user.bio,
-        "avatar_media_hash": user.avatar_media_hash
+        "avatar_media_hash": user.avatar_media_hash,
+        "preferred_tags": user.preferred_tags or [],
+        "preferred_languages": user.preferred_languages or [],
+        "saved_chats": user.saved_chats or []
     }
 
 @router.put("/update/{public_key}")
@@ -134,6 +137,21 @@ async def update_identity(public_key: str, req: UpdateProfileRequest, db: AsyncS
     new_avatar = req.metadata.get("avatar") or req.metadata.get("picture") or req.metadata.get("avatar_url")
     if new_avatar is not None:
         user.avatar_media_hash = new_avatar    
+        
+    from sqlalchemy.orm.attributes import flag_modified
+    
+    if "preferred_tags" in req.metadata:
+        user.preferred_tags = req.metadata.get("preferred_tags")
+        flag_modified(user, "preferred_tags")
+        
+    if "preferred_languages" in req.metadata:
+        user.preferred_languages = req.metadata.get("preferred_languages")
+        flag_modified(user, "preferred_languages")
+        
+    if "saved_chats" in req.metadata:
+        user.saved_chats = req.metadata.get("saved_chats")
+        flag_modified(user, "saved_chats")
+        
     await db.commit()
     return {"status": "updated"}
 

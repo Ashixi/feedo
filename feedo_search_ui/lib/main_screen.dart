@@ -1,11 +1,12 @@
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'feed_tab.dart';
 import 'search_tab.dart';
-import 'profile_tab.dart';
-import 'chats_tab.dart';
 import 'compose_screen.dart';
 import 'utils/feed_filter_config.dart';
+import 'chats_tab.dart';
+import 'profile_tab.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -16,242 +17,422 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  
+  // Filter states
+  String _selectedLanguage = 'all';
+  DateTime? _selectedSince;
+  final TextEditingController _keywordController = TextEditingController();
+  final TextEditingController _globalSearchController = TextEditingController();
 
-  final List<Widget> _tabs = [
+  List<Widget> get _tabs => [
     const FeedTab(),
-    const SearchTab(),
+    SearchTab(initialQuery: _globalSearchController.text),
     const ChatsTab(),
     const ProfileTab(),
   ];
 
-  final TextEditingController _keywordController = TextEditingController();
-  String _selectedLanguage = 'all';
-  DateTime? _selectedSince;
-  DateTime? _selectedUntil;
-
   @override
   void initState() {
     super.initState();
-    // Initialize filter UI from global state
     _keywordController.text = globalFeedFilter.value.keywords;
     _selectedLanguage = globalFeedFilter.value.language;
     _selectedSince = globalFeedFilter.value.since;
-    _selectedUntil = globalFeedFilter.value.until;
   }
 
-  @override
-  void dispose() {
-    _keywordController.dispose();
-    super.dispose();
-  }
-
-  void _applyFilters(BuildContext context) {
+  void _applyFilters() {
     globalFeedFilter.value = FeedFilterConfig(
       keywords: _keywordController.text.trim(),
       language: _selectedLanguage,
       since: _selectedSince,
-      until: _selectedUntil,
     );
-    Navigator.pop(context); // Close the drawer
-    
-    // Switch to feed tab to see results
-    if (_currentIndex != 0) {
-      setState(() {
-        _currentIndex = 0;
-      });
-    }
-  }
-
-  Future<void> _selectDate(BuildContext context, bool isSince) async {
-    final initialDate = isSince ? (_selectedSince ?? DateTime.now()) : (_selectedUntil ?? DateTime.now());
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isSince) {
-          _selectedSince = picked;
-        } else {
-          _selectedUntil = picked;
-        }
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(['Feed', 'Search', 'Chats', 'Profile'][_currentIndex], style: const TextStyle(fontWeight: FontWeight.bold)),
-        // The Drawer hamburger menu is automatically added here
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 900) {
+          return _buildDesktopLayout();
+        } else if (constraints.maxWidth >= 600) {
+          return _buildTabletLayout();
+        } else {
+          return _buildMobileLayout();
+        }
+      },
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15), width: 1)),
       ),
-      drawer: _buildDrawer(),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _tabs,
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) => const ComposeScreen(),
-          );
-        },
-        icon: const Icon(Icons.edit, color: Colors.white),
-        label: const Text('Post', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 4,
+      child: Row(
+        children: [
+          const Icon(Icons.hub_rounded, size: 36, color: Colors.black87),
+          const SizedBox(width: 12),
+          const Text('Feedo', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: Colors.black87)),
+          const Spacer(),
+          // Global Search Bar RESTORED logic
+          Container(
+            width: 450,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: TextField(
+              controller: _globalSearchController,
+              onSubmitted: (query) {
+                if (query.trim().isNotEmpty) {
+                  setState(() {
+                    _currentIndex = 1; // 1 is Explore/Search
+                  });
+                }
+              },
+              decoration: InputDecoration(
+                hintText: 'Search the network...',
+                hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+                prefixIcon: Icon(Icons.search_rounded, size: 22, color: Colors.grey.shade600),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const Spacer(),
+          // Right Side Actions
+          const SizedBox(width: 16),
+          const CircleAvatar(
+            backgroundColor: Color(0xFFF3F4F6),
+            radius: 20,
+            child: Icon(Icons.person, color: Colors.grey),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildDrawer() {
-    return Drawer(
-      child: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              alignment: Alignment.centerLeft,
-              child: const Text(
-                'Menu',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-            ),
-            const Divider(),
-            _buildNavTile(Icons.home, 'Feed', 0),
-            _buildNavTile(Icons.search, 'Search', 1),
-            _buildNavTile(Icons.forum, 'Chats', 2),
-            _buildNavTile(Icons.person, 'Profile', 3),
-            
-            const Divider(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Feed Filters', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _keywordController,
-                      decoration: InputDecoration(
-                        labelText: 'Keywords / Phrases',
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedLanguage,
-                      decoration: InputDecoration(
-                        labelText: 'Language',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        isDense: true,
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('All Languages')),
-                        DropdownMenuItem(value: 'en', child: Text('English')),
-                        DropdownMenuItem(value: 'uk', child: Text('Ukrainian')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedLanguage = val);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _selectDate(context, true),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: 'Since',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                isDense: true,
-                              ),
-                              child: Text(
-                                _selectedSince != null ? DateFormat('yyyy-MM-dd').format(_selectedSince!) : 'Select Date',
-                                style: TextStyle(color: _selectedSince != null ? Colors.black87 : Colors.grey),
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_selectedSince != null)
-                          IconButton(
-                            icon: const Icon(Icons.clear, size: 20),
-                            onPressed: () => setState(() => _selectedSince = null),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _selectDate(context, false),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: 'Until',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                isDense: true,
-                              ),
-                              child: Text(
-                                _selectedUntil != null ? DateFormat('yyyy-MM-dd').format(_selectedUntil!) : 'Select Date',
-                                style: TextStyle(color: _selectedUntil != null ? Colors.black87 : Colors.grey),
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_selectedUntil != null)
-                          IconButton(
-                            icon: const Icon(Icons.clear, size: 20),
-                            onPressed: () => setState(() => _selectedUntil = null),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: () => _applyFilters(context),
+  Widget _buildDesktopLayout() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
+      body: Column(
+        children: [
+          _buildTopBar(),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Minimalist Left Sidebar
+                SizedBox(
+                  width: 240,
+                  child: ListView(
+                    padding: const EdgeInsets.only(top: 24, left: 16, right: 24),
+                    children: [
+                      _buildNavItem(Icons.home_filled, Icons.home_outlined, 'For you', 0),
+                      _buildNavItem(Icons.chat_bubble_rounded, Icons.chat_bubble_outline, 'Chats', 2),
+                      _buildNavItem(Icons.person_rounded, Icons.person_outline, 'Profile', 3),
+                      const SizedBox(height: 32),
+                      ElevatedButton(
+                        onPressed: () => _openCompose(),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          backgroundColor: Colors.black87,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
-                        child: const Text('Apply Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text('New Post', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Center Feed area
+                Container(
+                  width: 650,
+                  margin: const EdgeInsets.only(top: 24, bottom: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: IndexedStack(
+                      index: _currentIndex,
+                      children: _tabs,
+                    ),
+                  ),
+                ),
+                
+                // Right Sidebar (Filters panel, hidden when on Search tab)
+                SizedBox(
+                  width: 320,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 24, left: 24, right: 16),
+                    child: _currentIndex == 0 ? _buildFiltersPanel() : const SizedBox(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabletLayout() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
+      body: Column(
+        children: [
+          _buildTopBar(),
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 80,
+                  color: Colors.transparent,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 24),
+                      _buildIconNavItem(Icons.home_filled, Icons.home_outlined, 0),
+                      _buildIconNavItem(Icons.chat_bubble_rounded, Icons.chat_bubble_outline, 2),
+                      _buildIconNavItem(Icons.person_rounded, Icons.person_outline, 3),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 24, bottom: 24, right: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: IndexedStack(
+                        index: _currentIndex,
+                        children: _tabs,
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(['For you', 'Explore', 'Chats', 'Profile'][_currentIndex], style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black,
+      ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _tabs,
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (idx) => setState(() => _currentIndex = idx),
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.black87,
+        unselectedItemColor: Colors.grey.shade400,
+        showSelectedLabels: false,
+        showUnselectedLabels: false,
+        backgroundColor: Colors.white,
+        elevation: 10,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home_filled), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.search), activeIcon: Icon(Icons.search_rounded), label: 'Explore'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble_rounded), label: 'Chats'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person_rounded), label: 'Profile'),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _openCompose(),
+        backgroundColor: Colors.black87,
+        elevation: 2,
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(IconData activeIcon, IconData inactiveIcon, String title, int index) {
+    final isSelected = _currentIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _currentIndex = index),
+      borderRadius: BorderRadius.circular(12),
+      hoverColor: Colors.black.withOpacity(0.04),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(isSelected ? activeIcon : inactiveIcon, size: 26, color: isSelected ? Colors.black87 : Colors.grey.shade600),
+            const SizedBox(width: 16),
+            Text(title, style: TextStyle(
+              fontSize: 17, 
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? Colors.black87 : Colors.grey.shade700,
+            )),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNavTile(IconData icon, String title, int index) {
+  Widget _buildIconNavItem(IconData activeIcon, IconData inactiveIcon, int index) {
     final isSelected = _currentIndex == index;
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey[700]),
-      title: Text(title, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, color: isSelected ? Theme.of(context).colorScheme.primary : Colors.black87)),
-      selected: isSelected,
-      onTap: () {
-        setState(() {
-          _currentIndex = index;
-        });
-        Navigator.pop(context); // Close the drawer
+    return InkWell(
+      onTap: () => setState(() => _currentIndex = index),
+      borderRadius: BorderRadius.circular(12),
+      hoverColor: Colors.black.withOpacity(0.04),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        child: Icon(isSelected ? activeIcon : inactiveIcon, size: 28, color: isSelected ? Colors.black87 : Colors.grey.shade600),
+      ),
+    );
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedSince ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.black87,
+              onPrimary: Colors.white,
+              onSurface: Colors.black87,
+            ),
+          ),
+          child: child!,
+        );
       },
+    );
+    if (picked != null && picked != _selectedSince) {
+      setState(() {
+        _selectedSince = picked;
+      });
+    }
+  }
+
+  Widget _buildFiltersPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Search Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87)),
+        const SizedBox(height: 16),
+        // Keywords Filter
+        TextField(
+          controller: _keywordController,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            hintText: 'Keywords / Phrases',
+            prefixIcon: Icon(Icons.filter_alt, size: 18, color: Colors.grey.shade600),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
+          onSubmitted: (_) => _applyFilters(),
+        ),
+        const SizedBox(height: 16),
+        // Language Filter
+        DropdownButtonFormField<String>(
+          value: _selectedLanguage,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('All Languages')),
+            DropdownMenuItem(value: 'en', child: Text('English')),
+            DropdownMenuItem(value: 'uk', child: Text('Ukrainian')),
+          ],
+          onChanged: (val) {
+            if (val != null) setState(() => _selectedLanguage = val);
+          },
+        ),
+        const SizedBox(height: 16),
+        // Date Filter
+        InkWell(
+          onTap: () => _selectDate(context),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _selectedSince == null ? 'Any time' : 'Since: ${DateFormat("MMM d, yyyy").format(_selectedSince!)}',
+                  style: const TextStyle(fontSize: 15),
+                ),
+                Icon(Icons.calendar_today, size: 18, color: Colors.grey.shade600),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Clear Date Button if date is selected
+        if (_selectedSince != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => setState(() => _selectedSince = null),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Clear Date'),
+            ),
+          ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _applyFilters,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black87,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: const Text('Apply Filters', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openCompose() {
+    showDialog(
+      context: context,
+      builder: (context) => const ComposeScreen(),
     );
   }
 }

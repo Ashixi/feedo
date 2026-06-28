@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'services/auth_service.dart';
@@ -30,6 +30,18 @@ class NostrResolver {
       for (String relayUrl in relays) {
         relayToPostIds.putIfAbsent(relayUrl, () => {}).add(res['hash_id']);
         
+        // If this is a repost, also fetch the original event!
+        if (res['metadata'] != null && res['metadata']['kind'] == 6) {
+          var tags = res['metadata']['tags'] as List?;
+          if (tags != null) {
+            for (var t in tags) {
+              if (t is List && t.isNotEmpty && t[0] == 'e' && t.length > 1) {
+                relayToPostIds[relayUrl]!.add(t[1]);
+              }
+            }
+          }
+        }
+
         String author = res['author_address'] ?? '';
         // Only add valid Nostr pubkeys (64 char hex) to the profile query
         if (author.isNotEmpty && author.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(author)) {
@@ -129,9 +141,33 @@ class NostrResolver {
             if (postIds.contains(ev['id'])) {
               bool changed = false;
               for (var res in allResults) {
+                // Direct match: this event is the post itself
                 if (res['hash_id'] == ev['id']) {
-                  res['text'] = ev['content'];
+                  String text = ev['content'] ?? '';
+                  if (kind == 6 && text.isNotEmpty) {
+                    try {
+                      var inner = jsonDecode(text);
+                      text = inner['content'] ?? '';
+                    } catch (_) {}
+                  }
+                  res['text'] = text;
                   changed = true;
+                }
+                
+                // Repost match: this event is the ORIGINAL event that `res` reposted
+                if (res['metadata'] != null && res['metadata']['kind'] == 6) {
+                  var tags = res['metadata']['tags'] as List?;
+                  if (tags != null) {
+                    for (var t in tags) {
+                      if (t is List && t.isNotEmpty && t[0] == 'e' && t.length > 1 && t[1] == ev['id']) {
+                        res['text'] = ev['content'];
+                        // Also grab the original author of the reposted content if we want
+                        res['original_author_pubkey'] = ev['pubkey'];
+                        res['is_repost_resolved'] = true;
+                        changed = true;
+                      }
+                    }
+                  }
                 }
               }
               if (changed && onUpdate != null) {

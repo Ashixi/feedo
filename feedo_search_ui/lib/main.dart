@@ -1,12 +1,14 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'main_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/network_spider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AuthService.init();
+  await NetworkSpider.init();
   final hasAccount = await AuthService.hasAccount();
   
   runApp(FeedoSocialApp(hasAccount: hasAccount));
@@ -44,3 +46,4 @@ class FeedoSocialApp extends StatelessWidget {
     );
   }
 }
+

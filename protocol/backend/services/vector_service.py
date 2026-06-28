@@ -296,7 +296,7 @@ class VectorBrain:
         vector = await self.get_embedding_async(text)
         return self.find_duplicate_by_vector(vector, threshold, hours)
 
-    async def add_vector_async(self, post_id: int, hash_id: str, text: str, source_type: str = "native", item_type: str = "post", language: str = "", geo: str = "", image_vector: list[float] = None):
+    async def add_vector_async(self, post_id: int, hash_id: str, text: str, source_type: str = "native", item_type: str = "post", language: str = "", geo: str = "", image_vector: list[float] = None, relay_url: str = None):
         if not language and text and len(text.strip()) > 5:
             try:
                 from langdetect import detect
@@ -308,7 +308,7 @@ class VectorBrain:
         if text:
             vector = await self.get_embedding_async(text)
             
-        self.add_vector_by_emb(post_id, hash_id, vector, source_type, item_type=item_type, language=language, geo=geo, image_vector=image_vector)
+        self.add_vector_by_emb(post_id, hash_id, vector, source_type, item_type=item_type, language=language, geo=geo, image_vector=image_vector, relay_url=relay_url)
 
     async def update_user_vector_async(self, current_vector: list[float] | None, post_text: str, weight: float = 0.2) -> list[float]:
         new_interest = await self.get_embedding_async(post_text)
@@ -317,96 +317,7 @@ class VectorBrain:
         updated = [(1 - weight) * c + weight * n for c, n in zip(current_vector, new_interest)]
         return updated
 
-    def get_anti_bubble_feed(self, user_vector: list[float], limit: int = 50, source_type: str = "main", user_languages: list[str] | None = None, user_geo: str | None = None) -> dict:
-        if not user_vector:
-            return {"relevant": [], "discovery": []}
 
-        vec_tuple = tuple(round(v, 4) for v in user_vector) 
-        cache_key = (vec_tuple, source_type)
-        now = time.time()
-        
-        if cache_key in self.search_cache:
-            cache_time, cached_res = self.search_cache[cache_key]
-            if now - cache_time < 300: 
-                return cached_res
-
-        try:
-            query = self.table.search(user_vector)
-            
-            # Фільтруємо джерела прямо в векторній БД
-            # 'main' = native + rss + p2p_relay
-            # 'general' = native + rss (news from feeds + Feedo)
-            if source_type == "main":
-                query = query.where("source_type IN ('native', 'rss', 'p2p_relay')")
-            elif source_type == "general":
-                query = query.where("source_type IN ('native', 'rss')")
-            else:
-                query = query.where(f"source_type = '{source_type}'")
-                
-            results = query.limit(200).to_list()
-        except Exception as e:
-            print(f"⚠️ Помилка LanceDB при пошуку: {e}")
-            return {"relevant": [], "discovery": []}
-        
-        relevant_ids = []
-        discovery_ids = []
-        
-        rel_target = int(limit * 0.7)
-        disc_target = int(limit * 0.3)
-        
-        # Apply contextual language and geo multipliers per result
-        user_langs = [l.lower() for l in (user_languages or [])]
-        for res in results:
-            hash_id = res.get("hash_id")
-            if not hash_id:
-                continue
-            similarity = 1.0 - (res["_distance"] / 2.0)
-
-            lang = (res.get("language") or "").lower()
-            geo = (res.get("geo") or "")
-
-            # language weight: prefer user's known languages, penalize unknown
-            if user_langs:
-                if lang in user_langs:
-                    lang_w = 1.0
-                elif not lang:
-                    lang_w = 0.9
-                else:
-                    lang_w = 0.5
-            else:
-                lang_w = 1.0
-
-            # geo weight: same geo -> slight boost, otherwise neutral/reduced
-            if user_geo and geo:
-                if geo == user_geo:
-                    geo_w = 1.2
-                elif geo.split("-")[0] == user_geo.split("-")[0]:
-                    geo_w = 1.05
-                else:
-                    geo_w = 0.6
-            else:
-                geo_w = 1.0
-
-            score = similarity * lang_w * geo_w
-
-            if score > 0.65:
-                if len(relevant_ids) < rel_target:
-                    relevant_ids.append((hash_id, score))
-            elif 0.2 < score <= 0.65:
-                if len(discovery_ids) < disc_target:
-                    discovery_ids.append((hash_id, score))
-                    
-            if len(relevant_ids) >= rel_target and len(discovery_ids) >= disc_target:
-                break
-
-        # strip scores before returning; callers may re-query DB for context/hotness
-        final_res = {"relevant": relevant_ids, "discovery": discovery_ids}
-        
-        if len(self.search_cache) >= self.max_search_cache:
-            self.search_cache.clear()
-        self.search_cache[cache_key] = (now, final_res)
-        
-        return final_res
 
     # --- Stage V: Supernode AI Scaling ---
 

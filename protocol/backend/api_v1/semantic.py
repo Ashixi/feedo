@@ -95,13 +95,13 @@ async def validate_uniqueness(req: MempoolValidationRequest, request: Request, d
         return {"valid": False, "reason": str(e)}
 
 @router.post("/internal/query")
-async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Request):
+async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Internal endpoint for P2P Federated Search from Rust Core.
-    Accepts search queries from the Gossip network and returns local LanceDB results.
+    Accepts search queries from the Gossip network and returns local LanceDB results or Postgres trending results.
     """
     brain = getattr(request.app.state, 'brain', None)
-    if not brain:
+    if not brain and req.item_type != "feed_trending":
         import main
         brain = main.brain
         if not brain:
@@ -109,35 +109,74 @@ async def internal_semantic_query(req: InternalSemanticQueryRequest, request: Re
             
     results = []
     try:
-        vec = await brain.get_embedding_async(req.text, is_query=True)
-        search_query = brain.table.search(vec).metric("cosine")
+        from models import PostMetrics, Post
+        from sqlalchemy import select
         
-        filter_conditions = []
-        if req.source_types:
-            types_str = ", ".join([f"'{t}'" for t in req.source_types])
-            filter_conditions.append(f"source_type IN ({types_str})")
-        if req.item_type:
-            filter_conditions.append(f"item_type = '{req.item_type}'")
+        if req.item_type == "feed_trending":
+            # Pure trending query (bypasses vector DB)
+            stmt = select(PostMetrics, Post).join(Post, Post.hash_id == PostMetrics.hash_id).order_by(PostMetrics.trending_score.desc()).limit(req.limit)
+            res = await db.execute(stmt)
+            for metrics, post in res:
+                results.append({
+                    "hash_id": post.hash_id,
+                    "text": post.text_content[:200] if post.text_content else "",
+                    "author": post.author_address,
+                    "timestamp": int(post.published_at.timestamp()) if post.published_at else 0,
+                    "similarity_score": float(metrics.trending_score), # Stuff trending score here
+                    "relay_url": post.relay_url
+                })
+        else:
+            # Vector search
+            vec = await brain.get_embedding_async(req.text, is_query=True)
+            search_query = brain.table.search(vec).metric("cosine")
             
-        if filter_conditions:
-            search_query = search_query.where(" AND ".join(filter_conditions))
+            filter_conditions = []
+            if req.source_types:
+                types_str = ", ".join([f"'{t}'" for t in req.source_types])
+                filter_conditions.append(f"source_type IN ({types_str})")
+            if req.item_type and req.item_type not in ["feed", "feed_trending"]:
+                filter_conditions.append(f"item_type = '{req.item_type}'")
+                
+            if filter_conditions:
+                search_query = search_query.where(" AND ".join(filter_conditions))
+                
+            search_res = search_query.limit(req.limit).to_list()
             
-        search_res = search_query.limit(req.limit).to_list()
-        
-        for r in search_res:
-            dist = r.get("_distance", 1.0)
-            if dist < 0.5:  # threshold
-                res_dict = {
-                    "hash_id": r.get("hash_id"),
-                    "text": r.get("text", ""),
-                    "author": r.get("author_address", ""),
-                    "timestamp": int(r.get("timestamp", 0) or 0),
-                    "similarity_score": float(1.0 - dist),
-                    "relay_url": r.get("relay_url")
-                }
-                results.append(res_dict)
+            # If it's "feed", we must augment with trending score
+            metrics_map = {}
+            if req.item_type == "feed" and search_res:
+                hash_ids = [r.get("hash_id") for r in search_res if r.get("hash_id")]
+                if hash_ids:
+                    stmt = select(PostMetrics).where(PostMetrics.hash_id.in_(hash_ids))
+                    metrics_res = await db.execute(stmt)
+                    for m in metrics_res.scalars():
+                        metrics_map[m.hash_id] = m.trending_score
+            
+            for r in search_res:
+                dist = r.get("_distance", 1.0)
+                if dist < 0.6:  # threshold
+                    base_score = float(1.0 - dist)
+                    if req.item_type == "feed":
+                        # Combine vector similarity and trending score
+                        trend = metrics_map.get(r.get("hash_id"), 0.0)
+                        base_score = base_score * 0.7 + (min(trend, 100.0) / 100.0) * 0.3
+                        
+                    res_dict = {
+                        "hash_id": r.get("hash_id"),
+                        "text": r.get("text", ""),
+                        "author": r.get("author_address", ""),
+                        "timestamp": int(r.get("timestamp", 0) or 0),
+                        "similarity_score": base_score,
+                        "relay_url": r.get("relay_url")
+                    }
+                    results.append(res_dict)
+                    
+            if req.item_type == "feed":
+                results.sort(key=lambda x: x["similarity_score"], reverse=True)
+                
     except Exception as e:
-        logger.error(f"Internal query failed: {e}")
+        import logging
+        logging.getLogger(__name__).error(f"Internal query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
         
     return {

@@ -12,7 +12,8 @@ import 'post_card.dart';
 import 'feed_layout.dart';
 
 class SearchTab extends StatefulWidget {
-  const SearchTab({super.key});
+  final String? initialQuery;
+  const SearchTab({super.key, this.initialQuery});
 
   @override
   State<SearchTab> createState() => _SearchTabState();
@@ -21,7 +22,7 @@ class SearchTab extends StatefulWidget {
 class _SearchTabState extends State<SearchTab> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<String> _apiNodes = ['https://api.feedo.ink', 'https://api2.feedo.ink'];
+  final List<String> _apiNodes = ['https://api.feedo.ink'];
   bool _hasSearched = false;
   bool _isLoading = false;
   bool _isLoadingMore = false;
@@ -40,6 +41,22 @@ class _SearchTabState extends State<SearchTab> {
         _loadMoreResults();
       }
     });
+    
+    if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+      _searchController.text = widget.initialQuery!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _performSearch(widget.initialQuery!);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(SearchTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialQuery != oldWidget.initialQuery && widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+      _searchController.text = widget.initialQuery!;
+      _performSearch(widget.initialQuery!);
+    }
   }
 
   @override
@@ -110,8 +127,6 @@ class _SearchTabState extends State<SearchTab> {
         // Dynamic Spam Filter: After fetching texts from relays, remove any spam posts
         List<dynamic> validResults = [];
         for (var item in results) {
-          // Source type filter: since old backend filtered by nostr, we do it here
-          if (item['source_type'] != 'nostr' && item['source_type'] != null) continue;
           
           final meta = item['metadata'] ?? {};
           if (meta['is_reply'] == true) continue;
@@ -119,15 +134,7 @@ class _SearchTabState extends State<SearchTab> {
           // Item type filter
           if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
 
-          String t = item['text'] ?? '';
-          String cleanText = t.replaceAll(RegExp(r'https?://\S+'), '')
-                              .replaceAll(RegExp(r'nostr:\S+'), '')
-                              .replaceAll(RegExp(r':\w+:'), '')
-                              .trim();
-          
-          if (item['item_type'] == 'profile' || cleanText.length >= 10) {
-            validResults.add(item);
-          }
+          validResults.add(item);
         }
         
         // Take top 20 valid results
@@ -190,22 +197,12 @@ class _SearchTabState extends State<SearchTab> {
           
           List<dynamic> validResults = [];
           for (var item in results) {
-            if (item['source_type'] != 'nostr' && item['source_type'] != null) continue;
-            
             final meta = item['metadata'] ?? {};
             if (meta['is_reply'] == true) continue;
             
             if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
 
-            String t = item['text'] ?? '';
-            String cleanText = t.replaceAll(RegExp(r'https?://\S+'), '')
-                                .replaceAll(RegExp(r'nostr:\S+'), '')
-                                .replaceAll(RegExp(r':\w+:'), '')
-                                .trim();
-
-            if (item['item_type'] == 'profile' || cleanText.isNotEmpty) {
-              validResults.add(item);
-            }
+            validResults.add(item);
           }
           
           newlyAdded += validResults.length;
@@ -242,33 +239,34 @@ class _SearchTabState extends State<SearchTab> {
           child: Column(
             children: [
             const SizedBox(height: 16),
-            // Search Bar
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: TextField(
-                controller: _searchController,
-                style: const TextStyle(fontSize: 16, color: Colors.black87),
-                decoration: InputDecoration(
-                  hintText: 'Search Farcaster & Nostr...',
-                  hintStyle: TextStyle(color: Colors.grey[500]),
-                  prefixIcon: Padding(
-                    padding: const EdgeInsets.only(left: 16.0, right: 8.0),
-                    child: Icon(Icons.search, color: Colors.grey[600]),
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  suffixIcon: IconButton(
-                    icon: Icon(Icons.arrow_forward_rounded, color: Theme.of(context).colorScheme.primary),
-                    onPressed: () => _performSearch(_searchController.text),
-                  ),
+            // Search Bar (Hidden on Desktop/Tablet since it has a global search bar)
+            if (MediaQuery.of(context).size.width < 600)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(30),
                 ),
-                onSubmitted: _performSearch,
+                child: TextField(
+                  controller: _searchController,
+                  style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  decoration: InputDecoration(
+                    hintText: 'Search Farcaster & Nostr...',
+                    hintStyle: TextStyle(color: Colors.grey[500]),
+                    prefixIcon: Padding(
+                      padding: const EdgeInsets.only(left: 16.0, right: 8.0),
+                      child: Icon(Icons.search, color: Colors.grey[600]),
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    suffixIcon: IconButton(
+                      icon: Icon(Icons.arrow_forward_rounded, color: Theme.of(context).colorScheme.primary),
+                      onPressed: () => _performSearch(_searchController.text),
+                    ),
+                  ),
+                  onSubmitted: _performSearch,
+                ),
               ),
-            ),
             
             // Filter Options
             if (_hasSearched)

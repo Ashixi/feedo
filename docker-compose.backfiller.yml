@@ -1,0 +1,17 @@
+﻿version: '3.8'
+
+services:
+  profile-backfiller:
+    image: itsshas/feedo-profile-backfiller:latest
+    container_name: feedo-profile-backfiller
+    env_file:
+      - protocol/.env 
+    environment:
+      - DATABASE_URL=postgresql://$:$@feedo-db:5432/$
+      - BACKFILL_DAYS=180
+    networks:
+      - protocol_default
+
+networks:
+  protocol_default:
+    external: true
