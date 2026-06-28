@@ -1865,8 +1865,32 @@ async def get_edges(post_hash: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/query")
-async def federated_query(text: str, limit: int = 10, offset: int = 0, federated: bool = False, db: AsyncSession = Depends(get_db)):
+async def federated_query(text: str, limit: int = 10, offset: int = 0, federated: bool = False, item_type: str = "all", db: AsyncSession = Depends(get_db)):
     _require_server_variant()
+    
+    if item_type == "profile":
+        # Direct SQL search on User table for exact/partial name matches
+        stmt = select(User).where(
+            (User.display_name.ilike(f"%{text}%")) |
+            (User.username.ilike(f"%{text}%")) |
+            (User.wallet_address == text)
+        ).limit(limit).offset(offset)
+        users = (await db.execute(stmt)).scalars().all()
+        results = []
+        for u in users:
+            results.append({
+                "id": u.id,
+                "hash_id": u.wallet_address,
+                "author_address": u.wallet_address,
+                "display_author": u.display_name or u.username or u.wallet_address,
+                "avatar_url": _author_avatar_url(u),
+                "source_type": "nostr",
+                "item_type": "profile",
+                "text": u.bio or "",
+                "metadata": {"kind": 0, "name": u.display_name, "about": u.bio, "picture": u.avatar_media_hash}
+            })
+        return {"query_id": "profile_search", "results": results}
+
     if not brain:
         raise HTTPException(status_code=503, detail="Vector Brain not initialized")
         

@@ -180,7 +180,11 @@ class _SearchTabState extends State<SearchTab> {
       while (newlyAdded < 5 && maxLoops > 0) {
         maxLoops--;
         final offset = _fetchedCount;
-        final url = Uri.parse('$randomNode/query?text=$encodedQuery&limit=50&federated=true&offset=$offset');
+        String urlStr = '$randomNode/query?text=$encodedQuery&limit=50&federated=true&offset=$offset';
+        if (_selectedItemType != 'all') {
+          urlStr += '&item_type=$_selectedItemType';
+        }
+        final url = Uri.parse(urlStr);
 
         final response = await http.get(url, headers: {'Accept': 'application/json'});
 

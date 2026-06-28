@@ -296,6 +296,66 @@ class _PostCardState extends State<PostCard> {
       mediaUrls = List<String>.from(widget.post['media']);
     }
     
+    if (itemType == 'profile') {
+      String profileName = widget.post['display_author'] ?? widget.post['author_name'] ?? authorAddress;
+      String profileAbout = text;
+      
+      try {
+        final parsed = jsonDecode(text);
+        if (parsed['name'] != null) profileName = parsed['name'];
+        if (parsed['display_name'] != null) profileName = parsed['display_name'];
+        if (parsed['about'] != null) profileAbout = parsed['about'];
+      } catch (_) {}
+      
+      if (widget.post['metadata'] != null && widget.post['metadata'] is Map) {
+         final m = widget.post['metadata'];
+         if (m['name'] != null) profileName = m['name'];
+         if (m['display_name'] != null) profileName = m['display_name'];
+         if (m['about'] != null) profileAbout = m['about'];
+      }
+
+      return MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Container(
+          color: _isHovered ? Colors.grey.shade50 : Colors.white,
+          child: InkWell(
+            onTap: _openUserProfile,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: const Color(0xFFF0F2F5),
+                    backgroundImage: (authorAvatar != null && authorAvatar.isNotEmpty) ? NetworkImage(authorAvatar) : null,
+                    child: (authorAvatar == null || authorAvatar.isEmpty)
+                      ? Icon(Icons.person_rounded, color: Colors.grey.shade400, size: 24)
+                      : null,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(profileName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        if (profileAbout.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(profileAbout, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    
     // Threads-style continuous feed container (no individual cards, just flat backgrounds with dividers)
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
