@@ -94,6 +94,7 @@ class _PostCardState extends State<PostCard> {
     }
   }
 
+  void _openUserProfile() {
     final authorAddress = widget.post['author_address'] ?? widget.post['pubkey'] ?? 'Unknown';
     final authorName = widget.post['author_name'] ?? authorAddress;
     
@@ -109,6 +110,9 @@ class _PostCardState extends State<PostCard> {
         initialName: authorName,
         initialAvatar: widget.post['author_avatar'],
         initialAbout: initialAbout,
+        initialRelays: widget.post['relay_urls'] != null 
+            ? List<String>.from(widget.post['relay_urls'])
+            : null,
       ),
     ));
   }

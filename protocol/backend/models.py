@@ -117,6 +117,7 @@ class Post(Base):
     
     external_link = Column(String, nullable=True) 
     relay_url = Column(String, nullable=True) # Used for NIP-65 to fetch content
+    relay_urls = Column(JSON, default=list, nullable=True) # Array of relays where post/profile was found
     published_at = Column(DateTime, default=_naive_utc_now)
     source_internal_id = Column(String, nullable=True) 
     language = Column(String(10), default="uk")

@@ -466,7 +466,7 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
         "metadata": post.metadata_,
         "also_posted_by": also_posted_by,
         "avatar_url": _author_avatar_url(author),
-        "relay_urls": [post.relay_url] if getattr(post, "relay_url", None) else [],
+        "relay_urls": getattr(post, "relay_urls", None) or ([post.relay_url] if getattr(post, "relay_url", None) else []),
     }
 
 
@@ -1947,7 +1947,9 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
                                     text_content=ev["content"],
                                     metadata_=content,
                                     item_type="profile",
-                                    content_type=ContentType.TEXT
+                                    content_type=ContentType.TEXT,
+                                    relay_url="wss://relay.nostr.band",
+                                    relay_urls=["wss://relay.nostr.band"]
                                 )
                                 db.add(new_post)
                                 new_profiles.append(new_post)

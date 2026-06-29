@@ -73,16 +73,28 @@ class ProfileSpider:
                         
                 if batch:
                     async with AsyncSessionLocal() as session:
-                        pubkeys = [ev["pubkey"] for ev in batch]
-                        stmt = select(Post.author_address).where(
+                        pubkeys = [ev["pubkey"] for ev, _ in batch]
+                        stmt = select(Post).where(
                             Post.author_address.in_(pubkeys),
                             Post.item_type == "profile"
                         )
-                        existing = set((await session.execute(stmt)).scalars().all())
+                        existing_posts = (await session.execute(stmt)).scalars().all()
+                        existing_map = {p.author_address: p for p in existing_posts}
                         
-                        count = 0
-                        for ev in batch:
-                            if ev["pubkey"] in existing:
+                        count_new = 0
+                        count_updated = 0
+                        
+                        for ev, relay_url in batch:
+                            pubkey = ev["pubkey"]
+                            if pubkey in existing_map:
+                                post = existing_map[pubkey]
+                                current_relays = post.relay_urls or []
+                                if relay_url not in current_relays:
+                                    # Create a new list for SQLAlchemy to detect JSON change
+                                    new_relays = list(current_relays)
+                                    new_relays.append(relay_url)
+                                    post.relay_urls = new_relays
+                                    count_updated += 1
                                 continue
                             
                             try:
@@ -94,19 +106,20 @@ class ProfileSpider:
                                 source_type="nostr",
                                 source_specific_id=ev["id"],
                                 hash_id=ev["id"],
-                                author_address=ev["pubkey"],
+                                author_address=pubkey,
                                 text_content=ev["content"],
                                 metadata_=content,
                                 item_type="profile",
-                                content_type=ContentType.TEXT
+                                content_type=ContentType.TEXT,
+                                relay_urls=[relay_url]
                             )
                             session.add(new_post)
-                            existing.add(ev["pubkey"])
-                            count += 1
+                            existing_map[pubkey] = new_post # Prevent duplicates in same batch
+                            count_new += 1
                             
-                        if count > 0:
+                        if count_new > 0 or count_updated > 0:
                             await session.commit()
-                            logger.info(f"💾 Saved {count} new profiles to DB. Total known: {len(self.known_relays)} relays.")
+                            logger.info(f"💾 Saved {count_new} new profiles, updated {count_updated} with new relays. Total known: {len(self.known_relays)} relays.")
                             
             except Exception as e:
                 logger.error(f"DB Writer error: {e}")
@@ -143,9 +156,11 @@ class ProfileSpider:
                                         
                             elif kind == 0:
                                 pubkey = ev.get("pubkey")
-                                if pubkey and pubkey not in self.processed_pubkeys:
-                                    self.db_queue.put_nowait(ev)
-                                    self.processed_pubkeys.add(pubkey)
+                                if pubkey:
+                                    cache_key = f"{pubkey}:{relay_url}"
+                                    if cache_key not in self.processed_pubkeys:
+                                        self.db_queue.put_nowait((ev, relay_url))
+                                        self.processed_pubkeys.add(cache_key)
                                     
                     except asyncio.TimeoutError:
                         break
