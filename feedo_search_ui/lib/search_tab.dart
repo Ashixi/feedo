@@ -31,6 +31,7 @@ class _SearchTabState extends State<SearchTab> {
   List<dynamic> _results = [];
   int _fetchedCount = 0;
   String _selectedItemType = 'all';
+  String _profileSearchMode = 'name'; // 'name' or 'id'
   String? _errorMessage;
   String? _pubkey;
   
@@ -104,7 +105,14 @@ class _SearchTabState extends State<SearchTab> {
     try {
       final randomNode = _apiNodes[Random().nextInt(_apiNodes.length)];
       final encodedQuery = Uri.encodeComponent(query);
-      final url = Uri.parse('$randomNode/query?text=$encodedQuery&limit=50&federated=true');
+      String urlStr = '$randomNode/query?text=$encodedQuery&limit=50&federated=true';
+      if (_selectedItemType != 'all') {
+        urlStr += '&item_type=$_selectedItemType';
+        if (_selectedItemType == 'profile') {
+          urlStr += '&profile_search_by=$_profileSearchMode';
+        }
+      }
+      final url = Uri.parse(urlStr);
 
       // Note: Backend GET /query currently doesn't natively support wallet auth signatures.
       // If needed in the future, pass signature via headers.
@@ -184,6 +192,9 @@ class _SearchTabState extends State<SearchTab> {
         String urlStr = '$randomNode/query?text=$encodedQuery&limit=50&federated=true&offset=$offset';
         if (_selectedItemType != 'all') {
           urlStr += '&item_type=$_selectedItemType';
+          if (_selectedItemType == 'profile') {
+            urlStr += '&profile_search_by=$_profileSearchMode';
+          }
         }
         final url = Uri.parse(urlStr);
 
@@ -356,14 +367,30 @@ class _SearchTabState extends State<SearchTab> {
             if (_hasSearched)
               Padding(
                 padding: const EdgeInsets.only(top: 16, bottom: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: Column(
                   children: [
-                    _buildFilterChip('All', 'all'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Profiles', 'profile'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Posts', 'post'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildFilterChip('All', 'all'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('Profiles', 'profile'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('Posts', 'post'),
+                      ],
+                    ),
+                    if (_selectedItemType == 'profile')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildSubFilterChip('By Name', 'name'),
+                            const SizedBox(width: 8),
+                            _buildSubFilterChip('By ID', 'id'),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -444,6 +471,34 @@ class _SearchTabState extends State<SearchTab> {
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.black87,
             fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubFilterChip(String label, String value) {
+    final isSelected = _profileSearchMode == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _profileSearchMode = value;
+          _performSearch(_searchController.text);
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blueAccent.withOpacity(0.15) : Colors.transparent,
+          border: Border.all(color: isSelected ? Colors.blueAccent : Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.blueAccent : Colors.grey[600],
+            fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),

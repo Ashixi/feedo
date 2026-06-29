@@ -433,7 +433,7 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
             "is_repost": dup.is_repost,
         })
 
-    item_type = "profile" if (post.metadata_ and isinstance(post.metadata_, dict) and post.metadata_.get("kind") == 0) else "post"
+    item_type = post.item_type or ("profile" if (post.metadata_ and isinstance(post.metadata_, dict) and post.metadata_.get("kind") == 0) else "post")
 
     text = post.text_content
     if item_type == "profile" and text:
@@ -1865,18 +1865,26 @@ async def get_edges(post_hash: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/query")
-async def federated_query(text: str, limit: int = 10, offset: int = 0, federated: bool = False, item_type: str = "all", db: AsyncSession = Depends(get_db)):
+async def federated_query(text: str, limit: int = 10, offset: int = 0, federated: bool = False, item_type: str = "all", profile_search_by: str = "name", db: AsyncSession = Depends(get_db)):
     _require_server_variant()
     
     if item_type == "profile":
-        # Direct SQL search on Post table (item_type=profile) since ingested Nostr profiles are stored there
-        stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
-            (Post.item_type == "profile") &
-            (
+        if profile_search_by == "name":
+            cond = (
+                (Post.metadata_["name"].astext.ilike(f"%{text}%")) |
+                (Post.metadata_["display_name"].astext.ilike(f"%{text}%"))
+            )
+        elif profile_search_by == "id":
+            cond = (Post.author_address.ilike(f"{text}%"))
+        else: # both
+            cond = (
                 (Post.metadata_["name"].astext.ilike(f"%{text}%")) |
                 (Post.metadata_["display_name"].astext.ilike(f"%{text}%")) |
                 (Post.author_address == text)
             )
+            
+        stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
+            (Post.item_type == "profile") & cond
         ).limit(limit).offset(offset)
         posts = (await db.execute(stmt)).scalars().all()
         results = [await _serialize_post_for_client(db, p) for p in posts]
