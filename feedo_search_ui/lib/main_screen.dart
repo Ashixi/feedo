@@ -72,8 +72,6 @@ class _MainScreenState extends State<MainScreen> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.hub_rounded, size: 36, color: Colors.black87),
-          const SizedBox(width: 12),
           const Text('Feedo', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: Colors.black87)),
           const Spacer(),
           // Global Search Bar RESTORED logic
