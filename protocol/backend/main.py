@@ -1869,46 +1869,7 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
     _require_server_variant()
     
     if item_type == "profile":
-        from services.spider_service import NostrSpider
-        
-        # 1. Fetch real-time profiles from global indexers
-        spider_events = await NostrSpider.search_profiles(text, limit=10, timeout_sec=3.0)
-        
-        # 2. Ingest new profiles into local DB
-        new_posts = []
-        if spider_events:
-            pubkeys = [ev.get("pubkey") for ev in spider_events if ev.get("pubkey")]
-            existing_stmt = select(Post.author_address).where(Post.author_address.in_(pubkeys), Post.item_type == "profile")
-            existing_pubkeys = set((await db.execute(existing_stmt)).scalars().all())
-            
-            for ev in spider_events:
-                pubkey = ev.get("pubkey")
-                if not pubkey or pubkey in existing_pubkeys:
-                    continue
-                
-                try:
-                    content = _json.loads(ev.get("content", "{}"))
-                except:
-                    content = {}
-                    
-                new_post = Post(
-                    source_type="nostr",
-                    source_specific_id=ev["id"],
-                    hash_id=ev["id"],
-                    author_address=pubkey,
-                    text_content=ev.get("content"),
-                    metadata_=content,
-                    item_type="profile",
-                    content_type=ContentType.TEXT
-                )
-                db.add(new_post)
-                new_posts.append(new_post)
-                existing_pubkeys.add(pubkey)
-            
-            if new_posts:
-                await db.commit()
-
-        # 3. Direct SQL search on Post table (item_type=profile)
+        # Direct SQL search on Post table (item_type=profile) since ingested Nostr profiles are stored there
         stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
             (Post.item_type == "profile") &
             (
@@ -1918,15 +1879,7 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
             )
         ).limit(limit).offset(offset)
         posts = (await db.execute(stmt)).scalars().all()
-        
-        # Merge local SQL results with newly ingested spider posts
-        post_map = {p.hash_id: p for p in posts}
-        for np in new_posts:
-            if np.hash_id not in post_map:
-                post_map[np.hash_id] = np
-                
-        final_posts = list(post_map.values())
-        results = [await _serialize_post_for_client(db, p) for p in final_posts[:limit]]
+        results = [await _serialize_post_for_client(db, p) for p in posts]
         return {"query_id": "profile_search", "results": results}
 
     if not brain:
