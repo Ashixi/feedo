@@ -1870,12 +1870,12 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
     
     if item_type == "profile":
         if profile_search_by == "name":
-            cond = cast(Post.metadata_, String).ilike(f"%{text}%")
+            cond = Post.text_content.ilike(f"%{text}%")
         elif profile_search_by == "id":
-            cond = (Post.author_address.ilike(f"{text}%"))
+            cond = Post.author_address.ilike(f"{text}%")
         else: # both
             cond = (
-                cast(Post.metadata_, String).ilike(f"%{text}%") |
+                Post.text_content.ilike(f"%{text}%") |
                 (Post.author_address == text)
             )
             
