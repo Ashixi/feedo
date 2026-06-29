@@ -287,7 +287,7 @@ class _PostCardState extends State<PostCard> {
 
   @override
   Widget build(BuildContext context) {
-    final String text = widget.post['text'] ?? widget.post['content'] ?? widget.post['about'] ?? '';
+    String text = widget.post['text'] ?? widget.post['content'] ?? widget.post['about'] ?? '';
     final String authorAddress = widget.post['author_address'] ?? widget.post['pubkey'] ?? 'Unknown';
     final String authorName = widget.post['author_name'] ?? authorAddress;
     final String? authorAvatar = widget.post['author_avatar'] ?? widget.post['picture'] ?? widget.post['metadata']?['picture'];
@@ -305,6 +305,26 @@ class _PostCardState extends State<PostCard> {
     List<String> mediaUrls = [];
     if (widget.post['media'] != null && widget.post['media'] is List) {
       mediaUrls = List<String>.from(widget.post['media']);
+    }
+
+    // Extract Markdown Images/Videos
+    final RegExp markdownImgRegExp = RegExp(r'!\[.*?\]\((https?://\S+?)\)');
+    for (final match in markdownImgRegExp.allMatches(text)) {
+      final url = match.group(1);
+      if (url != null && !mediaUrls.contains(url)) {
+        mediaUrls.add(url);
+      }
+      text = text.replaceAll(match.group(0)!, '');
+    }
+
+    // Extract Raw Media URLs
+    final RegExp rawImgRegExp = RegExp(r'https?://[^\s)]+\.(?:jpe?g|png|gif|webp|mp4|mov|webm)(?:\?[^\s)]*)?', caseSensitive: false);
+    for (final match in rawImgRegExp.allMatches(text)) {
+      final url = match.group(0);
+      if (url != null && !mediaUrls.contains(url)) {
+        mediaUrls.add(url);
+      }
+      text = text.replaceAll(url!, '');
     }
     
     if (itemType == 'profile') {
