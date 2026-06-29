@@ -1869,20 +1869,91 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
     _require_server_variant()
     
     if item_type == "profile":
+        import re
+        safe_text = re.escape(text)
+        name_regex = f'"(?:display_)?name"\\s*:\\s*"[^"]*{safe_text}[^"]*"'
         if profile_search_by == "name":
-            cond = Post.text_content.ilike(f"%{text}%")
+            cond = Post.text_content.op("~*")(name_regex)
         elif profile_search_by == "id":
             cond = Post.author_address.ilike(f"{text}%")
         else: # both
             cond = (
-                Post.text_content.ilike(f"%{text}%") |
+                Post.text_content.op("~*")(name_regex) |
                 (Post.author_address == text)
             )
             
         stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
             (Post.item_type == "profile") & cond
         ).limit(limit).offset(offset)
-        posts = (await db.execute(stmt)).scalars().all()
+        posts_raw = (await db.execute(stmt)).scalars().all()
+        
+        # Deduplicate
+        posts = []
+        seen_pubkeys = set()
+        for p in posts_raw:
+            if p.author_address not in seen_pubkeys:
+                seen_pubkeys.add(p.author_address)
+                posts.append(p)
+                
+        # NIP-50 Fallback if < 5 results
+        if text and len(posts) < 5:
+            import websockets
+            import json
+            import uuid
+            try:
+                async with websockets.connect("wss://relay.nostr.band", open_timeout=2.0) as ws:
+                    req_id = f"fallback_{uuid.uuid4().hex[:8]}"
+                    req_filter = {"kinds": [0], "limit": 15}
+                    if profile_search_by == "id":
+                        req_filter["authors"] = [text]
+                    else:
+                        req_filter["search"] = text
+                    
+                    await ws.send(json.dumps(["REQ", req_id, req_filter]))
+                    
+                    start_time = asyncio.get_running_loop().time()
+                    new_profiles = []
+                    while asyncio.get_running_loop().time() - start_time < 1.5:
+                        try:
+                            msg_str = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                            msg = json.loads(msg_str)
+                            if msg[0] == "EOSE" and msg[1] == req_id:
+                                break
+                            if msg[0] == "EVENT" and msg[1] == req_id:
+                                ev = msg[2]
+                                if ev["pubkey"] in seen_pubkeys:
+                                    continue
+                                seen_pubkeys.add(ev["pubkey"])
+                                
+                                try:
+                                    content = json.loads(ev["content"])
+                                except:
+                                    content = {}
+                                    
+                                new_post = Post(
+                                    source_type="nostr",
+                                    source_specific_id=ev["id"],
+                                    hash_id=ev["id"],
+                                    author_address=ev["pubkey"],
+                                    text_content=ev["content"],
+                                    metadata_=content,
+                                    item_type="profile",
+                                    content_type=ContentType.TEXT
+                                )
+                                db.add(new_post)
+                                new_profiles.append(new_post)
+                        except asyncio.TimeoutError:
+                            break
+                            
+                    if new_profiles:
+                        try:
+                            await db.commit()
+                            posts.extend(new_profiles)
+                        except IntegrityError:
+                            await db.rollback()
+            except Exception as e:
+                print(f"Fallback search error: {e}")
+
         results = [await _serialize_post_for_client(db, p) for p in posts]
         return {"query_id": "profile_search", "results": results}
 
