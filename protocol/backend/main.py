@@ -1871,15 +1871,15 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
     if item_type == "profile":
         if profile_search_by == "name":
             cond = (
-                (Post.metadata_["name"].astext.ilike(f"%{text}%")) |
-                (Post.metadata_["display_name"].astext.ilike(f"%{text}%"))
+                (Post.metadata_["name"].as_string().ilike(f"%{text}%")) |
+                (Post.metadata_["display_name"].as_string().ilike(f"%{text}%"))
             )
         elif profile_search_by == "id":
             cond = (Post.author_address.ilike(f"{text}%"))
         else: # both
             cond = (
-                (Post.metadata_["name"].astext.ilike(f"%{text}%")) |
-                (Post.metadata_["display_name"].astext.ilike(f"%{text}%")) |
+                (Post.metadata_["name"].as_string().ilike(f"%{text}%")) |
+                (Post.metadata_["display_name"].as_string().ilike(f"%{text}%")) |
                 (Post.author_address == text)
             )
             
