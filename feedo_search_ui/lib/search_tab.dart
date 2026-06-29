@@ -136,6 +136,7 @@ class _SearchTabState extends State<SearchTab> {
         // Dynamic Spam Filter: After fetching texts from relays, remove any spam posts
         List<dynamic> validResults = [];
         Set<String> seenPubkeys = {};
+        Set<String> seenVisuals = {};
         for (var item in results) {
           
           final meta = item['metadata'] ?? {};
@@ -144,12 +145,20 @@ class _SearchTabState extends State<SearchTab> {
           // Item type filter
           if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
 
-          // Deduplicate profiles by pubkey
+          // Deduplicate profiles by pubkey and visually identical clones
           if (item['item_type'] == 'profile') {
             final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
+            final name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
+            final about = meta['about']?.toString() ?? '';
+            final visualKey = '$name|$about';
+
             if (pubkey.isNotEmpty) {
               if (seenPubkeys.contains(pubkey)) continue;
               seenPubkeys.add(pubkey);
+            }
+            if (visualKey.isNotEmpty && visualKey != '|') {
+              if (seenVisuals.contains(visualKey)) continue;
+              seenVisuals.add(visualKey);
             }
           }
 
@@ -222,10 +231,16 @@ class _SearchTabState extends State<SearchTab> {
           await NostrResolver.resolve(results);
           
           Set<String> seenPubkeys = {};
+          Set<String> seenVisuals = {};
           for (var item in _results) {
             if (item['item_type'] == 'profile') {
               final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
               if (pubkey.isNotEmpty) seenPubkeys.add(pubkey);
+              final meta = item['metadata'] ?? {};
+              final name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
+              final about = meta['about']?.toString() ?? '';
+              final visualKey = '$name|$about';
+              if (visualKey.isNotEmpty && visualKey != '|') seenVisuals.add(visualKey);
             }
           }
 
@@ -238,10 +253,21 @@ class _SearchTabState extends State<SearchTab> {
 
             if (item['item_type'] == 'profile') {
               final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
+              final name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
+              final about = meta['about']?.toString() ?? '';
+              final visualKey = '$name|$about';
+              
+              bool skip = false;
               if (pubkey.isNotEmpty) {
-                if (seenPubkeys.contains(pubkey)) continue;
+                if (seenPubkeys.contains(pubkey)) skip = true;
                 seenPubkeys.add(pubkey);
               }
+              if (visualKey.isNotEmpty && visualKey != '|') {
+                if (seenVisuals.contains(visualKey)) skip = true;
+                seenVisuals.add(visualKey);
+              }
+              
+              if (skip) continue;
             }
 
             validResults.add(item);

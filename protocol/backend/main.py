@@ -1930,6 +1930,15 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
                                 except:
                                     content = {}
                                     
+                                if profile_search_by == "name":
+                                    c_name = content.get("name", "")
+                                    if not c_name: c_name = ""
+                                    c_dname = content.get("display_name", "")
+                                    if not c_dname: c_dname = ""
+                                    t_lower = text.lower()
+                                    if t_lower not in c_name.lower() and t_lower not in c_dname.lower():
+                                        continue
+                                    
                                 new_post = Post(
                                     source_type="nostr",
                                     source_specific_id=ev["id"],
