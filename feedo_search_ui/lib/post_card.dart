@@ -327,6 +327,10 @@ class _PostCardState extends State<PostCard> {
       text = text.replaceAll(url!, '');
     }
     
+    // Clean up annoying bot tags like 📌 [VIDEO] or 📌 [IMAGE]
+    text = text.replaceAll(RegExp(r'📌\s*\[.*?\]'), '');
+    text = text.replaceAll('📌', '');
+    
     if (itemType == 'profile') {
       String profileName = widget.post['display_author'] ?? widget.post['author_name'] ?? authorAddress;
       String profileAbout = text;
