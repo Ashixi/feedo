@@ -60,6 +60,7 @@ class FeedService:
             tag_offset = offset // num_tags
             
             all_rel_hash_ids = []
+            seen_vectors = []
             
             # 1. Fetch 70% semantic posts using Pseudo-Relevance Feedback for EACH tag
             for tag in user.preferred_tags:
@@ -90,8 +91,24 @@ class FeedService:
                     
                     for r in raw_results:
                         if "hash_id" in r and r.get("_distance", 0) < 1.6:
-                            if r["hash_id"] not in all_rel_hash_ids:
-                                all_rel_hash_ids.append(r["hash_id"])
+                            vec = r.get("vector")
+                            is_dup = False
+                            if vec:
+                                norm_vec = sum(v * v for v in vec) ** 0.5
+                                if norm_vec > 0:
+                                    for s_vec in seen_vectors:
+                                        dot = sum(a * b for a, b in zip(vec, s_vec))
+                                        norm_s = sum(v * v for v in s_vec) ** 0.5
+                                        if norm_s > 0:
+                                            cos_sim = dot / (norm_vec * norm_s)
+                                            if cos_sim > 0.95:
+                                                is_dup = True
+                                                break
+                            if not is_dup:
+                                if vec:
+                                    seen_vectors.append(vec)
+                                if r["hash_id"] not in all_rel_hash_ids:
+                                    all_rel_hash_ids.append(r["hash_id"])
                 except Exception as e:
                     logger.error(f"Error in PRF search for tag '{tag}': {e}")
                     
