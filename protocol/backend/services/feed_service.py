@@ -44,32 +44,77 @@ class FeedService:
                 logger.error(f"P2P search error: {e}")
             return []
 
-        # If user has preferred_tags, trigger 70/30 anti-bubble logic via Federated P2P Search
+        # If user has preferred_tags, trigger intelligent PRF logic per tag + 30% trending
         scored_posts_p2p = []
-        if user and user.preferred_tags and offset == 0:
+        if user and user.preferred_tags:
+            # First determine target languages
+            target_langs = []
+            if user.preferred_languages:
+                target_langs.extend([l.lower() for l in user.preferred_languages])
+            if language and language != "all":
+                target_langs.append(language.lower())
+                
+            num_tags = len(user.preferred_tags)
             limit_70 = max(1, int(limit * 0.7))
-            limit_30 = limit - limit_70
+            tag_limit = max(2, limit_70 // num_tags)
+            tag_offset = offset // num_tags
             
-            tags_query = " ".join(user.preferred_tags)
+            all_rel_hash_ids = []
             
-            # Fire both queries concurrently to Kademlia/Gossip network (will take ~3s)
-            results_70, results_30 = await asyncio.gather(
-                fetch_p2p("feed", tags_query, limit_70),
-                fetch_p2p("feed_trending", "", limit_30)
-            )
-            
-            # Merge results
-            all_p2p_results = results_70 + results_30
-            hash_ids_to_fetch = []
-            seen = set()
-            for r in all_p2p_results:
-                hid = r.get("hash_id")
-                if hid and hid not in seen:
-                    seen.add(hid)
-                    hash_ids_to_fetch.append(hid)
+            # 1. Fetch 70% semantic posts using Pseudo-Relevance Feedback for EACH tag
+            for tag in user.preferred_tags:
+                try:
+                    # Get embedding for the tag
+                    vector = await brain.get_embedding_async(tag)
                     
-            if hash_ids_to_fetch:
-                fetch_stmt = select(Post).where(Post.hash_id.in_(hash_ids_to_fetch), Post.item_type == 'post').options(
+                    # Pseudo-Relevance Feedback (PRF)
+                    pr_results = brain.table.search(vector).limit(3).to_list()
+                    pr_vectors = [r["vector"] for r in pr_results if "vector" in r]
+                    if pr_vectors:
+                        # Average vectors
+                        avg_retrieved = [sum(v[i] for v in pr_vectors) / len(pr_vectors) for i in range(len(vector))]
+                        vector = [0.6 * vector[i] + 0.4 * avg_retrieved[i] for i in range(len(vector))]
+                        
+                    # Main search
+                    search_query = brain.table.search(vector)
+                    
+                    if target_langs:
+                        # Allow target languages plus 'un' (unknown) and 'uk' (default fallback)
+                        allowed_langs = set(target_langs)
+                        allowed_langs.update(['un', 'uk'])
+                        langs_str = ", ".join([f"'{l}'" for l in allowed_langs])
+                        search_query = search_query.where(f"language IN ({langs_str})")
+                        
+                    # Paginate per tag
+                    raw_results = search_query.limit(tag_limit + tag_offset).to_list()[tag_offset:]
+                    
+                    for r in raw_results:
+                        if "hash_id" in r and r.get("_distance", 0) < 1.6:
+                            if r["hash_id"] not in all_rel_hash_ids:
+                                all_rel_hash_ids.append(r["hash_id"])
+                except Exception as e:
+                    logger.error(f"Error in PRF search for tag '{tag}': {e}")
+                    
+            # 2. Fetch 30% trending posts via P2P (only on first page or adjust offset)
+            limit_30 = limit - limit_70
+            trending_offset = int((offset / limit) * limit_30) if limit > 0 else 0
+            
+            try:
+                trending_results = await fetch_p2p("feed_trending", "", limit_30 + trending_offset)
+                trending_results = trending_results[trending_offset:]
+                for r in trending_results:
+                    hid = r.get("hash_id")
+                    if hid and hid not in all_rel_hash_ids:
+                        all_rel_hash_ids.append(hid)
+            except Exception as e:
+                logger.error(f"Error fetching trending posts: {e}")
+                
+            if all_rel_hash_ids:
+                # Optionally shuffle to mix topics nicely
+                import random
+                random.shuffle(all_rel_hash_ids)
+                
+                fetch_stmt = select(Post).where(Post.hash_id.in_(all_rel_hash_ids), Post.item_type == 'post').options(
                     selectinload(Post.author),
                     selectinload(Post.duplicates).selectinload(Post.author)
                 )
@@ -77,8 +122,7 @@ class FeedService:
                 posts = result.scalars().all()
                 
                 post_map = {p.hash_id: p for p in posts}
-                # Maintain order from the P2P result
-                scored_posts_p2p = [ (1.0, post_map[hid]) for hid in hash_ids_to_fetch if hid in post_map ]
+                scored_posts_p2p = [ (1.0, post_map[hid]) for hid in all_rel_hash_ids if hid in post_map ]
 
         if scored_posts_p2p:
             return scored_posts_p2p, [], [], []
