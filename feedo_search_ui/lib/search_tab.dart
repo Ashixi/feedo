@@ -10,6 +10,7 @@ import 'nostr_resolver.dart';
 import 'nostr_wallet.dart';
 import 'post_card.dart';
 import 'feed_layout.dart';
+import 'screens/user_profile_screen.dart';
 
 class SearchTab extends StatefulWidget {
   final String? initialQuery;
@@ -251,24 +252,103 @@ class _SearchTabState extends State<SearchTab> {
                   color: Colors.grey[100],
                   borderRadius: BorderRadius.circular(30),
                 ),
-                child: TextField(
-                  controller: _searchController,
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
-                  decoration: InputDecoration(
-                    hintText: 'Search Farcaster & Nostr...',
-                    hintStyle: TextStyle(color: Colors.grey[500]),
-                    prefixIcon: Padding(
-                      padding: const EdgeInsets.only(left: 16.0, right: 8.0),
-                      child: Icon(Icons.search, color: Colors.grey[600]),
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    suffixIcon: IconButton(
-                      icon: Icon(Icons.arrow_forward_rounded, color: Theme.of(context).colorScheme.primary),
-                      onPressed: () => _performSearch(_searchController.text),
-                    ),
-                  ),
-                  onSubmitted: _performSearch,
+                child: RawAutocomplete<dynamic>(
+                  textEditingController: _searchController,
+                  focusNode: FocusNode(),
+                  optionsBuilder: (TextEditingValue textEditingValue) async {
+                    if (textEditingValue.text.trim().length < 2) {
+                      return const Iterable<dynamic>.empty();
+                    }
+                    final randomNode = _apiNodes[Random().nextInt(_apiNodes.length)];
+                    final encodedQuery = Uri.encodeComponent(textEditingValue.text.trim());
+                    final urlStr = '$randomNode/query?text=$encodedQuery&limit=5&federated=true&item_type=profile';
+                    try {
+                      final response = await http.get(Uri.parse(urlStr), headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 3));
+                      if (response.statusCode == 200) {
+                        final data = jsonDecode(response.body);
+                        List<dynamic> results = data['results'] ?? [];
+                        return results;
+                      }
+                    } catch (_) {}
+                    return const Iterable<dynamic>.empty();
+                  },
+                  onSelected: (dynamic item) {
+                    final meta = item['metadata'] ?? {};
+                    final pubkey = item['author_address'] ?? '';
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => UserProfileScreen(
+                      pubkey: pubkey,
+                      initialName: meta['name'] ?? meta['display_name'],
+                      initialAvatar: meta['picture'],
+                      initialAbout: meta['about'],
+                    )));
+                  },
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    return TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      style: const TextStyle(fontSize: 16, color: Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: 'Search profiles & posts...',
+                        hintStyle: TextStyle(color: Colors.grey[500]),
+                        prefixIcon: Padding(
+                          padding: const EdgeInsets.only(left: 16.0, right: 8.0),
+                          child: Icon(Icons.search, color: Colors.grey[600]),
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        suffixIcon: IconButton(
+                          icon: Icon(Icons.arrow_forward_rounded, color: Theme.of(context).colorScheme.primary),
+                          onPressed: () {
+                            focusNode.unfocus();
+                            _performSearch(controller.text);
+                          },
+                        ),
+                      ),
+                      onSubmitted: (val) {
+                        onFieldSubmitted();
+                        _performSearch(val);
+                      },
+                    );
+                  },
+                  optionsViewBuilder: (context, onSelected, options) {
+                    return Align(
+                      alignment: Alignment.topLeft,
+                      child: Material(
+                        elevation: 4.0,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          width: MediaQuery.of(context).size.width - 32,
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shrinkWrap: true,
+                            itemCount: options.length,
+                            itemBuilder: (context, index) {
+                              final item = options.elementAt(index);
+                              final meta = item['metadata'] ?? {};
+                              final name = meta['name'] ?? meta['display_name'] ?? 'Unknown';
+                              final nip05 = meta['nip05'] ?? '';
+                              final picture = meta['picture'];
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.grey[200],
+                                  backgroundImage: picture != null ? NetworkImage(picture) : null,
+                                  child: picture == null ? const Icon(Icons.person, color: Colors.grey) : null,
+                                ),
+                                title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: nip05.isNotEmpty ? Text(nip05, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
+                                onTap: () => onSelected(item),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             
