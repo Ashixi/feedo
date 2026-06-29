@@ -94,14 +94,21 @@ class _PostCardState extends State<PostCard> {
     }
   }
 
-  void _openUserProfile() {
     final authorAddress = widget.post['author_address'] ?? widget.post['pubkey'] ?? 'Unknown';
     final authorName = widget.post['author_name'] ?? authorAddress;
+    
+    // Extract about from either profile text or metadata
+    String? initialAbout;
+    if (widget.post['item_type'] == 'profile') {
+      initialAbout = widget.post['text'] ?? widget.post['metadata']?['about'];
+    }
+    
     Navigator.of(context).push(MaterialPageRoute(
       builder: (context) => UserProfileScreen(
         pubkey: authorAddress,
         initialName: authorName,
         initialAvatar: widget.post['author_avatar'],
+        initialAbout: initialAbout,
       ),
     ));
   }

@@ -152,6 +152,10 @@ class _SearchTabState extends State<SearchTab> {
             final about = meta['about']?.toString() ?? '';
             final visualKey = '$name|$about';
 
+            // Pre-populate missing profile data if NostrResolver failed
+            item['author_name'] ??= name.isNotEmpty ? name : null;
+            item['author_avatar'] ??= meta['picture'];
+
             if (pubkey.isNotEmpty) {
               if (seenPubkeys.contains(pubkey)) continue;
               seenPubkeys.add(pubkey);
@@ -256,6 +260,10 @@ class _SearchTabState extends State<SearchTab> {
               final name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
               final about = meta['about']?.toString() ?? '';
               final visualKey = '$name|$about';
+
+              // Pre-populate missing profile data if NostrResolver failed
+              item['author_name'] ??= name.isNotEmpty ? name : null;
+              item['author_avatar'] ??= meta['picture'];
               
               bool skip = false;
               if (pubkey.isNotEmpty) {
