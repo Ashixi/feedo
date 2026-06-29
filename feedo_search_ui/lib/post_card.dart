@@ -315,7 +315,7 @@ class _PostCardState extends State<PostCard> {
         final parsed = jsonDecode(text);
         if (parsed['name'] != null) profileName = parsed['name'];
         if (parsed['display_name'] != null) profileName = parsed['display_name'];
-        if (parsed['about'] != null) profileAbout = parsed['about'];
+        profileAbout = parsed['about'] ?? '';
       } catch (_) {}
       
       if (widget.post['metadata'] != null && widget.post['metadata'] is Map) {
