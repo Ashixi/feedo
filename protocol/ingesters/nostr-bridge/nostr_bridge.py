@@ -3,6 +3,7 @@ import websockets
 import json
 import logging
 import time
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("feedo_proxy")
@@ -118,9 +119,53 @@ async def broadcast_pending_loop():
             
         await asyncio.sleep(10)
 
+async def resolve_event(request):
+    hash_id = request.match_info.get('hash_id')
+    if not hash_id:
+        return web.json_response({"error": "hash_id required"}, status=400)
+    
+    req = ["REQ", f"resolve_{hash_id}", {"ids": [hash_id]}]
+    msg = json.dumps(req)
+    
+    async def _fetch(url):
+        try:
+            async with websockets.connect(url, open_timeout=2.0) as ws:
+                await ws.send(msg)
+                while True:
+                    resp = await asyncio.wait_for(ws.recv(), timeout=3.0)
+                    resp_data = json.loads(resp)
+                    if isinstance(resp_data, list) and len(resp_data) >= 3:
+                        if resp_data[0] == "EVENT":
+                            return resp_data[2]
+                        if resp_data[0] == "EOSE":
+                            break
+        except Exception:
+            pass
+        return None
+
+    import random
+    target_relays = random.sample(GLOBAL_RELAYS, min(3, len(GLOBAL_RELAYS)))
+    results = await asyncio.gather(*[_fetch(r) for r in target_relays])
+    
+    for r in results:
+        if r:
+            return web.json_response(r)
+            
+    return web.json_response({"error": "Event not found on relays"}, status=404)
+
+async def start_http_server():
+    app = web.Application()
+    app.router.add_get('/resolve/{hash_id}', resolve_event)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8041)
+    await site.start()
+    logger.info("Internal HTTP server for resolution started on port 8041")
+
 async def main():
     tasks = [fetch_from_relay(url) for url in GLOBAL_RELAYS]
     tasks.append(broadcast_pending_loop())
+    tasks.append(start_http_server())
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":

@@ -915,6 +915,36 @@ async def get_post_by_hash_id(hash_id: str, db: AsyncSession = Depends(get_db)):
     return await _serialize_post_for_client(db, post)
 
 
+@app.get("/posts/resolve/{hash_id}")
+async def resolve_post(hash_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(Post).where(Post.hash_id == hash_id)
+    post = (await db.execute(stmt)).scalars().first()
+    if post:
+        return await _serialize_post_for_client(db, post)
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"http://feedo-nostr-bridge:8041/resolve/{hash_id}", timeout=10.0)
+            if res.status_code == 200:
+                raw_event = res.json()
+                return {
+                    "id": 0,
+                    "hash_id": raw_event.get("id"),
+                    "text": raw_event.get("content", ""),
+                    "timestamp": raw_event.get("created_at", 0),
+                    "author": raw_event.get("pubkey"),
+                    "source_type": "nostr",
+                    "item_type": "post",
+                    "metadata": raw_event,
+                    "media": [],
+                    "author_details": None
+                }
+    except Exception as e:
+        logger.error(f"Error resolving post {hash_id} via bridge: {e}")
+        
+    raise HTTPException(status_code=404, detail="Post not found locally and could not be resolved from relays.")
+
+
 @app.get("/posts/{post_id}")
 async def get_post_by_id(post_id: int, db: AsyncSession = Depends(get_db)):
     stmt = select(Post).where(Post.id == post_id)

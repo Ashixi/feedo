@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/bech32.dart';
 import '../screens/user_profile_screen.dart';
+import 'quoted_event_card.dart';
 
 class LinkifiedText extends StatelessWidget {
   final String text;
@@ -57,23 +58,15 @@ class LinkifiedText extends StatelessWidget {
                       matchedText.startsWith('note') ||
                       matchedText.startsWith('naddr');
 
-      String displayText = matchedText;
       if (isNostr) {
         if (matchedText.contains('npub') || matchedText.contains('nprofile')) {
           final clean = matchedText.replaceAll('nostr:', '');
-          displayText = '@${clean.substring(0, 10)}...';
-        } else {
-          displayText = '[Quoted Event]';
-        }
-      }
-
-      spans.add(TextSpan(
-        text: displayText,
-        style: anchorStyle,
-        recognizer: TapGestureRecognizer()
-          ..onTap = () async {
-            if (isNostr) {
-              if (matchedText.contains('npub') || matchedText.contains('nprofile')) {
+          final displayText = '@${clean.substring(0, 10)}...';
+          spans.add(TextSpan(
+            text: displayText,
+            style: anchorStyle,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () async {
                 final profile = Bech32.decodeProfile(matchedText);
                 if (profile.pubkey.isNotEmpty && profile.pubkey.length == 64) {
                   Navigator.of(context).push(MaterialPageRoute(
@@ -85,17 +78,36 @@ class LinkifiedText extends StatelessWidget {
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid Nostr profile link')));
                 }
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewing quoted events is not yet supported in this version.')));
-              }
-            } else {
+              },
+          ));
+        } else {
+          final eventData = Bech32.decodeEvent(matchedText);
+          if (eventData.eventId.isNotEmpty) {
+            spans.add(const TextSpan(text: '\n'));
+            spans.add(WidgetSpan(
+              child: QuotedEventCard(eventId: eventData.eventId),
+            ));
+            spans.add(const TextSpan(text: '\n'));
+          } else {
+            spans.add(TextSpan(
+              text: '[Invalid Quoted Event]',
+              style: TextStyle(color: Colors.red.shade300),
+            ));
+          }
+        }
+      } else {
+        spans.add(TextSpan(
+          text: matchedText,
+          style: anchorStyle,
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
               final url = Uri.parse(matchedText);
               if (await canLaunchUrl(url)) {
                 await launchUrl(url);
               }
-            }
-          },
-      ));
+            },
+        ));
+      }
 
       currentPosition = match.end;
     }

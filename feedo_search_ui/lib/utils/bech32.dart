@@ -119,6 +119,38 @@ class Bech32 {
     return (pubkey: '', relays: []);
   }
 
+  static ({String eventId, List<String> relays}) decodeEvent(String bech32Str) {
+    if (bech32Str.startsWith('nostr:')) {
+      bech32Str = bech32Str.substring(6);
+    }
+    try {
+      List<int> data = decode(bech32Str);
+      List<int> bytes = convertBits(data, 5, 8, false);
+      
+      if (bech32Str.startsWith('nevent')) {
+        String eventId = '';
+        List<String> relays = [];
+        int i = 0;
+        while (i < bytes.length) {
+            int t = bytes[i];
+            int l = bytes[i+1];
+            if (t == 0 && l == 32) {
+                eventId = bytes.sublist(i+2, i+2+32).map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+            } else if (t == 1) {
+                try {
+                    relays.add(String.fromCharCodes(bytes.sublist(i+2, i+2+l)));
+                } catch (_) {}
+            }
+            i += 2 + l;
+        }
+        return (eventId: eventId, relays: relays);
+      } else if (bech32Str.startsWith('note')) {
+        return (eventId: bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(''), relays: []);
+      }
+    } catch (e) {}
+    return (eventId: '', relays: []);
+  }
+
   static String decodeToHex(String bech32Str) {
     return decodeProfile(bech32Str).pubkey;
   }
