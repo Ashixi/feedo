@@ -135,14 +135,16 @@ class _PostCardState extends State<PostCard> {
       }
       setState(() {
         widget.post['user_liked'] = false;
-        widget.post['likes_count'] = (widget.post['likes_count'] ?? 1) - 1;
+        int currentLikes = widget.post['likes_count'] ?? widget.post['metrics']?['likes'] ?? 1;
+        widget.post['likes_count'] = currentLikes - 1;
       });
       final deleteId = await NostrPublisher.publishDelete(widget.post['my_like_id']);
       if (deleteId == null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to publish unlike.')));
         setState(() {
           widget.post['user_liked'] = true;
-          widget.post['likes_count'] = (widget.post['likes_count'] ?? 0) + 1;
+          int currentLikes = widget.post['likes_count'] ?? widget.post['metrics']?['likes'] ?? 0;
+          widget.post['likes_count'] = currentLikes + 1;
         });
       } else {
         widget.post['my_like_id'] = null;
@@ -152,7 +154,8 @@ class _PostCardState extends State<PostCard> {
 
     setState(() {
       widget.post['user_liked'] = true;
-      widget.post['likes_count'] = (widget.post['likes_count'] ?? 0) + 1;
+      int currentLikes = widget.post['likes_count'] ?? widget.post['metrics']?['likes'] ?? 0;
+      widget.post['likes_count'] = currentLikes + 1;
     });
 
     final likeId = await NostrPublisher.publishLike(postId, authorPubkey);
@@ -160,7 +163,8 @@ class _PostCardState extends State<PostCard> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to publish like. Are you logged in?')));
       setState(() {
         widget.post['user_liked'] = false;
-        widget.post['likes_count'] = (widget.post['likes_count'] ?? 1) - 1;
+        int currentLikes = widget.post['likes_count'] ?? widget.post['metrics']?['likes'] ?? 1;
+        widget.post['likes_count'] = currentLikes - 1;
       });
     } else {
       widget.post['my_like_id'] = likeId;
@@ -172,7 +176,8 @@ class _PostCardState extends State<PostCard> {
 
     setState(() {
       widget.post['user_reposted'] = true;
-      widget.post['reposts_count'] = (widget.post['reposts_count'] ?? 0) + 1;
+      int currentReposts = widget.post['reposts_count'] ?? widget.post['metrics']?['reposts'] ?? 0;
+      widget.post['reposts_count'] = currentReposts + 1;
     });
 
     final postId = widget.post['hash_id'] ?? widget.post['id'];
@@ -184,7 +189,8 @@ class _PostCardState extends State<PostCard> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to publish repost.')));
       setState(() {
         widget.post['user_reposted'] = false;
-        widget.post['reposts_count'] = (widget.post['reposts_count'] ?? 1) - 1;
+        int currentReposts = widget.post['reposts_count'] ?? widget.post['metrics']?['reposts'] ?? 1;
+        widget.post['reposts_count'] = currentReposts - 1;
       });
     }
   }
