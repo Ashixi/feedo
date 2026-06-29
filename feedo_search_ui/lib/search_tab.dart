@@ -252,12 +252,12 @@ class _SearchTabState extends State<SearchTab> {
                   color: Colors.grey[100],
                   borderRadius: BorderRadius.circular(30),
                 ),
-                child: RawAutocomplete<dynamic>(
+                child: RawAutocomplete<Map<String, dynamic>>(
                   textEditingController: _searchController,
                   focusNode: FocusNode(),
                   optionsBuilder: (TextEditingValue textEditingValue) async {
                     if (textEditingValue.text.trim().length < 2) {
-                      return const Iterable<dynamic>.empty();
+                      return const Iterable<Map<String, dynamic>>.empty();
                     }
                     final randomNode = _apiNodes[Random().nextInt(_apiNodes.length)];
                     final encodedQuery = Uri.encodeComponent(textEditingValue.text.trim());
@@ -267,12 +267,12 @@ class _SearchTabState extends State<SearchTab> {
                       if (response.statusCode == 200) {
                         final data = jsonDecode(response.body);
                         List<dynamic> results = data['results'] ?? [];
-                        return results;
+                        return results.cast<Map<String, dynamic>>();
                       }
                     } catch (_) {}
-                    return const Iterable<dynamic>.empty();
+                    return const Iterable<Map<String, dynamic>>.empty();
                   },
-                  onSelected: (dynamic item) {
+                  onSelected: (Map<String, dynamic> item) {
                     final meta = item['metadata'] ?? {};
                     final pubkey = item['author_address'] ?? '';
                     Navigator.push(context, MaterialPageRoute(builder: (context) => UserProfileScreen(
