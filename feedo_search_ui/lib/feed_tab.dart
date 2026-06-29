@@ -104,20 +104,18 @@ class _FeedTabState extends State<FeedTab> {
           
           final filter = globalFeedFilter.value;
           
-          if (filter.keywords.isNotEmpty) {
-            await NostrResolver.resolve(data);
-          } else {
-            NostrResolver.resolve(data, onUpdate: () {
-              if (mounted) setState(() {});
-            });
-          }
+          // Always await NostrResolver to fully resolve posts before adding them to the feed
+          await NostrResolver.resolve(data);
           
           List<dynamic> validPosts = [];
           for (var item in data) {
             String t = item['text'] ?? item['content'] ?? '';
+            bool hasMedia = item['media'] != null && item['media'].isNotEmpty;
             
-            
-            
+            // Hide empty posts that failed to load from relays (or are intrinsically empty)
+            if (item['item_type'] != 'profile' && t.trim().isEmpty && !hasMedia) {
+              continue;
+            }
             if (filter.language != 'all') {
                String lang = item['language'] ?? item['metadata']?['language'] ?? '';
                if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
@@ -198,20 +196,18 @@ class _FeedTabState extends State<FeedTab> {
           
           final filter = globalFeedFilter.value;
           
-          if (filter.keywords.isNotEmpty) {
-            await NostrResolver.resolve(data);
-          } else {
-            NostrResolver.resolve(data, onUpdate: () {
-              if (mounted) setState(() {});
-            });
-          }
+          // Always await NostrResolver to fully resolve posts before adding them to the feed
+          await NostrResolver.resolve(data);
           
           List<dynamic> validPosts = [];
           for (var item in data) {
             String t = item['text'] ?? item['content'] ?? '';
+            bool hasMedia = item['media'] != null && item['media'].isNotEmpty;
             
-            
-            
+            // Hide empty posts that failed to load from relays (or are intrinsically empty)
+            if (item['item_type'] != 'profile' && t.trim().isEmpty && !hasMedia) {
+              continue;
+            }
             if (filter.language != 'all') {
                String lang = item['language'] ?? item['metadata']?['language'] ?? '';
                if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
