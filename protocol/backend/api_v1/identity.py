@@ -125,7 +125,12 @@ async def update_identity(public_key: str, req: UpdateProfileRequest, db: AsyncS
     user = (await db.execute(stmt)).scalar_one_or_none()
     
     if not user:
-        raise HTTPException(status_code=404, detail="Identity not found")
+        user = User(
+            wallet_address=wallet_address,
+            username="user_" + wallet_address[:6]
+        )
+        db.add(user)
+        
     new_name = req.metadata.get("name") or req.metadata.get("display_name") or req.metadata.get("username")
     if new_name is not None:
         user.display_name = new_name
