@@ -135,6 +135,7 @@ class _SearchTabState extends State<SearchTab> {
         
         // Dynamic Spam Filter: After fetching texts from relays, remove any spam posts
         List<dynamic> validResults = [];
+        Set<String> seenPubkeys = {};
         for (var item in results) {
           
           final meta = item['metadata'] ?? {};
@@ -142,6 +143,15 @@ class _SearchTabState extends State<SearchTab> {
           
           // Item type filter
           if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
+
+          // Deduplicate profiles by pubkey
+          if (item['item_type'] == 'profile') {
+            final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
+            if (pubkey.isNotEmpty) {
+              if (seenPubkeys.contains(pubkey)) continue;
+              seenPubkeys.add(pubkey);
+            }
+          }
 
           validResults.add(item);
         }
@@ -211,12 +221,28 @@ class _SearchTabState extends State<SearchTab> {
           _fetchedCount += results.length;
           await NostrResolver.resolve(results);
           
+          Set<String> seenPubkeys = {};
+          for (var item in _results) {
+            if (item['item_type'] == 'profile') {
+              final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
+              if (pubkey.isNotEmpty) seenPubkeys.add(pubkey);
+            }
+          }
+
           List<dynamic> validResults = [];
           for (var item in results) {
             final meta = item['metadata'] ?? {};
             if (meta['is_reply'] == true) continue;
             
             if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
+
+            if (item['item_type'] == 'profile') {
+              final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
+              if (pubkey.isNotEmpty) {
+                if (seenPubkeys.contains(pubkey)) continue;
+                seenPubkeys.add(pubkey);
+              }
+            }
 
             validResults.add(item);
           }
