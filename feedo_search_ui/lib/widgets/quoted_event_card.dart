@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../utils/constants.dart';
-import '../screens/post_detail_screen.dart';
+import '../screens/post_screen.dart';
 import 'linkified_text.dart';
 
 class QuotedEventCard extends StatefulWidget {
@@ -60,9 +60,8 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
   void _openPost() {
     if (_postData == null) return;
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (context) => PostDetailScreen(
-        hashId: _postData!['hash_id'],
-        postData: _postData!,
+      builder: (context) => PostScreen(
+        post: _postData!,
       ),
     ));
   }

@@ -39,7 +39,7 @@ class LinkifiedText extends StatelessWidget {
       return Text(text, style: defaultStyle);
     }
 
-    List<TextSpan> spans = [];
+    List<InlineSpan> spans = [];
     int currentPosition = 0;
 
     for (final match in matches) {
