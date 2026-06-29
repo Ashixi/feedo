@@ -90,8 +90,8 @@ class LinkifiedText extends StatelessWidget {
             spans.add(const TextSpan(text: '\n'));
           } else {
             spans.add(TextSpan(
-              text: '[Invalid Quoted Event]',
-              style: TextStyle(color: Colors.red.shade300),
+              text: matchedText,
+              style: defaultStyle,
             ));
           }
         }
