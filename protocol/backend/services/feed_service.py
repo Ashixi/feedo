@@ -45,7 +45,8 @@ class FeedService:
             return []
 
         # If user has preferred_tags, trigger 70/30 anti-bubble logic via Federated P2P Search
-        if user and user.preferred_tags:
+        scored_posts_p2p = []
+        if user and user.preferred_tags and offset == 0:
             limit_70 = max(1, int(limit * 0.7))
             limit_30 = limit - limit_70
             
@@ -67,20 +68,20 @@ class FeedService:
                     seen.add(hid)
                     hash_ids_to_fetch.append(hid)
                     
-            if not hash_ids_to_fetch:
-                return [], [], [], []
+            if hash_ids_to_fetch:
+                fetch_stmt = select(Post).where(Post.hash_id.in_(hash_ids_to_fetch), Post.item_type == 'post').options(
+                    selectinload(Post.author),
+                    selectinload(Post.duplicates).selectinload(Post.author)
+                )
+                result = await db.execute(fetch_stmt)
+                posts = result.scalars().all()
                 
-            fetch_stmt = select(Post).where(Post.hash_id.in_(hash_ids_to_fetch), Post.item_type == 'post').options(
-                selectinload(Post.author),
-                selectinload(Post.duplicates).selectinload(Post.author)
-            )
-            result = await db.execute(fetch_stmt)
-            posts = result.scalars().all()
-            
-            post_map = {p.hash_id: p for p in posts}
-            # Maintain order from the P2P result
-            scored_posts = [ (1.0, post_map[hid]) for hid in hash_ids_to_fetch if hid in post_map ]
-            return scored_posts, [], [], []
+                post_map = {p.hash_id: p for p in posts}
+                # Maintain order from the P2P result
+                scored_posts_p2p = [ (1.0, post_map[hid]) for hid in hash_ids_to_fetch if hid in post_map ]
+
+        if scored_posts_p2p:
+            return scored_posts_p2p, [], [], []
 
         # Fallback to standard local chronological logic
         stmt = select(Post.id).where(Post.item_type == 'post')
