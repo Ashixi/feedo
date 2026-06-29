@@ -142,19 +142,40 @@ class _SearchTabState extends State<SearchTab> {
           final meta = item['metadata'] ?? {};
           if (meta['is_reply'] == true) continue;
           
+          // Hide empty posts that failed to load from relays (or are intrinsically empty)
+          if (item['item_type'] != 'profile' && (item['text'] == null || item['text'].toString().trim().isEmpty)) {
+            continue;
+          }
+          
           // Item type filter
           if (_selectedItemType != 'all' && item['item_type'] != _selectedItemType) continue;
 
           // Deduplicate profiles by pubkey and visually identical clones
           if (item['item_type'] == 'profile') {
             final pubkey = item['author_address']?.toString() ?? item['pubkey']?.toString() ?? '';
-            final name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
-            final about = meta['about']?.toString() ?? '';
+            
+            // Clean up name/about parsing to ensure we don't display raw JSON strings
+            String name = meta['name']?.toString() ?? meta['display_name']?.toString() ?? '';
+            String about = meta['about']?.toString() ?? '';
+            
+            if (name.isEmpty && item['text'] != null && item['text'].toString().startsWith('{')) {
+               try {
+                  final parsed = jsonDecode(item['text']);
+                  if (parsed is Map) {
+                     name = parsed['name'] ?? parsed['display_name'] ?? '';
+                     about = parsed['about'] ?? '';
+                  }
+               } catch (_) {}
+            }
+            
             final visualKey = '$name|$about';
 
             // Pre-populate missing profile data if NostrResolver failed
             item['author_name'] ??= name.isNotEmpty ? name : null;
             item['author_avatar'] ??= meta['picture'];
+            
+            // Explicitly set the text field to the cleaned about, so we don't render raw JSON later
+            item['text'] = about;
 
             if (pubkey.isNotEmpty) {
               if (seenPubkeys.contains(pubkey)) continue;

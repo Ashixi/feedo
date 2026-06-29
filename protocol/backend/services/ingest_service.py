@@ -64,13 +64,13 @@ class IngestService:
                 relay_url=post_data.relay_url
             )
             
-        # Create Post (We MUST save text so it can be retrieved by clients)
+        # Create Post (Stateless Indexer - do NOT save text)
         new_post = Post(
             source_type=post_data.source_type,
             source_specific_id=post_data.source_specific_id,
             hash_id=post_data.source_specific_id,
             author_address=post_data.author_address,
-            text_content=post_data.text_content, # SAVE THE CONTENT!
+            text_content=None, # NEVER SAVE CONTENT!
             published_at=pub_date,
             external_link=post_data.external_link,
             language=post_data.language,
