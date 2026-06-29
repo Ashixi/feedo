@@ -1882,18 +1882,18 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
                 (Post.author_address == text)
             )
             
-        stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
+        subq = select(func.max(Post.id)).where(
             (Post.item_type == "profile") & cond
-        ).limit(limit).offset(offset)
+        ).group_by(Post.author_address).scalar_subquery()
+        
+        stmt = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
+            Post.id.in_(subq)
+        ).order_by(desc(Post.sequence_number)).limit(limit).offset(offset)
         posts_raw = (await db.execute(stmt)).scalars().all()
         
-        # Deduplicate
-        posts = []
-        seen_pubkeys = set()
-        for p in posts_raw:
-            if p.author_address not in seen_pubkeys:
-                seen_pubkeys.add(p.author_address)
-                posts.append(p)
+        # Already deduplicated by SQL
+        posts = list(posts_raw)
+        seen_pubkeys = {p.author_address for p in posts}
                 
         # NIP-50 Fallback if < 5 results
         if text and len(posts) < 5:
