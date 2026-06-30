@@ -129,10 +129,10 @@ async def resolve_event(request):
     
     async def _fetch(url):
         try:
-            async with websockets.connect(url, open_timeout=2.0) as ws:
+            async with websockets.connect(url, open_timeout=1.5) as ws:
                 await ws.send(msg)
                 while True:
-                    resp = await asyncio.wait_for(ws.recv(), timeout=3.0)
+                    resp = await asyncio.wait_for(ws.recv(), timeout=2.0)
                     resp_data = json.loads(resp)
                     if isinstance(resp_data, list) and len(resp_data) >= 3:
                         if resp_data[0] == "EVENT":
@@ -144,18 +144,54 @@ async def resolve_event(request):
         return None
 
     from nostr_source import NostrSource
-    target_relays = NostrSource.SEED_RELAYS
+    seed_tasks = [asyncio.create_task(_fetch(r)) for r in NostrSource.SEED_RELAYS]
     
-    tasks = [asyncio.create_task(_fetch(r)) for r in target_relays]
-    
-    for coro in asyncio.as_completed(tasks):
+    for coro in asyncio.as_completed(seed_tasks):
         r = await coro
         if r:
-            # cancel remaining tasks
-            for t in tasks:
+            for t in seed_tasks:
                 t.cancel()
             return web.json_response(r)
             
+    import aiohttp
+    import time
+    all_relays = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.nostr.watch/v1/online", timeout=2.0) as resp:
+                if resp.status == 200:
+                    all_relays = await resp.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch online relays: {e}")
+
+    if all_relays:
+        import random
+        other_relays = [r for r in all_relays if r not in NostrSource.SEED_RELAYS]
+        random.shuffle(other_relays)
+        
+        start_time = time.time()
+        batch_size = 150
+        
+        for i in range(0, len(other_relays), batch_size):
+            if time.time() - start_time > 7.0:
+                break
+                
+            batch = other_relays[i:i+batch_size]
+            batch_tasks = [asyncio.create_task(_fetch(r)) for r in batch]
+            
+            try:
+                for coro in asyncio.as_completed(batch_tasks, timeout=2.0):
+                    res = await coro
+                    if res:
+                        for t in batch_tasks:
+                            t.cancel()
+                        return web.json_response(res)
+            except asyncio.TimeoutError:
+                pass
+            finally:
+                for t in batch_tasks:
+                    t.cancel()
+
     return web.json_response({"error": "Event not found on relays"}, status=404)
 
 async def start_http_server():
