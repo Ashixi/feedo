@@ -36,7 +36,7 @@ class FeedService:
                         "limit": lim,
                         "source_types": ["native", "rss", "p2p_relay", "nostr"],
                         "item_type": item_type
-                    }, timeout=10.0)
+                    }, timeout=1.5)
                     if res.status_code == 200:
                         data = res.json()
                         return data.get("results", [])
@@ -45,93 +45,159 @@ class FeedService:
             return []
 
         # If user has preferred_tags, trigger intelligent PRF logic per tag + 30% trending
+        from models import Post, UserFeedCache
         scored_posts_p2p = []
-        if user and user.preferred_tags:
-            # First determine target languages
-            target_langs = []
-            if user.preferred_languages:
-                target_langs.extend([l.lower() for l in user.preferred_languages])
-            if language and language != "all":
-                target_langs.append(language.lower())
-                
-            num_tags = len(user.preferred_tags)
-            limit_70 = max(1, int(limit * 0.7))
-            tag_limit = max(2, limit_70 // num_tags)
-            tag_offset = offset // num_tags
+        
+        # Determine if we can use a vector search (either user tags or system default vector)
+        is_text_search = bool(text and text.strip())
+        has_user_tags = user and user.preferred_tags
+        has_default_vector = getattr(brain, "default_vector", None) is not None
+        
+        if is_text_search or has_user_tags or has_default_vector:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             
-            all_rel_hash_ids = []
-            seen_vectors = []
-            
-            # 1. Fetch 70% semantic posts using Pseudo-Relevance Feedback for EACH tag
-            for tag in user.preferred_tags:
+            # Helper to compute the full feed
+            async def compute_feed():
                 try:
-                    # Get embedding for the tag
-                    vector = await brain.get_embedding_async(tag)
+                    user_vector = None
+                    if is_text_search:
+                        user_vector = await brain.get_embedding_async(text.strip())
+                    elif has_user_tags:
+                        user_vector = user.user_vector
+                        if not user_vector:
+                            vectors = []
+                            for tag in user.preferred_tags:
+                                vec = await brain.get_embedding_async(tag)
+                                if vec: vectors.append(vec)
+                            if vectors:
+                                user_vector = [sum(x) / len(vectors) for x in zip(*vectors)]
+                                user.user_vector = user_vector
+                                user.last_vector_updated_at = now
+                                await db.commit()
+                    else:
+                        user_vector = brain.default_vector
+                        
+                    if not user_vector: return []
                     
                     # Pseudo-Relevance Feedback (PRF)
-                    pr_results = brain.table.search(vector).limit(3).to_list()
+                    pr_results = brain.table.search(user_vector).limit(5).to_list()
                     pr_vectors = [r["vector"] for r in pr_results if "vector" in r]
                     if pr_vectors:
-                        # Average vectors
-                        avg_retrieved = [sum(v[i] for v in pr_vectors) / len(pr_vectors) for i in range(len(vector))]
-                        vector = [0.6 * vector[i] + 0.4 * avg_retrieved[i] for i in range(len(vector))]
+                        avg_retrieved = [sum(v[i] for v in pr_vectors) / len(pr_vectors) for i in range(len(user_vector))]
+                        user_vector = [0.7 * user_vector[i] + 0.3 * avg_retrieved[i] for i in range(len(user_vector))]
                         
-                    # Main search
-                    search_query = brain.table.search(vector)
+                    search_query = brain.table.search(user_vector)
                     
+                    target_langs = []
+                    if user and user.preferred_languages:
+                        target_langs.extend([l.lower() for l in user.preferred_languages])
+                    if language and language != "all":
+                        target_langs.append(language.lower())
+                        
                     if target_langs:
-                        # Allow target languages plus 'un' (unknown) and 'uk' (default fallback)
                         allowed_langs = set(target_langs)
                         allowed_langs.update(['un', 'uk'])
                         langs_str = ", ".join([f"'{l}'" for l in allowed_langs])
                         search_query = search_query.where(f"language IN ({langs_str})")
                         
-                    # Paginate per tag
-                    raw_results = search_query.limit(tag_limit + tag_offset).to_list()[tag_offset:]
+                    # Fetch top 1000 for cache to ensure we have enough diversity if one author dominates
+                    fetch_limit = 1000 if (not language or language == "all") and source_type == "main" else max(250, limit + offset)
+                    raw_results = search_query.limit(fetch_limit).to_list()
+                    
+                    seen_hash_ids = set()
+                    all_rel_hash_ids = []
                     
                     for r in raw_results:
-                        if "hash_id" in r and r.get("_distance", 0) < 1.6:
-                            vec = r.get("vector")
-                            is_dup = False
-                            if vec:
-                                norm_vec = sum(v * v for v in vec) ** 0.5
-                                if norm_vec > 0:
-                                    for s_vec in seen_vectors:
-                                        dot = sum(a * b for a, b in zip(vec, s_vec))
-                                        norm_s = sum(v * v for v in s_vec) ** 0.5
-                                        if norm_s > 0:
-                                            cos_sim = dot / (norm_vec * norm_s)
-                                            if cos_sim > 0.95:
-                                                is_dup = True
-                                                break
-                            if not is_dup:
-                                if vec:
-                                    seen_vectors.append(vec)
-                                if r["hash_id"] not in all_rel_hash_ids:
-                                    all_rel_hash_ids.append(r["hash_id"])
-                except Exception as e:
-                    logger.error(f"Error in PRF search for tag '{tag}': {e}")
+                        if "hash_id" in r:
+                            hid = r["hash_id"]
+                            if hid not in seen_hash_ids:
+                                seen_hash_ids.add(hid)
+                                all_rel_hash_ids.append((r.get("_distance", 1.0), hid))
+                                
+                    # Add trending (only for main feed)
+                    if source_type == "main":
+                        try:
+                            trending_results = await fetch_p2p("feed_trending", "", 50)
+                            for r in trending_results:
+                                hid = r.get("hash_id")
+                                if hid and hid not in seen_hash_ids:
+                                    seen_hash_ids.add(hid)
+                                    all_rel_hash_ids.append((2.0, hid)) # Trending appended at end
+                        except Exception as e:
+                            logger.error(f"Error fetching trending: {e}")
+                            
+                    all_rel_hash_ids.sort(key=lambda x: x[0])
+                    sorted_hashes = [x[1] for x in all_rel_hash_ids]
                     
-            # 2. Fetch 30% trending posts via P2P (only on first page or adjust offset)
-            limit_30 = limit - limit_70
-            trending_offset = int((offset / limit) * limit_30) if limit > 0 else 0
-            
-            try:
-                trending_results = await fetch_p2p("feed_trending", "", limit_30 + trending_offset)
-                trending_results = trending_results[trending_offset:]
-                for r in trending_results:
-                    hid = r.get("hash_id")
-                    if hid and hid not in all_rel_hash_ids:
-                        all_rel_hash_ids.append(hid)
-            except Exception as e:
-                logger.error(f"Error fetching trending posts: {e}")
+                    if not sorted_hashes:
+                        return []
+                        
+                    # Fetch author addresses to enforce diversity
+                    fetch_stmt = select(Post.hash_id, Post.author_address).where(Post.hash_id.in_(sorted_hashes))
+                    res = await db.execute(fetch_stmt)
+                    author_map = {row.hash_id: row.author_address for row in res}
+                    
+                    diversified = []
+                    backlog = []
+                    recent_authors = [] # Sliding window of last 3 authors
+                    author_counts = {}
+                    
+                    for hid in sorted_hashes:
+                        if len(diversified) >= 250:
+                            break
+                            
+                        author = author_map.get(hid)
+                        if author:
+                            count = author_counts.get(author, 0)
+                            if count >= 4:
+                                # Hard cap: absolute maximum 4 posts per author in the ENTIRE feed
+                                continue
+                                
+                            author_counts[author] = count + 1
+                            
+                            # Max 1 post per author in any window of 3 posts
+                            if recent_authors.count(author) >= 1:
+                                backlog.append(hid)
+                            else:
+                                diversified.append(hid)
+                                recent_authors.append(author)
+                                if len(recent_authors) > 3:
+                                    recent_authors.pop(0)
+                        else:
+                            diversified.append(hid)
+                                
+                    # Append backlog at the end, but limit to 250 max
+                    final_feed = diversified + backlog
+                    return final_feed[:250]
+                except Exception as e:
+                    logger.error(f"Error computing feed: {e}")
+                    return []
+ 
+            # Cache logic (only for main feed without specific language filters for registered users)
+            if user and (not language or language == "all") and source_type == "main":
+                cache = (await db.execute(select(UserFeedCache).where(UserFeedCache.wallet_address == user.wallet_address))).scalar_one_or_none()
+                needs_update = False
                 
-            if all_rel_hash_ids:
-                # Optionally shuffle to mix topics nicely
-                import random
-                random.shuffle(all_rel_hash_ids)
+                if not cache:
+                    cache = UserFeedCache(wallet_address=user.wallet_address, feed_hash_ids=[])
+                    db.add(cache)
+                    needs_update = True
+                elif (now - cache.updated_at).total_seconds() > 600:
+                    needs_update = True
+                    
+                if needs_update and offset == 0:
+                    cache.feed_hash_ids = await compute_feed()
+                    cache.updated_at = now
+                    await db.commit()
                 
-                fetch_stmt = select(Post).where(Post.hash_id.in_(all_rel_hash_ids), Post.item_type == 'post').options(
+                sorted_hash_ids = cache.feed_hash_ids[offset:offset+limit] if cache.feed_hash_ids else []
+            else:
+                # Bypass cache for filtered requests or anonymous users, just compute and slice immediately
+                full_list = await compute_feed()
+                sorted_hash_ids = full_list[offset:offset+limit] if full_list else []
+                
+            if sorted_hash_ids:
+                fetch_stmt = select(Post).where(Post.hash_id.in_(sorted_hash_ids), Post.item_type == 'post').options(
                     selectinload(Post.author),
                     selectinload(Post.duplicates).selectinload(Post.author)
                 )
@@ -139,9 +205,7 @@ class FeedService:
                 posts = result.scalars().all()
                 
                 post_map = {p.hash_id: p for p in posts}
-                scored_posts_p2p = [ (1.0, post_map[hid]) for hid in all_rel_hash_ids if hid in post_map ]
-
-        if scored_posts_p2p:
+                scored_posts_p2p = [ (1.0, post_map[hid]) for hid in sorted_hash_ids if hid in post_map ]
             return scored_posts_p2p, [], [], []
 
         # Fallback to standard local chronological logic
