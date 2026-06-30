@@ -143,12 +143,17 @@ async def resolve_event(request):
             pass
         return None
 
-    import random
-    target_relays = random.sample(GLOBAL_RELAYS, min(3, len(GLOBAL_RELAYS)))
-    results = await asyncio.gather(*[_fetch(r) for r in target_relays])
+    from nostr_source import NostrSource
+    target_relays = NostrSource.SEED_RELAYS
     
-    for r in results:
+    tasks = [asyncio.create_task(_fetch(r)) for r in target_relays]
+    
+    for coro in asyncio.as_completed(tasks):
+        r = await coro
         if r:
+            # cancel remaining tasks
+            for t in tasks:
+                t.cancel()
             return web.json_response(r)
             
     return web.json_response({"error": "Event not found on relays"}, status=404)
