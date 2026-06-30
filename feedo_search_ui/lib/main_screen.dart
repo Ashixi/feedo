@@ -67,19 +67,19 @@ class _MainScreenState extends State<MainScreen> {
       height: 70,
       padding: const EdgeInsets.symmetric(horizontal: 32),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15), width: 1)),
+        color: Colors.transparent,
+        border: Border(bottom: BorderSide(color: Colors.transparent.withOpacity(0.05), width: 1)),
       ),
       child: Row(
         children: [
-          const Text('Feedo', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: Colors.black87)),
+          const Text('Feedo', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: Colors.white)),
           const Spacer(),
           // Global Search Bar RESTORED logic
           Container(
             width: 450,
             height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: Colors.transparent.withOpacity(0.05),
               borderRadius: BorderRadius.circular(22),
             ),
             child: TextField(
@@ -93,8 +93,8 @@ class _MainScreenState extends State<MainScreen> {
               },
               decoration: InputDecoration(
                 hintText: 'Search the network...',
-                hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
-                prefixIcon: Icon(Icons.search_rounded, size: 22, color: Colors.grey.shade600),
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+                prefixIcon: Icon(Icons.search_rounded, size: 22, color: Colors.grey.shade400),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 12),
               ),
@@ -102,9 +102,9 @@ class _MainScreenState extends State<MainScreen> {
           ),
           const Spacer(),
           // Right Side Actions
-          const SizedBox(width: 16),
-          const CircleAvatar(
-            backgroundColor: Color(0xFFF3F4F6),
+          SizedBox(width: 16),
+          CircleAvatar(
+            backgroundColor: Colors.white.withOpacity(0.05),
             radius: 20,
             child: Icon(Icons.person, color: Colors.grey),
           ),
@@ -115,7 +115,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildDesktopLayout() {
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
+      backgroundColor: const Color(0xFF0F172A),
       body: Column(
         children: [
           _buildTopBar(),
@@ -133,11 +133,11 @@ class _MainScreenState extends State<MainScreen> {
                       _buildNavItem(Icons.home_filled, Icons.home_outlined, 'For you', 0),
                       _buildNavItem(Icons.chat_bubble_rounded, Icons.chat_bubble_outline, 'Chats', 2),
                       _buildNavItem(Icons.person_rounded, Icons.person_outline, 'Profile', 3),
-                      const SizedBox(height: 32),
+                      SizedBox(height: 32),
                       ElevatedButton(
                         onPressed: () => _openCompose(),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black87,
+                          backgroundColor: const Color(0xFF6366F1),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           elevation: 0,
@@ -154,11 +154,11 @@ class _MainScreenState extends State<MainScreen> {
                   width: 650,
                   margin: const EdgeInsets.only(top: 24, bottom: 24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
+                    border: Border.all(color: Colors.transparent.withOpacity(0.08), width: 1),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+                      BoxShadow(color: Colors.transparent.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4)),
                     ],
                   ),
                   child: ClipRRect(
@@ -175,7 +175,7 @@ class _MainScreenState extends State<MainScreen> {
                   width: 320,
                   child: Padding(
                     padding: const EdgeInsets.only(top: 24, left: 24, right: 16),
-                    child: _currentIndex == 0 ? _buildFiltersPanel() : const SizedBox(),
+                    child: _currentIndex == 0 ? _buildFiltersPanel() : SizedBox(),
                   ),
                 ),
               ],
@@ -188,7 +188,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildTabletLayout() {
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
+      backgroundColor: const Color(0xFF0F172A),
       body: Column(
         children: [
           _buildTopBar(),
@@ -200,7 +200,7 @@ class _MainScreenState extends State<MainScreen> {
                   color: Colors.transparent,
                   child: Column(
                     children: [
-                      const SizedBox(height: 24),
+                      SizedBox(height: 24),
                       _buildIconNavItem(Icons.home_filled, Icons.home_outlined, 0),
                       _buildIconNavItem(Icons.chat_bubble_rounded, Icons.chat_bubble_outline, 2),
                       _buildIconNavItem(Icons.person_rounded, Icons.person_outline, 3),
@@ -211,9 +211,9 @@ class _MainScreenState extends State<MainScreen> {
                   child: Container(
                     margin: const EdgeInsets.only(top: 24, bottom: 24, right: 24),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
+                      border: Border.all(color: Colors.transparent.withOpacity(0.08), width: 1),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(24),
@@ -234,12 +234,12 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildMobileLayout() {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
-        title: Text(['For you', 'Explore', 'Chats', 'Profile'][_currentIndex], style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: Text(['For you', 'Explore', 'Chats', 'Profile'][_currentIndex], style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
-        foregroundColor: Colors.black,
+        foregroundColor: Colors.white,
       ),
       body: IndexedStack(
         index: _currentIndex,
@@ -253,7 +253,7 @@ class _MainScreenState extends State<MainScreen> {
         unselectedItemColor: Colors.grey.shade400,
         showSelectedLabels: false,
         showUnselectedLabels: false,
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFF0F172A),
         elevation: 10,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home_filled), label: 'Home'),
@@ -264,9 +264,9 @@ class _MainScreenState extends State<MainScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openCompose(),
-        backgroundColor: Colors.black87,
+        backgroundColor: const Color(0xFF6366F1),
         elevation: 2,
-        child: const Icon(Icons.add, color: Colors.white),
+        child: Icon(Icons.add, color: Colors.white),
       ),
     );
   }
@@ -281,12 +281,12 @@ class _MainScreenState extends State<MainScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(isSelected ? activeIcon : inactiveIcon, size: 26, color: isSelected ? Colors.black87 : Colors.grey.shade600),
-            const SizedBox(width: 16),
+            Icon(isSelected ? activeIcon : inactiveIcon, size: 26, color: isSelected ? Colors.white : Colors.grey.shade600),
+            SizedBox(width: 16),
             Text(title, style: TextStyle(
               fontSize: 17, 
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              color: isSelected ? Colors.black87 : Colors.grey.shade700,
+              color: isSelected ? Colors.white : Colors.grey.shade700,
             )),
           ],
         ),
@@ -302,7 +302,7 @@ class _MainScreenState extends State<MainScreen> {
       hoverColor: Colors.black.withOpacity(0.04),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        child: Icon(isSelected ? activeIcon : inactiveIcon, size: 28, color: isSelected ? Colors.black87 : Colors.grey.shade600),
+        child: Icon(isSelected ? activeIcon : inactiveIcon, size: 28, color: isSelected ? Colors.white : Colors.grey.shade600),
       ),
     );
   }
@@ -316,10 +316,10 @@ class _MainScreenState extends State<MainScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.black87,
+            colorScheme: ColorScheme.dark(
+              primary: const Color(0xFF6366F1),
               onPrimary: Colors.white,
-              onSurface: Colors.black87,
+              onSurface: Colors.white,
             ),
           ),
           child: child!,
@@ -337,31 +337,31 @@ class _MainScreenState extends State<MainScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Search Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87)),
-        const SizedBox(height: 16),
+        const Text('Search Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+        SizedBox(height: 16),
         // Keywords Filter
         TextField(
           controller: _keywordController,
           decoration: InputDecoration(
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Colors.white.withOpacity(0.05),
             hintText: 'Keywords / Phrases',
-            prefixIcon: Icon(Icons.filter_alt, size: 18, color: Colors.grey.shade600),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            prefixIcon: Icon(Icons.filter_alt, size: 18, color: Colors.grey.shade400),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.transparent.withOpacity(0.1))),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.transparent.withOpacity(0.1))),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           ),
           onSubmitted: (_) => _applyFilters(),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         // Language Filter
         DropdownButtonFormField<String>(
           value: _selectedLanguage,
           decoration: InputDecoration(
             filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            fillColor: Colors.white.withOpacity(0.05),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.transparent.withOpacity(0.1))),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.transparent.withOpacity(0.1))),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           ),
           items: const [
@@ -373,7 +373,7 @@ class _MainScreenState extends State<MainScreen> {
             if (val != null) setState(() => _selectedLanguage = val);
           },
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         // Date Filter
         InkWell(
           onTap: () => _selectDate(context),
@@ -381,23 +381,23 @@ class _MainScreenState extends State<MainScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: Colors.transparent.withOpacity(0.1)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   _selectedSince == null ? 'Any time' : 'Since: ${DateFormat("MMM d, yyyy").format(_selectedSince!)}',
-                  style: const TextStyle(fontSize: 15),
+                  style: TextStyle(fontSize: 15),
                 ),
-                Icon(Icons.calendar_today, size: 18, color: Colors.grey.shade600),
+                Icon(Icons.calendar_today, size: 18, color: Colors.grey.shade400),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         // Clear Date Button if date is selected
         if (_selectedSince != null)
           Align(
@@ -408,14 +408,14 @@ class _MainScreenState extends State<MainScreen> {
               child: const Text('Clear Date'),
             ),
           ),
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
           height: 48,
           child: ElevatedButton(
             onPressed: _applyFilters,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black87,
+              backgroundColor: const Color(0xFF6366F1),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               elevation: 0,

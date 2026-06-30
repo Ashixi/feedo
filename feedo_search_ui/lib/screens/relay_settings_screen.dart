@@ -48,7 +48,7 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text('Manage Relays', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -60,21 +60,21 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
             children: [
               const Text(
                 'Nostr Relays',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 'These are the servers where your profile data and posts will be published.',
                 style: TextStyle(color: Colors.grey[600], fontSize: 14),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               
               Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _relayController,
-                      style: const TextStyle(color: Colors.black87),
+                      style: TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'wss://relay.example.com',
                         hintStyle: TextStyle(color: Colors.grey[400]),
@@ -88,11 +88,11 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   ElevatedButton(
                     onPressed: _addRelay,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black87,
+                      backgroundColor: Colors.white,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -102,7 +102,7 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                 ],
               ),
               
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               
               Expanded(
                 child: _isLoading
@@ -122,10 +122,10 @@ class _RelaySettingsScreenState extends State<RelaySettingsScreen> {
                               color: Colors.transparent,
                               borderRadius: BorderRadius.circular(12),
                               child: ListTile(
-                                leading: const Icon(Icons.storage, color: Colors.black54),
-                                title: Text(relay, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                leading: Icon(Icons.storage, color: Colors.grey.shade400),
+                                title: Text(relay, style: TextStyle(fontWeight: FontWeight.w500)),
                                 trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                  icon: Icon(Icons.delete_outline, color: Colors.redAccent),
                                   onPressed: () => _removeRelay(relay),
                                 ),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

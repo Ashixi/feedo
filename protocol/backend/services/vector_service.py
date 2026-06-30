@@ -82,6 +82,31 @@ class VectorBrain:
         
         # Tracking for event-based updates
         self.last_cluster_post_count = 0
+        self.default_vector = None
+
+    async def update_default_vector(self):
+        def run_query():
+            try:
+                # Query top 100 vectors directly from LanceDB table
+                return self.table.search().limit(100).to_list()
+            except Exception as e:
+                print(f"Error querying LanceDB for default vector: {e}")
+                return []
+                
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(self.executor, run_query)
+        
+        vectors = [r["vector"] for r in results if "vector" in r and r["vector"] is not None]
+        if vectors:
+            dim = len(vectors[0])
+            avg_vec = []
+            for i in range(dim):
+                col_sum = sum(v[i] for v in vectors)
+                avg_vec.append(col_sum / len(vectors))
+            self.default_vector = avg_vec
+            print(f"Calculated default vector of length {len(avg_vec)} from {len(vectors)} posts.")
+        else:
+            print("No vectors found in LanceDB to calculate default vector.")
 
     def _cache_emb_set(self, text: str, vec: list[float]):
         self.emb_cache[text] = vec

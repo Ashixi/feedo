@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'utils/feed_filter_config.dart';
 import 'post_card.dart';
@@ -8,6 +9,11 @@ import 'services/auth_service.dart';
 import 'nostr_resolver.dart';
 import 'feed_layout.dart';
 import 'utils/constants.dart';
+import 'package:shimmer/shimmer.dart';
+
+List<dynamic> _parseJsonList(String jsonStr) {
+  return jsonDecode(jsonStr) as List<dynamic>;
+}
 
 class FeedTab extends StatefulWidget {
   const FeedTab({super.key});
@@ -18,6 +24,12 @@ class FeedTab extends StatefulWidget {
 
 class _FeedTabState extends State<FeedTab> {
   List<dynamic> _posts = [];
+  final List<dynamic> _prefetchBuffer = [];
+  final Set<String> _seenPostIds = {};
+  bool _isPrefetching = false;
+  static const int _maxBufferSize = 500;
+  static const int _chunkSize = 20;
+
   int _fetchedCount = 0;
   bool _isLoading = false;
   bool _isLoadingMore = false;
@@ -38,7 +50,7 @@ class _FeedTabState extends State<FeedTab> {
     globalFeedFilter.addListener(_onFilterChanged);
 
     _scrollController.addListener(() {
-      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 2500) {
         _loadMoreFeed();
       }
     });
@@ -64,7 +76,6 @@ class _FeedTabState extends State<FeedTab> {
     if (filter.language != 'all') url += '&language=${filter.language}';
     if (filter.since != null) url += '&since=${filter.since!.millisecondsSinceEpoch ~/ 1000}';
     if (_walletAddress != null) url += '&wallet_address=$_walletAddress';
-    // _oldestTimestamp is handled separately
     return url;
   }
 
@@ -73,119 +84,89 @@ class _FeedTabState extends State<FeedTab> {
       _isLoading = true;
       _errorMessage = null;
       _posts = [];
+      _prefetchBuffer.clear();
+      _seenPostIds.clear();
       _fetchedCount = 0;
       _hasMore = true;
       _oldestTimestamp = null;
     });
 
-    try {
-      final String apiUrl = Constants.apiUrl;
-      
-      int newlyAdded = 0;
-      int maxLoops = 5;
+    await _fillBuffer(initialLoad: true);
 
-      while (newlyAdded < 10 && maxLoops > 0) {
-        maxLoops--;
-        String urlStr = '$apiUrl/feed?limit=50&source_type=nostr&offset=$_fetchedCount';
-            
-        urlStr = _buildUrl(urlStr);
-        final url = Uri.parse(urlStr);
-        final response = await http.get(url).timeout(const Duration(seconds: 45));
-
-        if (response.statusCode == 200) {
-          final List<dynamic> data = json.decode(response.body);
-          if (data.isEmpty) {
-            _hasMore = false;
-            break;
-          }
-          
-          _oldestTimestamp = data.last['published_at'] ?? _oldestTimestamp;
-          _fetchedCount += data.length;
-          
-          final filter = globalFeedFilter.value;
-          
-          // Always await NostrResolver to fully resolve posts before adding them to the feed
-          await NostrResolver.resolve(data);
-          
-          List<dynamic> validPosts = [];
-          for (var item in data) {
-            String t = item['text'] ?? item['content'] ?? '';
-            bool hasMedia = item['media'] != null && item['media'].isNotEmpty;
-            
-            // Hide empty posts that failed to load from relays (or are intrinsically empty)
-            if (item['item_type'] != 'profile' && t.trim().isEmpty && !hasMedia) {
-              continue;
-            }
-            if (filter.language != 'all') {
-               String lang = item['language'] ?? item['metadata']?['language'] ?? '';
-               if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
-            }
-            
-            if (filter.since != null && item['published_at'] != null) {
-               try {
-                 DateTime pubDate = DateTime.parse(item['published_at']);
-                 if (pubDate.isBefore(filter.since!)) continue;
-               } catch(_) {}
-            }
-            
-            if (filter.until != null && item['published_at'] != null) {
-               try {
-                 DateTime pubDate = DateTime.parse(item['published_at']);
-                 if (pubDate.isAfter(filter.until!.add(const Duration(days: 1)))) continue;
-               } catch(_) {}
-            }
-            
-            validPosts.add(item);
-          }
-          
-          newlyAdded += validPosts.length;
-          setState(() {
-            _posts.addAll(validPosts);
-          });
-        } else {
-          setState(() {
-            if (_posts.isEmpty) _errorMessage = 'Failed to load feed: ${response.statusCode}';
-          });
-          break;
-        }
-      }
-    } catch (e, stack) {
-      print('Exception in _fetchFeed: $e');
-      print(stack);
+    if (mounted) {
       setState(() {
-        if (_posts.isEmpty) _errorMessage = 'Error connecting to Feedo Network: $e';
+        _isLoading = false;
+        if (_prefetchBuffer.isNotEmpty) {
+          int takeCount = _prefetchBuffer.length < _chunkSize ? _prefetchBuffer.length : _chunkSize;
+          _posts.addAll(_prefetchBuffer.sublist(0, takeCount));
+          _prefetchBuffer.removeRange(0, takeCount);
+        } else if (_errorMessage == null) {
+          _hasMore = false;
+        }
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      // Start background fetch to fill up to 500
+      _fillBuffer();
     }
   }
 
   Future<void> _loadMoreFeed() async {
     if (_isLoadingMore || _isLoading || !_hasMore) return;
+    
+    if (_prefetchBuffer.isNotEmpty) {
+      // Instantly load from buffer
+      setState(() {
+        int takeCount = _prefetchBuffer.length < _chunkSize ? _prefetchBuffer.length : _chunkSize;
+        _posts.addAll(_prefetchBuffer.sublist(0, takeCount));
+        _prefetchBuffer.removeRange(0, takeCount);
+      });
+      // Replenish buffer if it gets low
+      if (_prefetchBuffer.length < 100) {
+        _fillBuffer();
+      }
+      return;
+    }
+
+    // Buffer is empty, we must wait for network
     setState(() {
       _isLoadingMore = true;
     });
 
+    await _fillBuffer();
+
+    if (mounted) {
+      setState(() {
+        _isLoadingMore = false;
+        if (_prefetchBuffer.isNotEmpty) {
+          int takeCount = _prefetchBuffer.length < _chunkSize ? _prefetchBuffer.length : _chunkSize;
+          _posts.addAll(_prefetchBuffer.sublist(0, takeCount));
+          _prefetchBuffer.removeRange(0, takeCount);
+        }
+      });
+    }
+  }
+
+  Future<void> _fillBuffer({bool initialLoad = false}) async {
+    if (_isPrefetching || !_hasMore) return;
+    _isPrefetching = true;
+
     try {
       final String apiUrl = Constants.apiUrl;
       
-      int newlyAdded = 0;
-      int maxLoops = 5;
-
-      while (newlyAdded < 5 && maxLoops > 0) {
-        maxLoops--;
-        String urlStr = '$apiUrl/feed?limit=50&source_type=nostr&offset=$_fetchedCount';
+      int loops = 0;
+      // Fetch until we have enough in buffer or run out of data
+      while (_prefetchBuffer.length < _maxBufferSize && _hasMore && loops < 5) {
+        loops++;
+        int fetchLimit = 50; // Fetch larger chunks for background
+        String urlStr = '$apiUrl/feed?limit=$fetchLimit&source_type=nostr&offset=$_fetchedCount';
             
         urlStr = _buildUrl(urlStr);
         final url = Uri.parse(urlStr);
         final response = await http.get(url).timeout(const Duration(seconds: 45));
 
         if (response.statusCode == 200) {
-          final List<dynamic> data = json.decode(response.body);
+          // Use isolate for parsing large JSON
+          final List<dynamic> data = await compute(_parseJsonList, response.body);
+          
           if (data.isEmpty) {
             _hasMore = false;
             break;
@@ -196,18 +177,12 @@ class _FeedTabState extends State<FeedTab> {
           
           final filter = globalFeedFilter.value;
           
-          // Always await NostrResolver to fully resolve posts before adding them to the feed
-          await NostrResolver.resolve(data);
+          NostrResolver.resolve(data, onUpdate: () {
+            if (mounted) setState(() {});
+          });
           
           List<dynamic> validPosts = [];
           for (var item in data) {
-            String t = item['text'] ?? item['content'] ?? '';
-            bool hasMedia = item['media'] != null && item['media'].isNotEmpty;
-            
-            // Hide empty posts that failed to load from relays (or are intrinsically empty)
-            if (item['item_type'] != 'profile' && t.trim().isEmpty && !hasMedia) {
-              continue;
-            }
             if (filter.language != 'all') {
                String lang = item['language'] ?? item['metadata']?['language'] ?? '';
                if (lang.isNotEmpty && lang != filter.language && lang != 'un' && lang != 'uk') continue;
@@ -227,24 +202,33 @@ class _FeedTabState extends State<FeedTab> {
                } catch(_) {}
             }
             
-            validPosts.add(item);
+            String postId = item['id'].toString();
+            if (!_seenPostIds.contains(postId)) {
+              _seenPostIds.add(postId);
+              validPosts.add(item);
+            }
           }
           
-          newlyAdded += validPosts.length;
-          setState(() {
-            _posts.addAll(validPosts);
-          });
+          _prefetchBuffer.addAll(validPosts);
+          
+          // If we are doing the initial load, stop after one successful fetch to show UI quickly
+          if (initialLoad && validPosts.isNotEmpty) {
+             break;
+          }
         } else {
+          if (initialLoad) {
+             _errorMessage = 'Failed to load feed: ${response.statusCode}';
+          }
           break;
         }
       }
-    } catch (_) {
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingMore = false;
-        });
+    } catch (e, stack) {
+      print('Exception in _fillBuffer: $e');
+      if (initialLoad) {
+        _errorMessage = 'Error connecting to Feedo Network: $e';
       }
+    } finally {
+      _isPrefetching = false;
     }
   }
 
@@ -255,7 +239,12 @@ class _FeedTabState extends State<FeedTab> {
 
   Widget _buildBody() {
     if (_isLoading && _posts.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return FeedLayout(
+        child: ListView.builder(
+          itemCount: 5,
+          itemBuilder: (context, index) => _buildShimmerPost(),
+        )
+      );
     }
 
     if (_errorMessage != null && _posts.isEmpty) {
@@ -295,10 +284,7 @@ class _FeedTabState extends State<FeedTab> {
           itemBuilder: (context, index) {
             if (index == _posts.length) {
               if (_isLoadingMore) {
-                return const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Center(child: CircularProgressIndicator()),
-                );
+                return _buildShimmerPost();
               } else if (!_hasMore && _posts.isNotEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(32.0),
@@ -319,6 +305,61 @@ class _FeedTabState extends State<FeedTab> {
       ),
     );
   }
+
+  Widget _buildShimmerPost() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Shimmer.fromColors(
+        baseColor: Colors.white.withOpacity(0.05),
+        highlightColor: Colors.white.withOpacity(0.15),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 150,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    )
+                  ),
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
 }
-
-

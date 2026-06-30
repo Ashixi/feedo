@@ -12,6 +12,7 @@ class LinkifiedText extends StatelessWidget {
   final int? maxLines;
   final TextOverflow? overflow;
   final TextAlign textAlign;
+  final int depth;
 
   const LinkifiedText({
     super.key,
@@ -21,12 +22,13 @@ class LinkifiedText extends StatelessWidget {
     this.maxLines,
     this.overflow,
     this.textAlign = TextAlign.start,
+    this.depth = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    final defaultStyle = style ?? const TextStyle(color: Colors.black87, fontSize: 15);
-    final anchorStyle = linkStyle ?? TextStyle(color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline);
+    final defaultStyle = style ?? const TextStyle(color: Colors.white, fontSize: 15);
+    final anchorStyle = linkStyle ?? const TextStyle(color: Color(0xFF6366F1), decoration: TextDecoration.underline);
 
     // Regex for URLs and nostr links
     final urlRegex = RegExp(
@@ -85,7 +87,12 @@ class LinkifiedText extends StatelessWidget {
           if (eventData.eventId.isNotEmpty) {
             spans.add(const TextSpan(text: '\n'));
             spans.add(WidgetSpan(
-              child: QuotedEventCard(eventId: eventData.eventId),
+              child: QuotedEventCard(
+                eventId: eventData.eventId,
+                relays: eventData.relays,
+                author: eventData.author,
+                depth: depth + 1,
+              ),
             ));
             spans.add(const TextSpan(text: '\n'));
           } else {

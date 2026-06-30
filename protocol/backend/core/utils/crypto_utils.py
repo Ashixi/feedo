@@ -57,7 +57,11 @@ def verify_nostr_signature(pubkey_hex: str, message_or_hash: str, signature_hex:
         # Nostr pubkeys are 32-byte x-only. Try PublicKeyXOnly first (newer coincurve)
         if hasattr(coincurve, 'PublicKeyXOnly'):
             pk = coincurve.PublicKeyXOnly(bytes.fromhex(pubkey_hex))
-            return pk.schnorr_verify(bytes.fromhex(signature_hex), msg_hash)
+            if hasattr(pk, 'verify'):
+                return pk.verify(bytes.fromhex(signature_hex), msg_hash)
+            elif hasattr(pk, 'schnorr_verify'):
+                return pk.schnorr_verify(bytes.fromhex(signature_hex), msg_hash)
+            return False
         else:
             # Fallback for older coincurve versions
             pk = coincurve.PublicKey(bytes.fromhex('02' + pubkey_hex))

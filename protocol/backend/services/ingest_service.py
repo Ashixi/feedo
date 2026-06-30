@@ -152,18 +152,18 @@ class IngestService:
             stmt_metrics = select(PostMetrics).where(PostMetrics.hash_id == target_id)
             metrics = (await db.execute(stmt_metrics)).scalars().first()
             if not metrics:
-                metrics = PostMetrics(hash_id=target_id)
+                metrics = PostMetrics(hash_id=target_id, likes=0, reposts=0, zaps=0, comments=0)
                 db.add(metrics)
                 
             if kind == 7:
                 meta['likes'] = meta.get('likes', 0) + 1
-                metrics.likes += 1
+                metrics.likes = (metrics.likes or 0) + 1
             elif kind == 6:
                 meta['reposts'] = meta.get('reposts', 0) + 1
-                metrics.reposts += 1
+                metrics.reposts = (metrics.reposts or 0) + 1
             elif kind == 9735:
                 meta['tips'] = meta.get('tips', 0) + 1
-                metrics.zaps += 1
+                metrics.zaps = (metrics.zaps or 0) + 1
                 
             target_post.metadata_ = meta
             db.add(target_post)

@@ -1,4 +1,4 @@
-﻿import 'chat_screen.dart';
+import 'chat_screen.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -254,7 +254,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         actions: [
           IconButton(
             icon: _isFollowingLoading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               : Icon(_hasFollowed ? Icons.person_remove : Icons.person_add),
             onPressed: _isFollowingLoading ? null : _handleFollow,
           )
@@ -270,7 +270,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             
             if (_posts.isEmpty) {
               if (_isLoading) {
-                return const Padding(
+                return Padding(
                   padding: EdgeInsets.all(32.0),
                   child: Center(child: CircularProgressIndicator()),
                 );
@@ -286,12 +286,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             
             if (index == _posts.length + 2) {
               if (_isLoadingMore) {
-                return const Padding(
+                return Padding(
                   padding: EdgeInsets.all(16.0),
                   child: Center(child: CircularProgressIndicator()),
                 );
               } else {
-                return const SizedBox(height: 32);
+                return SizedBox(height: 32);
               }
             }
             
@@ -305,40 +305,40 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(16.0),
-      color: Colors.white,
+      color: Colors.transparent,
       child: Column(
         children: [
           CircleAvatar(
             radius: 40,
             backgroundImage: _avatar != null ? NetworkImage(_avatar!) : null,
-            child: _avatar == null ? const Icon(Icons.person, size: 40) : null,
+            child: _avatar == null ? Icon(Icons.person, size: 40) : null,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           Text(
             _name ?? 'Unknown User',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 4),
           Text(
             '@${widget.pubkey.length > 12 ? widget.pubkey.substring(0, 12) : widget.pubkey}...',
-            style: const TextStyle(color: Colors.grey),
+            style: TextStyle(color: Colors.grey),
           ),
           if (_about != null && _about!.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             LinkifiedText(
               text: _about!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14),
+              style: TextStyle(fontSize: 14),
             ),
           ],
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               ElevatedButton.icon(
                 onPressed: _isFollowingLoading ? null : _handleFollow,
                 icon: _isFollowingLoading 
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : Icon(_hasFollowed ? Icons.person_remove : Icons.person_add),
                 label: Text(_isFollowingLoading ? 'Updating...' : (_hasFollowed ? 'Unsubscribe' : 'Subscribe')),
                 style: ElevatedButton.styleFrom(
@@ -347,7 +347,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -361,11 +361,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                   );
                 },
-                icon: const Icon(Icons.chat_bubble_outline),
+                icon: Icon(Icons.chat_bubble_outline),
                 label: const Text('Message'),
                 style: OutlinedButton.styleFrom(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  foregroundColor: Colors.black87,
+                  foregroundColor: Colors.white,
                 ),
               ),
             ],

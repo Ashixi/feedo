@@ -102,7 +102,7 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text('Feed Preferences', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -115,19 +115,19 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
               children: [
                 const Text(
                   'Customize Your Feed',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text(
                   'Help the algorithm suggest the best posts for you. These settings sync across all your devices.',
                   style: TextStyle(color: Colors.grey[600], fontSize: 14),
                 ),
                 
-                const SizedBox(height: 32),
+                SizedBox(height: 32),
                 
                 // --- Preferred Tags ---
                 const Text('Preferred Topics / Tags', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -141,7 +141,7 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
                     deleteIconColor: Colors.blue,
                   )).toList(),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: _tagController,
                   decoration: InputDecoration(
@@ -154,18 +154,18 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     suffixIcon: IconButton(
-                      icon: const Icon(Icons.add_circle, color: Colors.blue),
+                      icon: Icon(Icons.add_circle, color: Colors.blue),
                       onPressed: () => _addTag(_tagController.text),
                     ),
                   ),
                   onSubmitted: _addTag,
                 ),
 
-                const SizedBox(height: 32),
+                SizedBox(height: 32),
 
                 // --- Preferred Languages ---
                 const Text('Preferred Languages', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -179,7 +179,7 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
                     deleteIconColor: Colors.green,
                   )).toList(),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Autocomplete<String>(
                   optionsBuilder: (TextEditingValue textEditingValue) {
                     if (textEditingValue.text.isEmpty) {
@@ -215,7 +215,7 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         suffixIcon: IconButton(
-                          icon: const Icon(Icons.add_circle, color: Colors.green),
+                          icon: Icon(Icons.add_circle, color: Colors.green),
                           onPressed: () {
                             if (controller.text.isNotEmpty) {
                               _addLanguage(controller.text);
@@ -232,7 +232,7 @@ class _FeedPreferencesScreenState extends State<FeedPreferencesScreen> {
                   },
                 ),
                 
-                const SizedBox(height: 40),
+                SizedBox(height: 40),
                 if (_isSaving)
                    const Center(child: CircularProgressIndicator())
               ],

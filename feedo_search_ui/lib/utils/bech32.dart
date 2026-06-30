@@ -119,7 +119,7 @@ class Bech32 {
     return (pubkey: '', relays: []);
   }
 
-  static ({String eventId, List<String> relays}) decodeEvent(String bech32Str) {
+  static ({String eventId, List<String> relays, String author}) decodeEvent(String bech32Str) {
     if (bech32Str.startsWith('nostr:')) {
       bech32Str = bech32Str.substring(6);
     }
@@ -130,6 +130,7 @@ class Bech32 {
       if (bech32Str.startsWith('nevent')) {
         String eventId = '';
         List<String> relays = [];
+        String author = '';
         int i = 0;
         while (i < bytes.length) {
             int t = bytes[i];
@@ -140,15 +141,17 @@ class Bech32 {
                 try {
                     relays.add(String.fromCharCodes(bytes.sublist(i+2, i+2+l)));
                 } catch (_) {}
+            } else if (t == 2 && l == 32) {
+                author = bytes.sublist(i+2, i+2+32).map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
             }
             i += 2 + l;
         }
-        return (eventId: eventId, relays: relays);
+        return (eventId: eventId, relays: relays, author: author);
       } else if (bech32Str.startsWith('note')) {
-        return (eventId: bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(''), relays: []);
+        return (eventId: bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(''), relays: [], author: '');
       }
     } catch (e) {}
-    return (eventId: '', relays: []);
+    return (eventId: '', relays: [], author: '');
   }
 
   static String decodeToHex(String bech32Str) {

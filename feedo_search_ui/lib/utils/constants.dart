@@ -9,5 +9,5 @@ class Constants {
   
   // Instant Indexing endpoint for the Nostr Bridge / Ingester
   // Resolves to the dynamic API_URL + /v1/ingest/post
-  static String get ingestUrl => '$apiUrl/v1/ingest/post';
+  static String get ingestUrl => '$apiUrl/v1/ingest/nostr';
 }

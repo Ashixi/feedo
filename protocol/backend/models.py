@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 import uuid
-from sqlalchemy import Column, Integer, Float, String, Text, DateTime, Enum, ForeignKey, Table, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, Float, String, Text, LargeBinary, DateTime, Enum, ForeignKey, Table, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship, foreign  
 from sqlalchemy import JSON
 from database import Base
@@ -111,6 +111,7 @@ class Post(Base):
     
     # Stateless Indexer: text_content is now optional, as we only need vectors!
     text_content = Column(Text, nullable=True) 
+    compressed_content = Column(LargeBinary, nullable=True) # Zlib compressed text/JSON of the post
     content_size = Column(Integer, default=0) 
     is_full_content_loaded = Column(Boolean, default=True) 
     item_type = Column(String(20), default="post", index=True)
@@ -229,4 +230,11 @@ class PostMetrics(Base):
     comments = Column(Integer, default=0)
     velocity = Column(Float, default=0.0)
     trending_score = Column(Float, default=0.0, index=True)
-    last_updated_at = Column(DateTime, default=_naive_utc_now, onupdate=_naive_utc_now)
+    last_updated_at = Column(DateTime, default=_naive_utc_now, onupdate=_naive_utc_now)
+
+class UserFeedCache(Base):
+    __tablename__ = "user_feed_cache"
+    id = Column(Integer, primary_key=True)
+    wallet_address = Column(String, index=True, nullable=False, unique=True)
+    feed_hash_ids = Column(JSON, default=[])  # List of post hash_ids
+    updated_at = Column(DateTime, default=_naive_utc_now)

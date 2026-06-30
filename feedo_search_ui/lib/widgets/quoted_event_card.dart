@@ -9,8 +9,11 @@ import 'linkified_text.dart';
 
 class QuotedEventCard extends StatefulWidget {
   final String eventId;
+  final List<String> relays;
+  final String author;
+  final int depth;
 
-  const QuotedEventCard({super.key, required this.eventId});
+  const QuotedEventCard({super.key, required this.eventId, this.relays = const [], this.author = '', this.depth = 0});
 
   @override
   State<QuotedEventCard> createState() => _QuotedEventCardState();
@@ -29,7 +32,17 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
 
   Future<void> _fetchEvent() async {
     try {
-      final url = Uri.parse('${Constants.defaultApiUrl}/posts/resolve/${widget.eventId}');
+      Uri url = Uri.parse('${Constants.defaultApiUrl}/posts/resolve/${widget.eventId}');
+      Map<String, dynamic> queryParams = {};
+      if (widget.relays.isNotEmpty) {
+        queryParams['relay'] = widget.relays;
+      }
+      if (widget.author.isNotEmpty) {
+        queryParams['author'] = widget.author;
+      }
+      if (queryParams.isNotEmpty) {
+        url = url.replace(queryParameters: queryParams);
+      }
       final response = await http.get(url, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 15));
       
       if (response.statusCode == 200) {
@@ -73,9 +86,9 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
         margin: const EdgeInsets.symmetric(vertical: 8.0),
         padding: const EdgeInsets.all(12.0),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -83,10 +96,10 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
             SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade400),
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade500),
             ),
             const SizedBox(width: 8),
-            Text('Loading quoted event...', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+            Text('Loading quoted event...', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
           ],
         ),
       );
@@ -97,23 +110,64 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
         margin: const EdgeInsets.symmetric(vertical: 8.0),
         padding: const EdgeInsets.all(12.0),
         decoration: BoxDecoration(
-          color: Colors.grey.shade50,
+          color: Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Text(
           _error,
-          style: TextStyle(color: Colors.grey.shade600, fontStyle: FontStyle.italic, fontSize: 14),
+          style: TextStyle(color: Colors.grey.shade400, fontStyle: FontStyle.italic, fontSize: 14),
         ),
       );
     }
 
     final post = _postData!;
-    final authorMetadata = post['metadata']?['author_metadata'] ?? {};
-    final String authorName = authorMetadata['display_name'] ?? authorMetadata['name'] ?? 'Unknown User';
-    final String? authorAvatar = authorMetadata['picture'];
-    final DateTime? date = post['timestamp'] != null ? DateTime.fromMillisecondsSinceEpoch((post['timestamp'] as num).toInt() * 1000) : null;
-    final String text = post['text'] ?? '';
+    final String authorAddress = post['author_address'] ?? 'Unknown';
+    final String authorName = post['display_author'] ?? post['author_name'] ?? post['name'] ?? post['display_name'] ?? authorAddress;
+    final String? authorAvatar = post['avatar_url'] ?? post['author_avatar'] ?? post['picture'];
+    
+    DateTime? date;
+    final publishedAt = post['published_at'];
+    if (publishedAt is String) {
+      date = DateTime.tryParse(publishedAt);
+    } else if (publishedAt is int) {
+      date = DateTime.fromMillisecondsSinceEpoch(publishedAt * 1000);
+    } else {
+      final timestamp = post['timestamp'] ?? post['created_at'];
+      if (timestamp is int && timestamp > 0) {
+        date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+      }
+    }
+    final String text = post['text'] ?? post['content'] ?? post['about'] ?? '';
+
+    if (widget.depth >= 4) {
+      return GestureDetector(
+        onTap: _openPost,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4.0),
+          padding: const EdgeInsets.all(8.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.link, color: Colors.blueAccent, size: 16),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '🔗 Глибока гілка (натисніть щоб відкрити)',
+                  style: TextStyle(color: Colors.blueAccent, fontStyle: FontStyle.italic),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -121,11 +175,13 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
         onTap: _openPost,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 8.0),
-          padding: const EdgeInsets.all(12.0),
+          padding: widget.depth > 0 ? const EdgeInsets.only(left: 12.0, top: 4.0, bottom: 4.0) : const EdgeInsets.all(12.0),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            color: widget.depth > 0 ? Colors.transparent : Colors.white.withOpacity(0.03),
+            borderRadius: widget.depth > 0 ? BorderRadius.zero : BorderRadius.circular(12),
+            border: widget.depth > 0 
+                ? Border(left: BorderSide(color: Colors.grey.shade600, width: 3))
+                : Border.all(color: Colors.white.withOpacity(0.1)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,7 +190,7 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
                 children: [
                   CircleAvatar(
                     radius: 12,
-                    backgroundColor: const Color(0xFFF0F2F5),
+                    backgroundColor: Colors.white.withOpacity(0.1),
                     backgroundImage: (authorAvatar != null && authorAvatar.isNotEmpty) ? NetworkImage(authorAvatar) : null,
                     child: (authorAvatar == null || authorAvatar.isEmpty)
                         ? Icon(Icons.person_rounded, color: Colors.grey.shade400, size: 16)
@@ -144,7 +200,7 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
                   Expanded(
                     child: Text(
                       authorName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -152,16 +208,18 @@ class _QuotedEventCardState extends State<QuotedEventCard> {
                   if (date != null)
                     Text(
                       timeago.format(date, locale: 'en_short'),
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                      style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
-              LinkifiedText(
-                text: text,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-              ),
+              if (text.isNotEmpty)
+                LinkifiedText(
+                  text: text,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  depth: widget.depth,
+                ),
             ],
           ),
         ),

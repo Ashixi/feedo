@@ -219,7 +219,7 @@ class _ChatsTabState extends State<ChatsTab> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.white,
+      color: Colors.transparent,
       child: _buildContent(),
     );
   }
@@ -231,7 +231,7 @@ class _ChatsTabState extends State<ChatsTab> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text('Please login to see Direct Messages.', style: TextStyle(color: Colors.grey[600], fontSize: 16)),
           ],
         ),
@@ -248,7 +248,7 @@ class _ChatsTabState extends State<ChatsTab> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text('No messages found.', style: TextStyle(color: Colors.grey[600], fontSize: 16)),
           ],
         ),
@@ -261,7 +261,7 @@ class _ChatsTabState extends State<ChatsTab> {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: sortedConvos.length,
-      separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.withOpacity(0.1), indent: 76),
+      separatorBuilder: (context, index) => Divider(height: 1, color: Colors.transparent.withOpacity(0.05), indent: 76),
       itemBuilder: (context, index) {
         final convo = sortedConvos[index];
         final peerPubkey = convo['peerPubkey'];
@@ -276,19 +276,19 @@ class _ChatsTabState extends State<ChatsTab> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))
+                BoxShadow(color: Colors.transparent.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))
               ],
             ),
             child: CircleAvatar(
               radius: 24,
               backgroundColor: Colors.grey[100],
               backgroundImage: picture.isNotEmpty ? NetworkImage(picture) : null,
-              child: picture.isEmpty ? const Icon(Icons.person, color: Colors.grey) : null,
+              child: picture.isEmpty ? Icon(Icons.person, color: Colors.grey) : null,
             ),
           ),
-          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+          title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
           subtitle: const Text('Encrypted Message', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey, fontSize: 14)),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+          trailing: Icon(Icons.chevron_right, color: Colors.grey, size: 20),
           onTap: () => _openChat(peerPubkey),
         );
       },

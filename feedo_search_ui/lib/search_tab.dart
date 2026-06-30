@@ -330,12 +330,12 @@ class _SearchTabState extends State<SearchTab> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.white,
+      color: Colors.transparent,
       child: FeedLayout(
         child: SafeArea(
           child: Column(
             children: [
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             // Search Bar (Hidden on Desktop/Tablet since it has a global search bar)
             if (MediaQuery.of(context).size.width < 600)
               Container(
@@ -378,7 +378,7 @@ class _SearchTabState extends State<SearchTab> {
                     return TextField(
                       controller: controller,
                       focusNode: focusNode,
-                      style: const TextStyle(fontSize: 16, color: Colors.black87),
+                      style: TextStyle(fontSize: 16, color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Search profiles & posts...',
                         hintStyle: TextStyle(color: Colors.grey[500]),
@@ -412,7 +412,7 @@ class _SearchTabState extends State<SearchTab> {
                           width: MediaQuery.of(context).size.width - 32,
                           constraints: const BoxConstraints(maxHeight: 300),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: Colors.transparent,
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: ListView.builder(
@@ -427,11 +427,11 @@ class _SearchTabState extends State<SearchTab> {
                               final picture = meta['picture'];
                               return ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: Colors.grey[200],
+                                  backgroundColor: Colors.white.withOpacity(0.1),
                                   backgroundImage: picture != null ? NetworkImage(picture) : null,
-                                  child: picture == null ? const Icon(Icons.person, color: Colors.grey) : null,
+                                  child: picture == null ? Icon(Icons.person, color: Colors.grey) : null,
                                 ),
-                                title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                title: Text(name, style: TextStyle(fontWeight: FontWeight.bold)),
                                 subtitle: nip05.isNotEmpty ? Text(nip05, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
                                 onTap: () => onSelected(item),
                               );
@@ -454,9 +454,9 @@ class _SearchTabState extends State<SearchTab> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _buildFilterChip('All', 'all'),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8),
                         _buildFilterChip('Profiles', 'profile'),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8),
                         _buildFilterChip('Posts', 'post'),
                       ],
                     ),
@@ -467,7 +467,7 @@ class _SearchTabState extends State<SearchTab> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             _buildSubFilterChip('By Name', 'name'),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             _buildSubFilterChip('By ID', 'id'),
                           ],
                         ),
@@ -476,7 +476,7 @@ class _SearchTabState extends State<SearchTab> {
                 ),
               ),
             
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             
             // Results Area
             if (_hasSearched)
@@ -487,14 +487,14 @@ class _SearchTabState extends State<SearchTab> {
                         ? Center(
                             child: Text(
                               _errorMessage!, 
-                              style: const TextStyle(color: Colors.redAccent, fontSize: 16)
+                              style: TextStyle(color: Colors.redAccent, fontSize: 16)
                             )
                           )
                         : _results.isEmpty
                             ? const Center(
                                 child: Text(
                                   'No results found.', 
-                                  style: TextStyle(color: Colors.black54, fontSize: 16)
+                                  style: TextStyle(color: Colors.white54, fontSize: 16)
                                 )
                               )
                             : ListView.builder(
@@ -503,22 +503,22 @@ class _SearchTabState extends State<SearchTab> {
                                 itemBuilder: (context, index) {
                                   if (index == _results.length) {
                                     if (_isLoadingMore) {
-                                      return const Padding(
+                                      return Padding(
                                         padding: EdgeInsets.all(16.0),
                                         child: Center(child: CircularProgressIndicator()),
                                       );
                                     } else if (!_hasMore && _results.isNotEmpty) {
-                                      return const Padding(
+                                      return Padding(
                                         padding: EdgeInsets.all(32.0),
                                         child: Center(
                                           child: Text(
                                             'No more results',
-                                            style: TextStyle(color: Colors.black54),
+                                            style: TextStyle(color: Colors.white54),
                                           ),
                                         ),
                                       );
                                     } else {
-                                      return const SizedBox(height: 32);
+                                      return SizedBox(height: 32);
                                     }
                                   }
                                   final item = _results[index];
@@ -544,7 +544,7 @@ class _SearchTabState extends State<SearchTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.black87 : Colors.grey[200],
+          color: isSelected ? Colors.white : Colors.white.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -572,7 +572,7 @@ class _SearchTabState extends State<SearchTab> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected ? Colors.blueAccent.withOpacity(0.15) : Colors.transparent,
-          border: Border.all(color: isSelected ? Colors.blueAccent : Colors.grey[300]!),
+          border: Border.all(color: isSelected ? Colors.blueAccent : Colors.white.withOpacity(0.15)!),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(

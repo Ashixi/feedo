@@ -170,7 +170,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 radius: 16,
                 backgroundImage: NetworkImage(widget.peerPicture),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
             ],
             Expanded(
               child: Text(widget.peerName, overflow: TextOverflow.ellipsis),
@@ -205,13 +205,13 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               decoration: BoxDecoration(
-                                color: isSentByMe ? Theme.of(context).colorScheme.primary : Colors.grey[200],
+                                color: isSentByMe ? Theme.of(context).colorScheme.primary : Colors.white.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 msg['content'],
                                 style: TextStyle(
-                                  color: isSentByMe ? Colors.white : Colors.black87,
+                                  color: isSentByMe ? Colors.white : Colors.white,
                                   fontSize: 16,
                                 ),
                               ),
@@ -238,11 +238,11 @@ class _ChatScreenState extends State<ChatScreen> {
                           onSubmitted: (_) => _sendMessage(),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       CircleAvatar(
                         backgroundColor: Theme.of(context).colorScheme.primary,
                         child: IconButton(
-                          icon: const Icon(Icons.send, color: Colors.white),
+                          icon: Icon(Icons.send, color: Colors.white),
                           onPressed: _sendMessage,
                         ),
                       ),

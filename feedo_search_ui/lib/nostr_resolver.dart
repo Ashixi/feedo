@@ -72,7 +72,7 @@ class NostrResolver {
     }
 
     // Wait for all relays to finish (with a timeout)
-    await Future.wait(futures).timeout(const Duration(seconds: 4), onTimeout: () => []);
+    await Future.wait(futures).timeout(const Duration(seconds: 2), onTimeout: () => []);
   }
 
   static Future<void> _fetchFromRelay(

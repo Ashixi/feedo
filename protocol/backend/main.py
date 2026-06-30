@@ -9,8 +9,12 @@ import uuid
 import math
 import random
 import httpx
+import json
+import logging
+import urllib.parse
 import difflib
 import time
+import zlib
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -212,11 +216,42 @@ async def background_stats_updater():
             logger.warning(f"Failed to update stats in Rust core: {e}")
         await asyncio.sleep(60)
 
+async def background_ephemeral_cache_cleaner():
+    await asyncio.sleep(60 * 5) # wait 5 min after startup
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=14)
+                stmt = text("UPDATE posts SET compressed_content = NULL WHERE published_at < :cutoff AND compressed_content IS NOT NULL")
+                await session.execute(stmt, {"cutoff": cutoff_date})
+                await session.commit()
+                logger.info(f"Ephemeral cache cleanup completed for posts older than 14 days.")
+        except Exception as e:
+            logger.error(f"Failed to cleanup ephemeral cache: {e}")
+        
+        # Run every 24 hours
+        await asyncio.sleep(60 * 60 * 24)
+
+async def background_default_vector_updater():
+    await asyncio.sleep(60 * 5) # wait 5 min after startup
+    while True:
+        try:
+            if brain:
+                await brain.update_default_vector()
+                logger.info("Глобальний дефолтний вектор успішно оновлено.")
+        except Exception as e:
+            logger.error(f"Помилка оновлення дефолтного вектора: {e}")
+        await asyncio.sleep(60 * 60 * 24) # кожні 24 години
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global brain
     brain = VectorBrain() 
+    try:
+        await brain.update_default_vector()
+    except Exception as e:
+        logger.error(f"Помилка ініціалізації дефолтного вектора: {e}")
 
     await ensure_postgres_database_exists()
     
@@ -224,46 +259,8 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_users_schema_columns)
 
-    # Запускаємо міграції в окремій транзакції, щоб помилка не скасувала створення таблиць
-    async with engine.begin() as conn:
-        try:
-            logger.info("Міграція адрес з префіксом 04 (виправлення старих записів)...")
-            
-            # Helper function to run update only if table exists
-            async def update_if_exists(table_name, column_name):
-                # We check if table exists before updating
-                import sqlalchemy
-                inspector = sqlalchemy.inspect(conn.sync_engine) if hasattr(conn, 'sync_engine') else None
-                # Or just catch exception per statement to avoid transaction aborts
-                # In asyncpg, if a statement fails, the transaction is aborted. 
-                # To be safe, we can just use savepoints or check existence.
-                pass
-            
-            tables = [
-                ("posts", "author_address"),
-                ("interactions", "wallet_address"),
-                ("relationships", "user_a"),
-                ("relationships", "user_b"),
-                ("relationships", "requester"),
-                ("follows", "follower_wallet"),
-                ("follows", "target_wallet"),
-                ("users", "wallet_address"),
-                ("notifications", "recipient_wallet"),
-                ("notifications", "source_wallet"),
-            ]
-            
-            # Since some tables might not exist, we just check if they exist first.
-            def _check_table(sync_conn, table):
-                return sqlalchemy.inspect(sync_conn).has_table(table)
-            
-            import sqlalchemy
-            
-            for table, col in tables:
-                exists = await conn.run_sync(lambda sync_conn, t=table: sqlalchemy.inspect(sync_conn).has_table(t))
-                if exists:
-                    await conn.execute(text(f"UPDATE {table} SET {col} = LOWER(SUBSTR({col}, 3)) WHERE LENGTH({col}) = 130 AND {col} LIKE '04%'"))
-        except Exception as e:
-            logger.warning(f"Не вдалося виконати міграцію префіксів 04: {e}")
+    # Міграції адрес з префіксом 04 видалено з автозапуску, щоб не блокувати старт FastAPI.
+    # Якщо потрібно, їх слід запускати окремим скриптом.
 
     node_type = os.getenv("NODE_TYPE", "unified").lower()
     monitor_stop_event = threading.Event()
@@ -278,6 +275,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(node_heartbeat_loop())
     asyncio.create_task(background_centroid_updater())
     asyncio.create_task(background_stats_updater())
+    asyncio.create_task(background_ephemeral_cache_cleaner())
+    asyncio.create_task(background_default_vector_updater())
     
     try:
         BOOTSTRAP_NODES_RAW = os.getenv("BOOTSTRAP_NODES", "")
@@ -412,13 +411,29 @@ def _author_avatar_url(author: User | None) -> str | None:
 
 
 async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, Any]:
-    author = post.author or await _load_user_by_wallet(db, post.author_address)
+    from sqlalchemy.exc import MissingGreenlet
+    try:
+        author_obj = post.author
+    except MissingGreenlet:
+        author_obj = None
+
+    author = author_obj or await _load_user_by_wallet(db, post.author_address)
     display_author = _display_author_name(author, post.original_author_name, post.author_address)
 
-
     also_posted_by = []
-    for dup in post.duplicates:
-        dup_author_obj = dup.author or await _load_user_by_wallet(db, dup.author_address)
+    from sqlalchemy.exc import MissingGreenlet
+    try:
+        duplicates_list = post.duplicates
+    except MissingGreenlet:
+        duplicates_list = []
+
+    for dup in duplicates_list:
+        try:
+            dup_author_obj_lazy = dup.author
+        except MissingGreenlet:
+            dup_author_obj_lazy = None
+            
+        dup_author_obj = dup_author_obj_lazy or await _load_user_by_wallet(db, dup.author_address)
         dup_author = dup.original_author_name if dup.original_author_name else _display_author_name(dup_author_obj, dup.author_address)
         also_posted_by.append({
             "id": dup.id,
@@ -436,6 +451,65 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
     item_type = post.item_type or ("profile" if (post.metadata_ and isinstance(post.metadata_, dict) and post.metadata_.get("kind") == 0) else "post")
 
     text = post.text_content
+    if not text and getattr(post, "compressed_content", None):
+        try:
+            text = zlib.decompress(post.compressed_content).decode('utf-8')
+        except Exception:
+            text = ""
+
+    if not text and post.source_type == "nostr":
+        # Backend Proxy Hydration
+        relay_urls = getattr(post, "relay_urls", None) or []
+        if getattr(post, "relay_url", None) and getattr(post, "relay_url") not in relay_urls:
+            relay_urls.append(getattr(post, "relay_url"))
+            
+        try:
+            rust_fetch_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish").replace("/local/publish", f"/local/fetch_hash/{post.hash_id}")
+            async with httpx.AsyncClient() as client:
+                res = await client.get(rust_fetch_url, timeout=0.8)
+                if res.status_code == 200 and res.json():
+                    data = res.json()
+                    if data.get("text_preview"):
+                        text = data["text_preview"]
+        except Exception:
+            pass
+            
+        if not text:
+            import websockets
+            import json
+            import uuid
+            
+            relays = relay_urls if relay_urls else ["wss://relay.nostr.band", "wss://nos.lol"]
+            
+            async def fetch_from_relay(url):
+                try:
+                    async with websockets.connect(url, open_timeout=0.8) as ws:
+                        req_id = f"hyd_{uuid.uuid4().hex[:6]}"
+                        await ws.send(json.dumps(["REQ", req_id, {"ids": [post.hash_id]}]))
+                        start_time = asyncio.get_running_loop().time()
+                        while asyncio.get_running_loop().time() - start_time < 0.8:
+                            msg_str = await asyncio.wait_for(ws.recv(), timeout=0.8)
+                            msg = json.loads(msg_str)
+                            if msg[0] == "EVENT" and msg[1] == req_id:
+                                return msg[2].get("content", "")
+                except Exception:
+                    return ""
+                return ""
+                
+            tasks = [asyncio.create_task(fetch_from_relay(url)) for url in relays[:3]]
+            if tasks:
+                try:
+                    done, pending = await asyncio.wait(tasks, timeout=0.8, return_when=asyncio.FIRST_COMPLETED)
+                    for t in pending:
+                        t.cancel()
+                    for t in done:
+                        res = t.result()
+                        if res:
+                            text = res
+                            break
+                except Exception:
+                    pass
+
     if item_type == "profile" and text:
         try:
             import json
@@ -480,6 +554,13 @@ def _ensure_users_schema_columns(sync_conn) -> None:
         inspector = inspect(sync_conn)
 
     columns = {column["name"] for column in inspector.get_columns("users")}
+    
+    # Check posts table
+    if inspector.has_table("posts"):
+        post_columns = {column["name"] for column in inspector.get_columns("posts")}
+        if "compressed_content" not in post_columns:
+            sync_conn.execute(text("ALTER TABLE posts ADD COLUMN compressed_content BYTEA"))
+
     if "public_id" not in columns:
         sync_conn.execute(text("ALTER TABLE users ADD COLUMN public_id VARCHAR"))
 
@@ -611,6 +692,16 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
         p_data.get("published_at", datetime.now(timezone.utc))
     )
     source_type = p_data.get("source_type", "native")
+    
+    source_specific_id = p_data.get("source_specific_id")
+    if source_specific_id:
+        stmt_dup = select(Post).where(
+            Post.source_type == source_type,
+            Post.source_specific_id == source_specific_id
+        )
+        dup_post = (await db.execute(stmt_dup)).scalars().first()
+        if dup_post:
+            return dup_post # Ignore duplication gracefully
 
     is_verified = True
 
@@ -667,12 +758,17 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
             if (now_ts - pub_ts) > 900 or existing_post.is_finalized:
                 return None
                 
-            if source_type != "nostr":
-                existing_post.text_content = ""
-                existing_post.title = ""
-            else:
-                existing_post.text_content = p_data["text_content"]
-                existing_post.title = p_data.get("title", "")
+            existing_post.text_content = None
+            existing_post.title = p_data.get("title", "")
+            
+            compressed_val = None
+            if p_data.get("text_content"):
+                try:
+                    compressed_val = zlib.compress(p_data["text_content"].encode('utf-8'))
+                except Exception:
+                    pass
+            existing_post.compressed_content = compressed_val
+            
             existing_post.prev_post_hash = prev_hash
             existing_post.hash_id = p_data["hash_id"]
             existing_post.sequence_number = seq_num
@@ -728,12 +824,20 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
             content_type_val = ContentType.TEXT
     else:
         content_type_val = ContentType.TEXT
+        
+    compressed_val = None
+    if p_data.get("text_content"):
+        try:
+            compressed_val = zlib.compress(p_data["text_content"].encode('utf-8'))
+        except Exception:
+            pass
 
     new_post = Post(
         source_type=source_type,
         source_specific_id=p_data.get("source_specific_id"),
         title=p_data.get("title", "") if source_type == "nostr" else "", 
-        text_content=p_data["text_content"] if source_type == "nostr" else "",
+        text_content=None,
+        compressed_content=compressed_val,
         content_size=p_data.get("content_size", len(p_data["text_content"].encode('utf-8'))),
         is_full_content_loaded=p_data.get("is_full_content_loaded", True),
         author_address=author_address,
@@ -908,7 +1012,7 @@ async def get_post_by_client_id(client_id: str, db: AsyncSession = Depends(get_d
 
 @app.get("/posts/by-hash/{hash_id}")
 async def get_post_by_hash_id(hash_id: str, db: AsyncSession = Depends(get_db)):
-    stmt = select(Post).where(Post.hash_id == hash_id)
+    stmt = select(Post).options(selectinload(Post.author)).where(Post.hash_id == hash_id)
     post = (await db.execute(stmt)).scalars().first()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -916,15 +1020,23 @@ async def get_post_by_hash_id(hash_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/posts/resolve/{hash_id}")
-async def resolve_post(hash_id: str, db: AsyncSession = Depends(get_db)):
-    stmt = select(Post).where(Post.hash_id == hash_id)
+async def resolve_post(hash_id: str, relay: List[str] = Query(default=[]), author: Optional[str] = Query(default=None), db: AsyncSession = Depends(get_db)):
+    stmt = select(Post).options(selectinload(Post.author)).where(Post.hash_id == hash_id)
     post = (await db.execute(stmt)).scalars().first()
     if post:
         return await _serialize_post_for_client(db, post)
     
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"http://feedo-nostr-bridge:8041/resolve/{hash_id}", timeout=10.0)
+            url = f"http://feedo-nostr-bridge:8041/resolve/{hash_id}"
+            params = []
+            if relay:
+                params.extend([f"relay={urllib.parse.quote(r)}" for r in relay])
+            if author:
+                params.append(f"author={urllib.parse.quote(author)}")
+            if params:
+                url += "?" + "&".join(params)
+            res = await client.get(url, timeout=10.0)
             if res.status_code == 200:
                 raw_event = res.json()
                 return {
@@ -1383,10 +1495,10 @@ async def get_feed(limit: int = 50, offset: int = 0, source_type: str = "main", 
     disc_hash_id_set = set(disc_hash_ids)
     rand_res_set = set(rand_res) if 'rand_res' in locals() else set()
     
-    for score, p in scored_posts:
-        # Use centralized serialization which handles JSON parsing for profiles, avatars, etc.
-        post_dict = await _serialize_post_for_client(db, p)
-        
+    # Run serialization concurrently to allow fast parallel Nostr hydration
+    serialized_dicts = await asyncio.gather(*[_serialize_post_for_client(db, p) for _, p in scored_posts])
+    
+    for (score, p), post_dict in zip(scored_posts, serialized_dicts):
         # Filter out garbage Nostr events from the main feed (e.g. kind 4 DMs, kind 9735 Zaps, kind 0 Profiles)
         metadata = post_dict.get("metadata") or {}
         if isinstance(metadata, dict) and post_dict.get("source_type") == "nostr":

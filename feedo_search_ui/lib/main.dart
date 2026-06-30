@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'main_screen.dart';
 import 'screens/login_screen.dart';
@@ -24,20 +24,21 @@ class FeedoSocialApp extends StatelessWidget {
       title: 'Feedo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: Colors.white,
-        primaryColor: Colors.black87,
-        colorScheme: const ColorScheme.light(
-          primary: Colors.black87,
-          secondary: Colors.blueAccent,
-          surface: Colors.white,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0F172A), // Slate 900 base
+        primaryColor: const Color(0xFF6366F1), // Indigo
+        colorScheme: ColorScheme.dark(
+          primary: Color(0xFF6366F1),
+          secondary: Color(0xFF0EA5E9), // Sky blue
+          surface: Color(0xFF1E293B), // Slate 800
+          background: Color(0xFF0F172A),
         ),
         textTheme: GoogleFonts.interTextTheme(
-          ThemeData.light().textTheme,
+          ThemeData.dark().textTheme,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
           elevation: 0,
         ),
         useMaterial3: true,
@@ -46,4 +47,3 @@ class FeedoSocialApp extends StatelessWidget {
     );
   }
 }
-

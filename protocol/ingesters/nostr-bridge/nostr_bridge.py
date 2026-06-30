@@ -144,7 +144,71 @@ async def resolve_event(request):
         return None
 
     from nostr_source import NostrSource
-    seed_tasks = [asyncio.create_task(_fetch(r)) for r in NostrSource.SEED_RELAYS]
+    
+    author = request.query.get('author')
+    outbox_relays = []
+    
+    if author:
+        outbox_req = ["REQ", f"outbox_{author}", {"kinds": [10002, 3], "authors": [author], "limit": 1}]
+        outbox_msg = json.dumps(outbox_req)
+        
+        async def _fetch_outbox(url):
+            try:
+                async with websockets.connect(url, open_timeout=1.0) as ws:
+                    await ws.send(outbox_msg)
+                    while True:
+                        resp = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                        resp_data = json.loads(resp)
+                        if isinstance(resp_data, list) and len(resp_data) >= 3:
+                            if resp_data[0] == "EVENT":
+                                ev = resp_data[2]
+                                found = []
+                                if ev.get("kind") == 10002:
+                                    for tag in ev.get("tags", []):
+                                        if tag[0] == "r" and len(tag) >= 2:
+                                            if len(tag) == 2 or tag[2] == "write":
+                                                found.append(tag[1])
+                                elif ev.get("kind") == 3:
+                                    try:
+                                        content = json.loads(ev.get("content", "{}"))
+                                        for r, perms in content.items():
+                                            if isinstance(perms, dict) and perms.get("write", False):
+                                                found.append(r)
+                                    except:
+                                        pass
+                                return found
+                            if resp_data[0] == "EOSE":
+                                break
+            except Exception:
+                pass
+            return []
+
+        # Check top 5 seed relays for outbox info quickly
+        outbox_tasks = [asyncio.create_task(_fetch_outbox(r)) for r in NostrSource.SEED_RELAYS[:5]]
+        try:
+            for coro in asyncio.as_completed(outbox_tasks, timeout=1.5):
+                res = await coro
+                if res:
+                    outbox_relays.extend(res)
+                    for t in outbox_tasks:
+                        t.cancel()
+                    break
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            for t in outbox_tasks:
+                t.cancel()
+    
+    hint_relays = request.query.getall('relay', [])
+    valid_hints = []
+    for r in hint_relays + outbox_relays:
+        if isinstance(r, str) and (r.startswith("ws://") or r.startswith("wss://")) and r not in valid_hints:
+            valid_hints.append(r)
+            
+    # Combine hint relays, outbox relays, and seed relays, prioritizing hints/outbox
+    target_relays = valid_hints + [r for r in NostrSource.SEED_RELAYS if r not in valid_hints]
+    
+    seed_tasks = [asyncio.create_task(_fetch(r)) for r in target_relays]
     
     for coro in asyncio.as_completed(seed_tasks):
         r = await coro

@@ -89,7 +89,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text('Edit Profile', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -101,33 +101,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             children: [
               const Text(
                 'Nostr Profile Metadata',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 'This information will be published to your selected relays as a Kind 0 event. It is not stored centrally.',
                 style: TextStyle(color: Colors.grey[600], fontSize: 14),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               
               _buildTextField('Name / Username', _nameController, false),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               _buildTextField('About You', _aboutController, false, maxLines: 3),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               _buildTextField('Picture URL (e.g. https://...)', _pictureController, false),
               
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               
               ElevatedButton(
                 onPressed: _isPublishing ? null : _publishProfile,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black87,
+                  backgroundColor: Colors.white,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _isPublishing
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white))
+                    ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.transparent))
                     : const Text('Save & Publish', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ],
@@ -141,13 +141,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
-        const SizedBox(height: 8),
+        Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.white)),
+        SizedBox(height: 8),
         TextField(
           controller: controller,
           obscureText: obscure,
           maxLines: maxLines,
-          style: const TextStyle(color: Colors.black87),
+          style: TextStyle(color: Colors.white),
           decoration: InputDecoration(
             filled: true,
             fillColor: Colors.grey[100],

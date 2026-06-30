@@ -59,12 +59,12 @@ class _WalletSettingsScreenState extends State<WalletSettingsScreen> {
               'Nostr Wallet Connect (NWC)',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             const Text(
               'Link your Lightning Wallet (e.g. Alby, Mutiny) to enable 1-tap Zaps natively in Feedo.',
               style: TextStyle(color: Colors.black54),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             if (_isConnected) ...[
               Container(
                 padding: const EdgeInsets.all(16),
@@ -73,7 +73,7 @@ class _WalletSettingsScreenState extends State<WalletSettingsScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.green),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
                     Icon(Icons.check_circle, color: Colors.green),
                     SizedBox(width: 12),
@@ -81,7 +81,7 @@ class _WalletSettingsScreenState extends State<WalletSettingsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _disconnect,
                 style: ElevatedButton.styleFrom(
@@ -101,7 +101,7 @@ class _WalletSettingsScreenState extends State<WalletSettingsScreen> {
                 maxLines: 3,
                 minLines: 1,
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _connect,
                 style: ElevatedButton.styleFrom(

@@ -143,7 +143,7 @@ class FeedService:
                     author_counts = {}
                     
                     for hid in sorted_hashes:
-                        if len(diversified) >= 250:
+                        if len(diversified) >= fetch_limit:
                             break
                             
                         author = author_map.get(hid)
@@ -166,9 +166,9 @@ class FeedService:
                         else:
                             diversified.append(hid)
                                 
-                    # Append backlog at the end, but limit to 250 max
+                    # Append backlog at the end, bounded by fetch_limit
                     final_feed = diversified + backlog
-                    return final_feed[:250]
+                    return final_feed[:fetch_limit]
                 except Exception as e:
                     logger.error(f"Error computing feed: {e}")
                     return []

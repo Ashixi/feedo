@@ -60,7 +60,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
       child: Container(
         width: 600,
         constraints: const BoxConstraints(maxHeight: 450),
@@ -74,23 +74,23 @@ class _ComposeScreenState extends State<ComposeScreen> {
               children: [
                 const Text('Create Post', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937))),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.grey),
+                  icon: Icon(Icons.close, color: Colors.grey),
                   onPressed: () => Navigator.of(context).pop(),
                   splashRadius: 20,
                 ),
               ],
             ),
             const Divider(),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   backgroundColor: Color(0xFFF0F2F5),
                   radius: 20,
                   child: Icon(Icons.person, color: Colors.grey),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: TextField(
                     controller: _textController,
@@ -102,7 +102,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       border: InputBorder.none,
                       hintStyle: TextStyle(color: Colors.grey, fontSize: 18),
                     ),
-                    style: const TextStyle(fontSize: 18, color: Color(0xFF1F2937)),
+                    style: TextStyle(fontSize: 18, color: Color(0xFF1F2937)),
                   ),
                 ),
               ],
@@ -134,7 +134,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       elevation: 0,
                     ),
                     child: _isPosting
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.transparent, strokeWidth: 2))
                         : const Text('Post', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   ),
                 ],

@@ -293,7 +293,7 @@ class _PostCardState extends State<PostCard> {
 
   @override
   Widget build(BuildContext context) {
-    String text = widget.post['text'] ?? widget.post['content'] ?? widget.post['about'] ?? '';
+    String text = widget.post['text'] ?? widget.post['content'] ?? widget.post['title'] ?? widget.post['about'] ?? '';
     final String authorAddress = widget.post['author_address'] ?? widget.post['pubkey'] ?? 'Unknown';
     final String authorName = widget.post['author_name'] ?? authorAddress;
     final String? authorAvatar = widget.post['author_avatar'] ?? widget.post['picture'] ?? widget.post['metadata']?['picture'];
@@ -361,7 +361,7 @@ class _PostCardState extends State<PostCard> {
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
         child: Container(
-          color: _isHovered ? Colors.grey.shade50 : Colors.white,
+          color: _isHovered ? Colors.white.withOpacity(0.05) : Colors.transparent,
           child: InkWell(
             onTap: _openUserProfile,
             child: Padding(
@@ -370,22 +370,22 @@ class _PostCardState extends State<PostCard> {
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: const Color(0xFFF0F2F5),
+                    backgroundColor: Colors.white.withOpacity(0.1),
                     backgroundImage: (authorAvatar != null && authorAvatar.isNotEmpty) ? NetworkImage(authorAvatar) : null,
                     child: (authorAvatar == null || authorAvatar.isEmpty)
                       ? Icon(Icons.person_rounded, color: Colors.grey.shade400, size: 24)
                       : null,
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(profileName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(profileName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                         if (profileAbout.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 4.0),
-                            child: Text(profileAbout, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                            child: Text(profileAbout, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
                           ),
                       ],
                     ),
@@ -399,12 +399,18 @@ class _PostCardState extends State<PostCard> {
       );
     }
     
+    // Hide completely empty posts (e.g. unhydrated Nostr events or empty RSS)
+    if (text.trim().isEmpty && mediaUrls.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    
     // Threads-style continuous feed container (no individual cards, just flat backgrounds with dividers)
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: Container(
-        color: _isHovered ? Colors.grey.shade50 : Colors.white,
+        color: _isHovered ? Colors.white.withOpacity(0.05) : Colors.transparent,
         child: InkWell(
           onTap: _openPostScreen,
           child: Padding(
@@ -421,7 +427,7 @@ class _PostCardState extends State<PostCard> {
                         onTap: _openUserProfile,
                         child: CircleAvatar(
                           radius: 20,
-                          backgroundColor: const Color(0xFFF0F2F5),
+                          backgroundColor: Colors.white.withOpacity(0.1),
                           backgroundImage: (authorAvatar != null && authorAvatar.isNotEmpty) ? NetworkImage(authorAvatar) : null,
                           child: (authorAvatar == null || authorAvatar.isEmpty)
                             ? Icon(Icons.person_rounded, color: Colors.grey.shade400, size: 20)
@@ -432,7 +438,7 @@ class _PostCardState extends State<PostCard> {
                     // Thread line could go here in the future
                   ],
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 
                 // Content Column
                 Expanded(
@@ -445,11 +451,11 @@ class _PostCardState extends State<PostCard> {
                           padding: const EdgeInsets.only(bottom: 4.0),
                           child: Row(
                             children: [
-                              Icon(Icons.repeat_rounded, size: 14, color: Colors.grey.shade500),
-                              const SizedBox(width: 4),
+                              Icon(Icons.repeat_rounded, size: 14, color: Colors.grey.shade400),
+                              SizedBox(width: 4),
                               Text(
                                 'Reposted',
-                                style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500),
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 13, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
@@ -466,22 +472,22 @@ class _PostCardState extends State<PostCard> {
                               Flexible(
                                 child: Text(
                                   authorName,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               if (date != null && itemType != 'profile')
                                 Text(
                                   timeago.format(date, locale: 'en_short'),
-                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                                  style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
                                 ),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       
                       // Body Text
                       if (_isLoadingContent)
@@ -503,8 +509,8 @@ class _PostCardState extends State<PostCard> {
                           
                           return LinkifiedText(
                             text: cleanText,
-                            style: const TextStyle(
-                              color: Colors.black87,
+                            style: TextStyle(
+                              color: Colors.white,
                               fontSize: 15,
                               height: 1.4,
                             ),
@@ -515,19 +521,19 @@ class _PostCardState extends State<PostCard> {
                         
                       // Media Gallery
                       if (mediaUrls.isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        SizedBox(height: 12),
                         _buildMediaGallery(mediaUrls),
                       ],
                       
                       // Interaction Bar
                       if (itemType != 'profile') ...[
-                        const SizedBox(height: 12),
+                        SizedBox(height: 12),
                         Row(
                           children: [
                             _buildInteractionBtn(Icons.favorite_border_rounded, '${widget.post['likes_count'] ?? widget.post['metrics']?['likes'] ?? ''}', widget.post['user_liked'] == true, _handleLike, hoverColor: Colors.pink.withOpacity(0.1), iconColor: Colors.pink),
-                            const SizedBox(width: 16),
+                            SizedBox(width: 16),
                             _buildInteractionBtn(Icons.chat_bubble_outline_rounded, '${widget.post['comments_count'] ?? widget.post['metrics']?['comments'] ?? ''}', false, _handleComment, hoverColor: Colors.blue.withOpacity(0.1), iconColor: Colors.blue),
-                            const SizedBox(width: 16),
+                            SizedBox(width: 16),
                             _buildInteractionBtn(Icons.repeat_rounded, '${widget.post['reposts_count'] ?? widget.post['metrics']?['reposts'] ?? ''}', widget.post['user_reposted'] == true, _handleRepost, hoverColor: Colors.green.withOpacity(0.1), iconColor: Colors.green),
                             const Spacer(), // Push zap to the right like a secondary action if needed, or keep it together
                             _buildInteractionBtn(Icons.flash_on_rounded, '${widget.post['zaps_count'] ?? widget.post['metrics']?['tips'] ?? ''}', (widget.post['zaps_count'] ?? widget.post['metrics']?['tips'] ?? 0) > 0, _handleZap, hoverColor: Colors.orange.withOpacity(0.1), iconColor: Colors.orange),
@@ -542,17 +548,17 @@ class _PostCardState extends State<PostCard> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.purple.shade50,
+                              color: Colors.purple.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.auto_awesome, size: 14, color: Colors.purple.shade600),
-                                const SizedBox(width: 4),
+                                Icon(Icons.auto_awesome, size: 14, color: Colors.purpleAccent),
+                                SizedBox(width: 4),
                                 Text(
                                   'AI Match: ${(score * 100).toStringAsFixed(1)}%',
-                                  style: TextStyle(color: Colors.purple.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                                  style: TextStyle(color: Colors.purpleAccent, fontSize: 12, fontWeight: FontWeight.w600),
                                 ),
                               ],
                             ),
@@ -560,8 +566,8 @@ class _PostCardState extends State<PostCard> {
                         ),
                         
                       // Separator for the bottom of the item (Threads style subtle divider)
-                      const SizedBox(height: 12),
-                      Divider(color: Colors.grey.withOpacity(0.15), height: 1),
+                      SizedBox(height: 12),
+                      Divider(color: Colors.transparent.withOpacity(0.05), height: 1),
                     ],
                   ),
                 ),
@@ -588,9 +594,9 @@ class _PostCardState extends State<PostCard> {
           padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
           child: Row(
             children: [
-              Icon(icon, size: 20, color: isHighlighted ? iconColor : Colors.grey.shade500),
+              Icon(icon, size: 20, color: isHighlighted ? iconColor : Colors.grey.shade400),
               if (count.isNotEmpty) ...[
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(count, style: TextStyle(
                   color: isHighlighted ? iconColor : Colors.grey.shade600, 
                   fontSize: 14,
@@ -615,10 +621,13 @@ class _PostCardState extends State<PostCard> {
             await launchUrl(uri);
           }
         },
-        child: Container(
-          color: Colors.black87,
-          child: const Center(
-            child: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 48),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Container(
+            color: Colors.black38,
+            child: const Center(
+              child: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 48),
+            ),
           ),
         ),
       );
@@ -637,7 +646,7 @@ class _PostCardState extends State<PostCard> {
         borderRadius: BorderRadius.circular(12),
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.withOpacity(0.1)),
+            border: Border.all(color: Colors.transparent.withOpacity(0.05)),
             borderRadius: BorderRadius.circular(12),
           ),
           constraints: const BoxConstraints(maxHeight: 400),
@@ -651,7 +660,7 @@ class _PostCardState extends State<PostCard> {
     
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        border: Border.all(color: Colors.transparent.withOpacity(0.05)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ClipRRect(

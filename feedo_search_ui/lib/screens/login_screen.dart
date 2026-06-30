@@ -109,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(color: Colors.white)),
+        content: Text(message, style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.redAccent.shade400,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         children: [
           // Premium Dark Gradient Background
           Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -182,9 +182,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           child: Container(
                             padding: const EdgeInsets.all(40.0),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.05),
+                              color: Colors.transparent.withValues(alpha: 0.05),
                               borderRadius: BorderRadius.circular(32),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.5),
+                              border: Border.all(color: Colors.transparent.withValues(alpha: 0.1), width: 1.5),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withValues(alpha: 0.2),
@@ -205,18 +205,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     letterSpacing: 1.5,
                                   ),
                                 ),
-                                const SizedBox(height: 8),
+                                SizedBox(height: 8),
                                 Text(
                                   'The Unified Semantic Layer',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(fontSize: 15, color: Colors.white.withValues(alpha: 0.7), fontWeight: FontWeight.w500),
                                 ),
-                                const SizedBox(height: 48),
+                                SizedBox(height: 48),
                                 
                                 if (kIsWeb) ...[
                                   ElevatedButton.icon(
                                     onPressed: _isLoading ? null : _loginWithExtension,
-                                    icon: const Icon(Icons.extension_rounded),
+                                    icon: Icon(Icons.extension_rounded),
                                     label: const Text('Login with Browser Extension'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF6366F1), // Indigo 500
@@ -224,27 +224,27 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                       minimumSize: const Size(double.infinity, 56),
                                       elevation: 0,
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                      textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                                     ),
                                   ),
-                                  const SizedBox(height: 24),
+                                  SizedBox(height: 24),
                                   Row(
                                     children: [
-                                      Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.2))),
+                                      Expanded(child: Divider(color: Colors.transparent.withValues(alpha: 0.2))),
                                       Padding(
                                         padding: const EdgeInsets.symmetric(horizontal: 16),
                                         child: Text('OR', style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12, fontWeight: FontWeight.bold)),
                                       ),
-                                      Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.2))),
+                                      Expanded(child: Divider(color: Colors.transparent.withValues(alpha: 0.2))),
                                     ],
                                   ),
-                                  const SizedBox(height: 24),
+                                  SizedBox(height: 24),
                                 ],
                                 
                                 TextField(
                                   controller: _keyController,
                                   obscureText: true,
-                                  style: const TextStyle(color: Colors.white, letterSpacing: 2.0),
+                                  style: TextStyle(color: Colors.white, letterSpacing: 2.0),
                                   decoration: InputDecoration(
                                     labelText: 'Private Key (nsec)',
                                     labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
@@ -258,16 +258,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     ),
                                     enabledBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(16),
-                                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                                      borderSide: BorderSide(color: Colors.transparent.withValues(alpha: 0.1)),
                                     ),
                                     focusedBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(16),
-                                      borderSide: const BorderSide(color: Color(0xFF6366F1)),
+                                      borderSide: BorderSide(color: Color(0xFF6366F1)),
                                     ),
                                     prefixIcon: Icon(Icons.key_rounded, color: Colors.white.withValues(alpha: 0.5)),
                                   ),
                                 ),
-                                const SizedBox(height: 24),
+                                SizedBox(height: 24),
                                 ElevatedButton(
                                   onPressed: _isLoading ? null : _loginWithNsec,
                                   style: ElevatedButton.styleFrom(
@@ -276,13 +276,13 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     minimumSize: const Size(double.infinity, 56),
                                     elevation: 0,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                                    textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                                   ),
                                   child: _isLoading 
-                                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black87, strokeWidth: 2))
+                                    ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black87, strokeWidth: 2))
                                     : const Text('Login with Key'),
                                 ),
-                                const SizedBox(height: 24),
+                                SizedBox(height: 24),
                                 TextButton(
                                   onPressed: _isLoading ? null : _generateNewAccount,
                                   style: TextButton.styleFrom(
