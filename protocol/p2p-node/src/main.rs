@@ -40,6 +40,7 @@ use proto::feedo::FeedoBroadcast;
 struct NetworkInfo {
     pub peer_id: String,
     pub total_nodes: usize,
+    pub node_rank: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1684,10 +1685,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 SwarmCommand::GetNetworkInfo(sender) => {
+                    let mut all_peers: Vec<String> = swarm.connected_peers().map(|p| p.to_base58()).collect();
+                    all_peers.push(local_peer_id_str.clone());
+                    all_peers.sort();
+                    
+                    let node_rank = all_peers.iter().position(|p| p == &local_peer_id_str).unwrap_or(0);
                     let total_peers = swarm.network_info().num_peers();
+                    
                     let _ = sender.send(NetworkInfo {
                         peer_id: local_peer_id_str.clone(),
                         total_nodes: total_peers + 1,
+                        node_rank,
                     });
                 }
 

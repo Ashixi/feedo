@@ -325,11 +325,28 @@ async def run_bridge():
     
     INGEST_URL = os.getenv("INGEST_URL", "http://127.0.0.1:8040/api/v1/ingest/post")
     INGEST_API_KEY = os.getenv("INGEST_API_KEY", "feedo_default_ingest_key_2026")
+    P2P_NETWORK_URL = os.getenv("P2P_NETWORK_URL", "http://feedo-p2p:4001")
     
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                async for batch in source.fetch_new_batches(since=None):
+                # 1. Sync Network Info for Sharding
+                node_rank = 0
+                total_nodes = 1
+                try:
+                    resp = await client.get(f"{P2P_NETWORK_URL}/local/network_info", timeout=5.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data:
+                            node_rank = data.get("node_rank", 0)
+                            total_nodes = data.get("total_nodes", 1)
+                except Exception as e:
+                    print(f"P2P Network Info not available, defaulting to standalone mode. Error: {e}")
+
+                print(f"Starting cycle with node_rank={node_rank}, total_nodes={total_nodes}")
+
+                # 2. Fetch new batches with sharding parameters
+                async for batch in source.fetch_new_batches(since=None, node_index=node_rank, total_nodes=total_nodes):
                     for post in batch:
                         payload = {
                             "text_content": post.get("text_content", ""),
@@ -339,6 +356,7 @@ async def run_bridge():
                             "published_at": post.get("published_at").isoformat() if post.get("published_at") else None,
                             "external_link": post.get("relay_url", ""),
                             "image_url": post.get("image_url", ""),
+                            "relay_url": post.get("relay_url", ""),
                             "metadata_": post.get("metadata_", {})
                         }
                         

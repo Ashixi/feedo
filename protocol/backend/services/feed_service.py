@@ -21,7 +21,9 @@ class FeedService:
         user=None,
         expose_vector_api: bool = False,
         vector_api_addr: str = "",
-        vector_api_key: str = ""
+        vector_api_key: str = "",
+        since: int = None,
+        until: int = None
     ):
         from models import Post
         from sqlalchemy.orm import selectinload
@@ -80,13 +82,13 @@ class FeedService:
                     if not user_vector: return []
                     
                     # Pseudo-Relevance Feedback (PRF)
-                    pr_results = brain.table.search(user_vector).limit(5).to_list()
+                    pr_results = brain.table.search(user_vector).where("item_type = 'post'").limit(5).to_list()
                     pr_vectors = [r["vector"] for r in pr_results if "vector" in r]
                     if pr_vectors:
                         avg_retrieved = [sum(v[i] for v in pr_vectors) / len(pr_vectors) for i in range(len(user_vector))]
                         user_vector = [0.7 * user_vector[i] + 0.3 * avg_retrieved[i] for i in range(len(user_vector))]
                         
-                    search_query = brain.table.search(user_vector)
+                    search_query = brain.table.search(user_vector).where("item_type = 'post'")
                     
                     target_langs = []
                     if user and user.preferred_languages:
@@ -98,7 +100,7 @@ class FeedService:
                         allowed_langs = set(target_langs)
                         allowed_langs.update(['un', 'uk'])
                         langs_str = ", ".join([f"'{l}'" for l in allowed_langs])
-                        search_query = search_query.where(f"language IN ({langs_str})")
+                        search_query = search_query.where(f"item_type = 'post' AND language IN ({langs_str})")
                         
                     # Fetch top 1000 for cache to ensure we have enough diversity if one author dominates
                     fetch_limit = 1000 if (not language or language == "all") and source_type == "main" else max(250, limit + offset)
@@ -129,46 +131,40 @@ class FeedService:
                     all_rel_hash_ids.sort(key=lambda x: x[0])
                     sorted_hashes = [x[1] for x in all_rel_hash_ids]
                     
-                    if not sorted_hashes:
-                        return []
-                        
-                    # Fetch author addresses to enforce diversity
-                    fetch_stmt = select(Post.hash_id, Post.author_address).where(Post.hash_id.in_(sorted_hashes))
-                    res = await db.execute(fetch_stmt)
-                    author_map = {row.hash_id: row.author_address for row in res}
+                    if sorted_hashes:
+                        # Fetch author addresses to enforce diversity
+                        fetch_stmt = select(Post.hash_id, Post.author_address).where(Post.hash_id.in_(sorted_hashes))
+                        res = await db.execute(fetch_stmt)
+                        author_map = {row.hash_id: row.author_address for row in res}
                     
-                    diversified = []
-                    backlog = []
-                    recent_authors = [] # Sliding window of last 3 authors
-                    author_counts = {}
+                    final_feed = []
+                    recent_authors = []
                     
                     for hid in sorted_hashes:
-                        if len(diversified) >= fetch_limit:
+                        if len(final_feed) >= fetch_limit:
                             break
                             
                         author = author_map.get(hid)
-                        if author:
-                            count = author_counts.get(author, 0)
-                            if count >= 4:
-                                # Hard cap: absolute maximum 4 posts per author in the ENTIRE feed
-                                continue
-                                
-                            author_counts[author] = count + 1
+                        
+                        # If author recently posted 2 times in a row, try to find another author's post
+                        if author and recent_authors.count(author) >= 2:
+                            continue # Skip this post for now to ensure diversity
                             
-                            # Max 1 post per author in any window of 3 posts
-                            if recent_authors.count(author) >= 1:
-                                backlog.append(hid)
-                            else:
-                                diversified.append(hid)
-                                recent_authors.append(author)
-                                if len(recent_authors) > 3:
-                                    recent_authors.pop(0)
-                        else:
-                            diversified.append(hid)
+                        final_feed.append(hid)
+                        if author:
+                            recent_authors.append(author)
+                            if len(recent_authors) > 3:
+                                recent_authors.pop(0)
                                 
-                    # Append backlog at the end, bounded by fetch_limit
-                    final_feed = diversified + backlog
-                    return final_feed[:fetch_limit]
+                    # Fallback: if we filtered out too many due to diversity, just fill the rest
+                    if len(final_feed) < fetch_limit and len(sorted_hashes) > len(final_feed):
+                        for hid in sorted_hashes:
+                            if len(final_feed) >= fetch_limit:
+                                break
+                            if hid not in final_feed:
+                                final_feed.append(hid)
+                                
+                    return final_feed
                 except Exception as e:
                     logger.error(f"Error computing feed: {e}")
                     return []
@@ -189,6 +185,10 @@ class FeedService:
                     cache.feed_hash_ids = await compute_feed()
                     cache.updated_at = now
                     await db.commit()
+                elif offset > 0 and not cache.feed_hash_ids:
+                    cache.feed_hash_ids = await compute_feed()
+                    cache.updated_at = now
+                    await db.commit()
                 
                 sorted_hash_ids = cache.feed_hash_ids[offset:offset+limit] if cache.feed_hash_ids else []
             else:
@@ -197,7 +197,11 @@ class FeedService:
                 sorted_hash_ids = full_list[offset:offset+limit] if full_list else []
                 
             if sorted_hash_ids:
-                fetch_stmt = select(Post).where(Post.hash_id.in_(sorted_hash_ids), Post.item_type == 'post').options(
+                from sqlalchemy import text
+                fetch_stmt = select(Post).where(
+                    Post.hash_id.in_(sorted_hash_ids), 
+                    Post.item_type == 'post'
+                ).where(text("(metadata_->>'kind' IN ('1', '6') OR metadata_->>'kind' IS NULL)")).options(
                     selectinload(Post.author),
                     selectinload(Post.duplicates).selectinload(Post.author)
                 )
@@ -206,10 +210,12 @@ class FeedService:
                 
                 post_map = {p.hash_id: p for p in posts}
                 scored_posts_p2p = [ (1.0, post_map[hid]) for hid in sorted_hash_ids if hid in post_map ]
-            return scored_posts_p2p, [], [], []
+                if scored_posts_p2p:
+                    return scored_posts_p2p, [], [], []
 
         # Fallback to standard local chronological logic
-        stmt = select(Post.id).where(Post.item_type == 'post')
+        from sqlalchemy import text
+        stmt = select(Post.id).where(Post.item_type == 'post').where(text("(metadata_->>'kind' IN ('1', '6') OR metadata_->>'kind' IS NULL)"))
         s = (source_type or "").lower()
         if s == "feed" or s == "native":
             stmt = stmt.where(Post.parent_post_id == None, Post.source_type == "native")
@@ -218,12 +224,17 @@ class FeedService:
         else:
             stmt = stmt.where(Post.parent_post_id == None, Post.source_type == s)
             
+        if since:
+            stmt = stmt.where(Post.published_at >= datetime.fromtimestamp(since, tz=timezone.utc))
+        if until:
+            stmt = stmt.where(Post.published_at <= datetime.fromtimestamp(until, tz=timezone.utc))
+            
         if language and language != "all":
             # Allow matching posts that have the selected language OR are unknown/default ('un', 'uk') 
             # to prevent hiding Nostr/RSS posts whose language wasn't accurately detected.
             stmt = stmt.where(Post.language.in_([language, "un", "uk"]))
             
-        stmt = stmt.order_by(desc(Post.published_at)).offset(offset).limit(limit)
+        stmt = stmt.order_by(Post.published_at.desc().nulls_last()).offset(offset).limit(limit)
         post_ids_to_fetch = (await db.execute(stmt)).scalars().all()
 
         if not post_ids_to_fetch:

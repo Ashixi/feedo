@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 import json
 import logging
 import os
@@ -37,12 +38,13 @@ class ProfileSpider:
         self.relay_queue = asyncio.Queue()
         self.known_relays = set()
         self.active_relays = set()
+        self.assigned_relays = set()
         self.max_concurrent_relays = max_concurrent_relays
         self.processed_pubkeys = set()
         self.db_queue = asyncio.Queue()
         
-        for r in SEED_RELAYS:
-            self.add_relay(r)
+        self.node_rank = 0
+        self.total_nodes = 1
 
     def add_relay(self, url: str):
         try:
@@ -54,6 +56,62 @@ class ProfileSpider:
                     self.relay_queue.put_nowait(clean_url)
         except Exception:
             pass
+
+    async def network_sync_loop(self):
+        logger.info("Network Sync loop started")
+        while True:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("http://feedo-p2p:4001/local/network_info", timeout=5) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data:
+                                self.node_rank = data.get("node_rank", 0)
+                                self.total_nodes = data.get("total_nodes", 1)
+            except Exception as e:
+                logger.debug(f"P2P Network Info not available, defaulting to standalone mode. Error: {e}")
+                self.node_rank = 0
+                self.total_nodes = 1
+
+            # Load global list of relays from DB to ensure all nodes sort the same list
+            global_relays = set(SEED_RELAYS)
+            try:
+                async with AsyncSessionLocal() as session:
+                    res = await session.execute(select(Post.relay_urls).where(Post.item_type == "profile").limit(1)) # Just to check db connection
+                    # Actually we should query discovered_relays, but we don't have the model here.
+                    # We can use raw SQL:
+                    from sqlalchemy import text
+                    res = await session.execute(text("SELECT url FROM discovered_relays"))
+                    for row in res.fetchall():
+                        if row[0].startswith("ws"):
+                            global_relays.add(row[0])
+            except Exception as e:
+                logger.debug(f"Failed to load global relays from DB: {e}")
+                
+            global_relays.update(self.known_relays)
+            sorted_relays = sorted(global_relays)
+
+            new_assigned = set()
+            for i, r in enumerate(sorted_relays):
+                if i % self.total_nodes == self.node_rank:
+                    new_assigned.add(r)
+            
+            # Find newly assigned
+            for r in new_assigned:
+                if r not in self.assigned_relays:
+                    logger.info(f"Assigned new relay: {r} (Rank {self.node_rank}/{self.total_nodes})")
+                    self.assigned_relays.add(r)
+                    self.add_relay(r)
+                    
+            # Find revoked relays
+            for r in list(self.assigned_relays):
+                if r not in new_assigned:
+                    logger.info(f"Revoked relay: {r}")
+                    self.assigned_relays.remove(r)
+                    if r in self.known_relays:
+                        self.known_relays.remove(r)
+
+            await asyncio.sleep(30)
 
     async def db_writer_loop(self):
         """Batch writes new profiles to the database."""
@@ -128,26 +186,70 @@ class ProfileSpider:
     async def crawl_relay(self, relay_url: str):
         self.active_relays.add(relay_url)
         logger.info(f"🕷️ Connecting to {relay_url} ...")
-        req_id = f"spider_{os.urandom(4).hex()}"
+        
+        # We need two subscriptions:
+        # 1. Real-time updates (since current time)
+        # 2. Backfill (paginating backwards)
+        current_time = int(datetime.utcnow().timestamp())
+        six_months_sec = 180 * 24 * 60 * 60
+        stop_ts = current_time - six_months_sec
+        until_ts = current_time
+        
+        req_id_rt = f"rt_{os.urandom(4).hex()}"
+        req_id_bf = f"bf_{os.urandom(4).hex()}"
+        
+        backfill_done = False
+        min_created_at = current_time
+        events_in_batch = 0
         
         try:
             async with websockets.connect(relay_url, open_timeout=5.0, close_timeout=1.0) as ws:
-                req_msg = json.dumps(["REQ", req_id, {"kinds": [0, 10002]}])
-                await ws.send(req_msg)
+                # 1. Start real-time subscription
+                rt_msg = json.dumps(["REQ", req_id_rt, {"kinds": [0, 10002], "since": current_time}])
+                await ws.send(rt_msg)
                 
-                start_time = asyncio.get_running_loop().time()
-                while asyncio.get_running_loop().time() - start_time < 300: 
-                    try:
-                        msg_str = await asyncio.wait_for(ws.recv(), timeout=30.0)
-                        msg = json.loads(msg_str)
+                # 2. Start initial backfill subscription
+                bf_msg = json.dumps(["REQ", req_id_bf, {"kinds": [0, 10002], "limit": 1000, "until": until_ts}])
+                await ws.send(bf_msg)
+                
+                while True:
+                    if relay_url not in self.assigned_relays:
+                        logger.info(f"Relay {relay_url} reassigned to another node. Disconnecting.")
+                        return
                         
-                        if msg[0] == "EOSE" and msg[1] == req_id:
-                            logger.info(f"🏁 EOSE from {relay_url}")
-                            break
-                            
-                        if msg[0] == "EVENT" and msg[1] == req_id:
+                    try:
+                        message = await asyncio.wait_for(ws.recv(), timeout=10.0)
+                        msg = json.loads(message)
+                        
+                        if msg[0] == "EOSE":
+                            if msg[1] == req_id_bf:
+                                # Backfill batch finished
+                                try:
+                                    await ws.send(json.dumps(["CLOSE", req_id_bf]))
+                                except: pass
+                                
+                                # Decide if we should continue backfilling
+                                if events_in_batch == 0 or min_created_at <= stop_ts:
+                                    if not backfill_done:
+                                        logger.info(f"🏁 Backfill complete for {relay_url} (reached stop time or empty).")
+                                        backfill_done = True
+                                else:
+                                    # Send next backfill batch
+                                    until_ts = min_created_at
+                                    req_id_bf = f"bf_{os.urandom(4).hex()}"
+                                    bf_msg = json.dumps(["REQ", req_id_bf, {"kinds": [0, 10002], "limit": 1000, "until": until_ts}])
+                                    await ws.send(bf_msg)
+                                    events_in_batch = 0
+                                    
+                        elif msg[0] == "EVENT":
+                            req_id_recv = msg[1]
                             ev = msg[2]
                             kind = ev.get("kind")
+                            ev_created_at = ev.get("created_at", current_time)
+                            
+                            if req_id_recv == req_id_bf:
+                                events_in_batch += 1
+                                min_created_at = min(min_created_at, ev_created_at)
                             
                             if kind == 10002:
                                 for tag in ev.get("tags", []):
@@ -157,18 +259,20 @@ class ProfileSpider:
                             elif kind == 0:
                                 pubkey = ev.get("pubkey")
                                 if pubkey:
-                                    cache_key = f"{pubkey}:{relay_url}"
+                                    cache_key = f"{pubkey}:{relay_url}:{ev_created_at}"
                                     if cache_key not in self.processed_pubkeys:
                                         self.db_queue.put_nowait((ev, relay_url))
                                         self.processed_pubkeys.add(cache_key)
                                     
                     except asyncio.TimeoutError:
-                        break
+                        continue
                     except json.JSONDecodeError:
                         continue
                         
                 try:
-                    await ws.send(json.dumps(["CLOSE", req_id]))
+                    await ws.send(json.dumps(["CLOSE", req_id_rt]))
+                    if not backfill_done:
+                        await ws.send(json.dumps(["CLOSE", req_id_bf]))
                 except:
                     pass
                     
@@ -177,6 +281,15 @@ class ProfileSpider:
             
         finally:
             self.active_relays.remove(relay_url)
+            
+            # Re-queue the relay after a short delay so it truly runs continuously
+            if relay_url in self.assigned_relays:
+                asyncio.create_task(self._requeue_relay(relay_url))
+
+    async def _requeue_relay(self, relay_url: str):
+        await asyncio.sleep(60)
+        if relay_url in self.assigned_relays:
+            self.relay_queue.put_nowait(relay_url)
 
     async def run(self):
         logger.info("Loading existing profiles from DB...")
@@ -187,6 +300,7 @@ class ProfileSpider:
             logger.info(f"Loaded {len(self.processed_pubkeys)} pubkeys.")
 
         asyncio.create_task(self.db_writer_loop())
+        asyncio.create_task(self.network_sync_loop())
         
         async def worker():
             while True:

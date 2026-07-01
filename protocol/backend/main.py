@@ -2271,5 +2271,97 @@ async def pbft_commit(req: PbftCommitRequest, db: AsyncSession = Depends(get_db)
     return {"status": "committed"}
 
 
+@app.websocket("/")
+async def websocket_feed(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                import json
+                message = json.loads(data)
+                if isinstance(message, list) and len(message) >= 3 and message[0] == "REQ":
+                    sub_id = message[1]
+                    limit = 50
+                    since = None
+                    until = None
+                    search_query = None
+                    offset = 0
+                    kinds = None
+                    
+                    for filter_obj in message[2:]:
+                        if isinstance(filter_obj, dict):
+                            if "limit" in filter_obj:
+                                limit = min(int(filter_obj["limit"]), 100)
+                            if "since" in filter_obj:
+                                since = filter_obj["since"]
+                            if "until" in filter_obj:
+                                until = filter_obj["until"]
+                            if "offset" in filter_obj:
+                                offset = filter_obj["offset"]
+                            if "search" in filter_obj:
+                                search_query = filter_obj["search"]
+                            if "kinds" in filter_obj:
+                                kinds = filter_obj["kinds"]
+
+                    # By default, Nostr relays return all types, but we only serve posts and profiles in feed
+                    # For feed_tab we want `item_type="post"` if kinds==[1]
+                    item_type = None
+                    if kinds and 1 in kinds:
+                         item_type = "post"
+
+                    from services.feed_service import FeedService
+                    scored_posts, _, _, _ = await FeedService.generate_feed(
+                        db=db,
+                        brain=brain,
+                        limit=limit,
+                        offset=offset,
+                        source_type="main", # Fetches all aggregated posts (native, rss, nostr)
+                        language=None,
+                        text=search_query,
+                        user=None,
+                        expose_vector_api=EXPOSE_VECTOR_API,
+                        vector_api_addr=VECTOR_API_ADDR,
+                        vector_api_key=VECTOR_API_KEY,
+                        since=since,
+                        until=until
+                    )
+                    
+                    # We must filter by since, until, and item_type here because generate_feed doesn't fully support all filters directly yet
+                    filtered_posts = []
+                    for score, p in scored_posts:
+                        actual_item_type = getattr(p, "item_type", "post")
+                        if actual_item_type == "post" and getattr(p, "metadata_", None) and isinstance(p.metadata_, dict) and p.metadata_.get("kind") == 0:
+                             actual_item_type = "profile"
+                             
+                        if item_type and actual_item_type != item_type:
+                             continue
+                        pub_ts = p.published_at.timestamp() if getattr(p, "published_at", None) else (p.created_at.timestamp() if p.created_at else 0)
+                        if since and pub_ts < since:
+                             continue
+                        if until and pub_ts > until:
+                             continue
+                        filtered_posts.append(p)
+                    
+                    # Ensure limit
+                    filtered_posts = filtered_posts[:limit]
+                    
+                    serialized_dicts = await asyncio.gather(*[_serialize_post_for_client(db, p) for p in filtered_posts])
+                    
+                    for s_dict in serialized_dicts:
+                         await websocket.send_text(json.dumps(["EVENT", sub_id, s_dict], default=str))
+                    
+                    await websocket.send_text(json.dumps(["EOSE", sub_id], default=str))
+                    
+            except json.JSONDecodeError:
+                pass
+            except Exception as e:
+                logger.error(f"WS error inside loop: {e}")
+                await websocket.send_text(json.dumps(["NOTICE", str(e)]))
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket closed with error: {e}")
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8040, reload=True)

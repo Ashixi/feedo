@@ -40,11 +40,27 @@ async def _load_user_by_wallet(db: AsyncSession, wallet_address: str) -> User | 
     stmt = select(User).where(func.lower(User.wallet_address).in_((normalized, f"0x{normalized}")))
     return (await db.execute(stmt)).scalar_one_or_none()
 
+class ResolveProfilesRequest(BaseModel):
+    pubkeys: List[str]
 
-
-
-
-
+@router.post("/resolve_profiles")
+async def resolve_profiles(req: ResolveProfilesRequest, db: AsyncSession = Depends(get_db)):
+    if not req.pubkeys:
+        return []
+    
+    stmt = select(User).where(User.public_id.in_(req.pubkeys))
+    users = (await db.execute(stmt)).scalars().all()
+    
+    result = []
+    for user in users:
+        result.append({
+            "pubkey": user.public_id,
+            "name": user.display_name or user.username or "",
+            "picture": getattr(user, "avatar_url", None) or "",
+            "bio": getattr(user, "bio", None) or "",
+            "relays": getattr(user, "relays", None) or []
+        })
+    return result
 
 class SearchResponseItem(BaseModel):
     public_id: str

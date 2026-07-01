@@ -157,7 +157,7 @@ class _FeedTabState extends State<FeedTab> {
       while (_prefetchBuffer.length < _maxBufferSize && _hasMore && loops < 5) {
         loops++;
         int fetchLimit = 50; // Fetch larger chunks for background
-        String urlStr = '$apiUrl/feed?limit=$fetchLimit&source_type=nostr&offset=$_fetchedCount';
+        String urlStr = '$apiUrl/feed?limit=$fetchLimit&source_type=main&offset=$_fetchedCount';
             
         urlStr = _buildUrl(urlStr);
         final url = Uri.parse(urlStr);
@@ -202,7 +202,7 @@ class _FeedTabState extends State<FeedTab> {
                } catch(_) {}
             }
             
-            String postId = item['id'].toString();
+            String postId = (item['hash_id'] ?? item['id']).toString();
             if (!_seenPostIds.contains(postId)) {
               _seenPostIds.add(postId);
               validPosts.add(item);

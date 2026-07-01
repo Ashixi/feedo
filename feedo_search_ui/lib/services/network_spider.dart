@@ -8,6 +8,13 @@ class NetworkSpider {
   static final _random = Random();
   static bool _isInitialized = false;
 
+  static List<String> get activeNodes {
+    if (_activeNodes.isEmpty) {
+      return [Constants.defaultApiUrl, 'https://api2.feedo.ink'];
+    }
+    return List.from(_activeNodes);
+  }
+
   static Future<void> init() async {
     if (_isInitialized) return;
     
@@ -17,8 +24,14 @@ class NetworkSpider {
       _activeNodes.add(defaultUrl);
     }
     
+    // Add secondary node for load balancing
+    final secondaryUrl = 'https://api2.feedo.ink';
+    if (!_activeNodes.contains(secondaryUrl)) {
+      _activeNodes.add(secondaryUrl);
+    }
+    
     try {
-      final response = await http.get(Uri.parse('$defaultUrl/v1/network/peers')).timeout(const Duration(seconds: 10));
+      final response = await http.get(Uri.parse('$defaultUrl/v1/node/peers')).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final List<dynamic> peers = json.decode(response.body);
         for (var peer in peers) {

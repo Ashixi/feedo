@@ -399,10 +399,8 @@ class _PostCardState extends State<PostCard> {
       );
     }
     
-    // Hide completely empty posts (e.g. unhydrated Nostr events or empty RSS)
-    if (text.trim().isEmpty && mediaUrls.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    // If hydration completely failed, show 'Content unavailable' instead of hiding
+    bool isFailedHydration = text.trim().isEmpty && mediaUrls.isEmpty;
 
     
     // Threads-style continuous feed container (no individual cards, just flat backgrounds with dividers)
@@ -500,6 +498,14 @@ class _PostCardState extends State<PostCard> {
                               strokeWidth: 2,
                               color: Colors.grey.shade400,
                             ),
+                          ),
+                        )
+                      else if (isFailedHydration)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Text(
+                            "Content unavailable on relays",
+                            style: TextStyle(color: Colors.redAccent.withOpacity(0.8), fontSize: 14, fontStyle: FontStyle.italic),
                           ),
                         )
                       else if (text.isNotEmpty)

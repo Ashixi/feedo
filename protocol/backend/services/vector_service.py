@@ -136,15 +136,20 @@ class VectorBrain:
         clean_text = re.sub(r':\w+:', '', clean_text)
         clean_text = clean_text.strip()
         
-        # If text is mostly links/emojis or too short, it's gibberish
-        if len(clean_text) < 15:
+        # If text is entirely empty after cleaning links/emojis, it's gibberish
+        if len(clean_text) < 1:
             return True
             
         p, lns = Counter(clean_text), float(len(clean_text))
         if lns == 0: return True
         
-        entropy = -sum(count/lns * math.log2(count/lns) for count in p.values())
-        return entropy < 2.0 or entropy > 6.5
+        # Only apply entropy (spam/repetition) checks on longer texts.
+        # Short texts (like "GM") naturally have very low entropy.
+        if lns > 20:
+            entropy = -sum(count/lns * math.log2(count/lns) for count in p.values())
+            return entropy < 1.5 or entropy > 6.5
+            
+        return False
 
     def clean_text_for_embedding(self, text: str) -> str:
         import re
