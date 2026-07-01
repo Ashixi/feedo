@@ -8,6 +8,7 @@ import '../nostr_resolver.dart';
 import '../post_card.dart';
 import '../feed_layout.dart';
 import '../widgets/linkified_text.dart';
+import '../utils/bech32.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final String pubkey;
@@ -42,6 +43,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isLoadingMore = false;
   int? _oldestTimestamp;
 
+  String get _hexPubkey {
+    String pk = widget.pubkey;
+    if (pk.startsWith('nostr:')) {
+      pk = pk.substring(6);
+    }
+    if (pk.startsWith('npub') || pk.startsWith('nprofile')) {
+      try {
+        final decoded = Bech32.decodeToHex(pk);
+        if (decoded.isNotEmpty) return decoded;
+      } catch (_) {}
+    }
+    return pk;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -65,7 +80,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _checkFollowStatus() async {
-    final following = await NostrPublisher.isFollowing(widget.pubkey);
+    final pk = _hexPubkey;
+    if (pk.isEmpty || pk == 'Unknown') return;
+    final following = await NostrPublisher.isFollowing(pk);
     if (mounted) {
       setState(() {
         _hasFollowed = following;
@@ -74,20 +91,35 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _fetchProfileAndPosts() async {
+    final pk = _hexPubkey;
+    if (pk.isEmpty || pk == 'Unknown') {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
     final relaySet = (await RelayService.getRelays()).toSet();
     if (widget.initialRelays != null) {
       relaySet.addAll(widget.initialRelays!);
     }
+    // Add highly reliable global directory/relay nodes as fallbacks
+    relaySet.addAll([
+      'wss://purplepag.es',
+      'wss://relay.damus.io',
+      'wss://nos.lol',
+      'wss://relay.nostr.band',
+      'wss://relay.primal.net',
+      'wss://relay.snort.social',
+    ]);
     final relays = relaySet.toList();
     
     // Sub 1: Profile (kind 0)
     // Keep reqId under 64 chars per NIP-01
-    final profileReqId = 'p_${widget.pubkey.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
-    final profileFilter = {"kinds": [0], "authors": [widget.pubkey], "limit": 1};
+    final profileReqId = 'p_${pk.substring(0, pk.length > 16 ? 16 : pk.length)}_${DateTime.now().millisecondsSinceEpoch}';
+    final profileFilter = {"kinds": [0], "authors": [pk], "limit": 1};
     
     // Sub 2: Posts (kind 1)
-    final postsReqId = 'po_${widget.pubkey.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
-    final postsFilter = {"kinds": [1], "authors": [widget.pubkey], "limit": 20};
+    final postsReqId = 'po_${pk.substring(0, pk.length > 16 ? 16 : pk.length)}_${DateTime.now().millisecondsSinceEpoch}';
+    final postsFilter = {"kinds": [1], "authors": [pk], "limit": 20};
 
     final Map<String, dynamic> uniquePosts = {};
     List<WebSocketChannel> channels = [];
@@ -132,6 +164,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               }
             }
           } catch (_) {}
+        }, onError: (err) {
+          print('Error from relay stream: $err');
         });
       } catch (_) {}
     }
@@ -141,7 +175,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     
     // Close connections
     for (var ch in channels) {
-      ch.sink.close();
+      try {
+        ch.sink.close();
+      } catch (_) {}
     }
     
     // Batch resolve all authors and interactions for the posts!
@@ -157,14 +193,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _loadMorePosts() async {
     if (_isLoadingMore || _oldestTimestamp == null) return;
+    final pk = _hexPubkey;
+    if (pk.isEmpty || pk == 'Unknown') return;
     setState(() => _isLoadingMore = true);
 
     final relaySet = (await RelayService.getRelays()).toSet();
     if (widget.initialRelays != null) relaySet.addAll(widget.initialRelays!);
+    // Add highly reliable global directory/relay nodes as fallbacks
+    relaySet.addAll([
+      'wss://purplepag.es',
+      'wss://relay.damus.io',
+      'wss://nos.lol',
+      'wss://relay.nostr.band',
+      'wss://relay.primal.net',
+      'wss://relay.snort.social',
+    ]);
     final relays = relaySet.toList();
 
-    final postsReqId = 'more_${widget.pubkey.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
-    final postsFilter = {"kinds": [1], "authors": [widget.pubkey], "limit": 20, "until": _oldestTimestamp};
+    final postsReqId = 'more_${pk.substring(0, pk.length > 16 ? 16 : pk.length)}_${DateTime.now().millisecondsSinceEpoch}';
+    final postsFilter = {"kinds": [1], "authors": [pk], "limit": 20, "until": _oldestTimestamp};
 
     final Map<String, dynamic> uniquePosts = { for (var p in _posts) p['id'] as String : p };
     List<WebSocketChannel> channels = [];
@@ -195,6 +242,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               }
             }
           } catch (_) {}
+        }, onError: (err) {
+          print('Error from load more relay stream: $err');
         });
       } catch (_) {}
     }
@@ -234,7 +283,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _handleFollow() async {
     setState(() => _isFollowingLoading = true);
-    final success = await NostrPublisher.publishFollow(widget.pubkey);
+    final pk = _hexPubkey;
+    if (pk.isEmpty || pk == 'Unknown') return;
+    final success = await NostrPublisher.publishFollow(pk);
     if (mounted) {
       if (success != null) {
         setState(() => _hasFollowed = !_hasFollowed);
@@ -320,7 +371,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
           SizedBox(height: 4),
           Text(
-            '@${widget.pubkey.length > 12 ? widget.pubkey.substring(0, 12) : widget.pubkey}...',
+            '@${_hexPubkey.length > 12 ? _hexPubkey.substring(0, 12) : _hexPubkey}...',
             style: TextStyle(color: Colors.grey),
           ),
           if (_about != null && _about!.isNotEmpty) ...[
@@ -354,7 +405,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatScreen(
-                        peerPubkey: widget.pubkey,
+                        peerPubkey: _hexPubkey,
                         peerName: _name ?? 'Unknown User',
                         peerPicture: _avatar ?? '',
                       ),
