@@ -52,13 +52,22 @@ class _PostCardState extends State<PostCard> {
                widget.post['text'] = ev['content'];
                
                List<String> extractedMedia = [];
-               if (ev['tags'] != null) {
-                 for (var tag in ev['tags']) {
-                   if (tag is List && tag.isNotEmpty && (tag[0] == 'url' || tag[0] == 'image' || tag[0] == 'imeta')) {
-                     if (tag.length > 1) extractedMedia.add(tag[1].toString());
-                   }
-                 }
-               }
+                if (ev['tags'] != null) {
+                  for (var tag in ev['tags']) {
+                    if (tag is List && tag.isNotEmpty) {
+                      if (tag[0] == 'url' || tag[0] == 'image') {
+                        if (tag.length > 1) extractedMedia.add(tag[1].toString());
+                      } else if (tag[0] == 'imeta') {
+                        for (var i = 1; i < tag.length; i++) {
+                          if (tag[i].toString().startsWith('url ')) {
+                            extractedMedia.add(tag[i].toString().substring(4));
+                            break;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
                
                final RegExp mediaRegex = RegExp(r'(https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|mp4|mov))', caseSensitive: false);
                final matches = mediaRegex.allMatches(ev['content'] ?? '');
@@ -333,7 +342,13 @@ class _PostCardState extends State<PostCard> {
     final itemType = widget.post['item_type'] ?? 'post';
     List<String> mediaUrls = [];
     if (widget.post['media'] != null && widget.post['media'] is List) {
-      mediaUrls = List<String>.from(widget.post['media']);
+      for (var m in widget.post['media']) {
+        String urlStr = m.toString().trim();
+        if (urlStr.startsWith('url ')) urlStr = urlStr.substring(4).trim();
+        if (urlStr.isNotEmpty && !mediaUrls.contains(urlStr)) {
+          mediaUrls.add(urlStr);
+        }
+      }
     }
 
     // Extract Markdown Images/Videos
@@ -664,7 +679,12 @@ class _PostCardState extends State<PostCard> {
       return Image.network(
         url,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: Colors.white.withOpacity(0.05),
+          child: Center(
+            child: Icon(Icons.broken_image_rounded, color: Colors.grey.shade700, size: 32),
+          ),
+        ),
       );
     }
   }
