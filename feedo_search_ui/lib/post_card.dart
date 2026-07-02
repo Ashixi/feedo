@@ -92,6 +92,29 @@ class _PostCardState extends State<PostCard> {
         }
       }
     }
+    
+    // Check if author profile is missing (Unknown)
+    final authorAddress = widget.post['author_address'] ?? widget.post['pubkey'];
+    final authorName = widget.post['author_name'] ?? widget.post['display_author'] ?? widget.post['name'];
+    
+    if (authorAddress != null && authorAddress != 'Unknown' && (authorName == null || authorName.isEmpty)) {
+      if (mounted) {
+        List<String>? relayUrls;
+        if (widget.post['relay_urls'] != null) {
+          relayUrls = List<String>.from(widget.post['relay_urls']);
+        }
+        NostrPublisher.fetchProfile(authorAddress, additionalRelays: relayUrls).then((profile) {
+          if (mounted && profile != null) {
+            setState(() {
+              widget.post['author_name'] = profile['name'] ?? profile['display_name'] ?? authorAddress;
+              if (profile['picture'] != null) {
+                widget.post['author_avatar'] = profile['picture'];
+              }
+            });
+          }
+        });
+      }
+    }
   }
 
   void _openUserProfile() {

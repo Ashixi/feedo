@@ -282,5 +282,72 @@ class NostrPublisher {
     
     return eventData;
   }
+
+  static Future<Map<String, dynamic>?> fetchProfile(String pubkey, {List<String>? additionalRelays}) async {
+    final relays = await RelayService.getRelays();
+    if (additionalRelays != null) {
+      for (var r in additionalRelays) {
+        if (r.isNotEmpty && !relays.contains(r)) relays.add(r);
+      }
+    }
+    
+    final globalRelays = [
+      'wss://purplepag.es',
+      'wss://relay.damus.io',
+      'wss://nos.lol',
+      'wss://relay.nostr.band',
+    ];
+    for (var r in globalRelays) {
+      if (!relays.contains(r)) relays.add(r);
+    }
+    
+    final filter = {
+      "kinds": [0],
+      "authors": [pubkey],
+      "limit": 1
+    };
+    final reqId = 'get_profile_${DateTime.now().millisecondsSinceEpoch}';
+    final reqStr = jsonEncode(['REQ', reqId, filter]);
+    
+    Map<String, dynamic>? profileData;
+    List<Future<void>> fetchFutures = [];
+    
+    for (var url in relays) {
+      fetchFutures.add(() async {
+        if (profileData != null) return;
+        try {
+          final channel = WebSocketChannel.connect(Uri.parse(url));
+          await channel.ready.timeout(const Duration(seconds: 3));
+          channel.sink.add(reqStr);
+          
+          await for (var msg in channel.stream.timeout(const Duration(seconds: 4))) {
+            if (profileData != null) {
+              channel.sink.close();
+              break;
+            }
+            final data = jsonDecode(msg);
+            if (data[0] == 'EVENT' && data[1] == reqId) {
+              final ev = data[2];
+              try {
+                profileData = jsonDecode(ev['content']);
+              } catch (_) {}
+              channel.sink.close();
+              break;
+            }
+            if (data[0] == 'EOSE' && data[1] == reqId) {
+              channel.sink.close();
+              break;
+            }
+          }
+        } catch (_) {}
+      }());
+    }
+
+    try {
+      await Future.wait(fetchFutures).timeout(const Duration(seconds: 5));
+    } catch (_) {}
+    
+    return profileData;
+  }
 }
 

@@ -374,11 +374,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             '@${_hexPubkey.length > 12 ? _hexPubkey.substring(0, 12) : _hexPubkey}...',
             style: TextStyle(color: Colors.grey),
           ),
-          if (_about != null && _about!.isNotEmpty) ...[
+          if (_about != null && _about!.trim().isNotEmpty) ...[
             SizedBox(height: 12),
             LinkifiedText(
-              text: _about!,
+              text: _about!.trim(),
               textAlign: TextAlign.center,
+              maxLines: 6,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 14),
             ),
           ],

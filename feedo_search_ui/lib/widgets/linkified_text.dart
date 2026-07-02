@@ -87,11 +87,14 @@ class LinkifiedText extends StatelessWidget {
           if (eventData.eventId.isNotEmpty) {
             spans.add(const TextSpan(text: '\n'));
             spans.add(WidgetSpan(
-              child: QuotedEventCard(
-                eventId: eventData.eventId,
-                relays: eventData.relays,
-                author: eventData.author,
-                depth: depth + 1,
+              child: Container(
+                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width - 32),
+                child: QuotedEventCard(
+                  eventId: eventData.eventId,
+                  relays: eventData.relays,
+                  author: eventData.author,
+                  depth: depth + 1,
+                ),
               ),
             ));
             spans.add(const TextSpan(text: '\n'));
