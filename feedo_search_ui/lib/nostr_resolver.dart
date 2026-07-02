@@ -9,6 +9,7 @@ class NostrResolver {
   static Future<void> resolve(List<dynamic> results, {void Function()? onUpdate}) async {
     // Group required post IDs and author pubkeys by relay URL
     Map<String, Set<String>> relayToPostIds = {};
+    Map<String, Set<String>> relayToMetricsPostIds = {};
     Map<String, Set<String>> relayToAuthors = {};
 
     for (var res in results) {
@@ -28,10 +29,19 @@ class NostrResolver {
       if (!relays.contains('wss://nos.lol')) relays.add('wss://nos.lol');
       
       for (String relayUrl in relays) {
-        relayToPostIds.putIfAbsent(relayUrl, () => {}).add(res['hash_id']);
+        // Only request post content if text is missing or it's an unresolved repost
+        bool needsText = res['text'] == null || res['text'].toString().isEmpty;
+        bool isRepost = res['metadata'] != null && res['metadata']['kind'] == 6;
+        bool needsOriginalRepost = isRepost && res['is_repost_resolved'] != true;
         
-        // If this is a repost, also fetch the original event!
-        if (res['metadata'] != null && res['metadata']['kind'] == 6) {
+        if (needsText || needsOriginalRepost) {
+          relayToPostIds.putIfAbsent(relayUrl, () => {}).add(res['hash_id']);
+        }
+        
+        // Always add to a separate map for metrics (likes, comments) tracking, even if we have the text
+        relayToMetricsPostIds.putIfAbsent(relayUrl, () => {}).add(res['hash_id']);
+        
+        if (needsOriginalRepost) {
           var tags = res['metadata']['tags'] as List?;
           if (tags != null) {
             for (var t in tags) {
@@ -43,8 +53,10 @@ class NostrResolver {
         }
 
         String author = res['author_address'] ?? '';
-        // Only add valid Nostr pubkeys (64 char hex) to the profile query
-        if (author.isNotEmpty && author.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(author)) {
+        bool needsProfile = res['author_name'] == null || res['author_name'].toString() == 'Unknown' || res['author_name'].toString().isEmpty;
+        
+        // Only add valid Nostr pubkeys to the profile query if we don't have the profile
+        if (needsProfile && author.isNotEmpty && author.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(author)) {
           relayToAuthors.putIfAbsent(relayUrl, () => {}).add(author);
         }
       }
@@ -59,11 +71,14 @@ class NostrResolver {
 
     // Resolve per relay
     List<Future> futures = [];
-    for (var relay in relayToPostIds.keys) {
+    // Combine all unique relays from all maps
+    Set<String> allRelays = {...relayToPostIds.keys, ...relayToAuthors.keys, ...relayToMetricsPostIds.keys};
+    for (var relay in allRelays) {
       futures.add(_fetchFromRelay(
         relay,
-        relayToPostIds[relay]!.toList(),
+        relayToPostIds[relay]?.toList() ?? [],
         relayToAuthors[relay]?.toList() ?? [],
+        relayToMetricsPostIds[relay]?.toList() ?? [],
         results,
         myPubkey,
         countedInteractionIds,
@@ -79,6 +94,7 @@ class NostrResolver {
     String relayUrl,
     List<String> postIds,
     List<String> authors,
+    List<String> metricPostIds,
     List<dynamic> allResults,
     String? myPubkey,
     Set<String> countedInteractionIds,
@@ -94,11 +110,18 @@ class NostrResolver {
       List<Map<String, dynamic>> filters = [];
       if (postIds.isNotEmpty) {
         filters.add({'ids': postIds});
+      }
+      if (metricPostIds.isNotEmpty) {
         // Fetch social interactions for these posts
-        filters.add({'kinds': [1, 6, 7, 9735], '#e': postIds});
+        filters.add({'kinds': [1, 6, 7, 9735], '#e': metricPostIds});
       }
       if (authors.isNotEmpty) {
         filters.add({'kinds': [0], 'authors': authors});
+      }
+
+      if (filters.isEmpty) {
+        channel.sink.close();
+        return;
       }
 
       var request = ['REQ', subId, ...filters];
@@ -185,7 +208,7 @@ class NostrResolver {
                 }
               }
               
-              if (eTag != null && postIds.contains(eTag)) {
+              if (eTag != null && metricPostIds.contains(eTag)) {
                 // Deduplicate interaction events across relays
                 if (countedInteractionIds.contains(ev['id'])) continue;
                 countedInteractionIds.add(ev['id']);

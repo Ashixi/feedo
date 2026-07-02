@@ -418,7 +418,17 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
         author_obj = None
 
     author = author_obj or await _load_user_by_wallet(db, post.author_address)
+    
+    avatar_url = _author_avatar_url(author)
     display_author = _display_author_name(author, post.original_author_name, post.author_address)
+
+    # Fetch Nostr profile if no native User exists
+    if not author and post.source_type == "nostr" and post.author_address:
+        stmt = select(Post).where(Post.author_address == post.author_address, Post.item_type == "profile").order_by(Post.id.desc()).limit(1)
+        nostr_profile_post = (await db.execute(stmt)).scalar_one_or_none()
+        if nostr_profile_post and nostr_profile_post.metadata_ and isinstance(nostr_profile_post.metadata_, dict):
+            display_author = nostr_profile_post.metadata_.get("name") or nostr_profile_post.metadata_.get("display_name") or display_author
+            avatar_url = nostr_profile_post.metadata_.get("picture") or avatar_url
 
     also_posted_by = []
     from sqlalchemy.exc import MissingGreenlet
@@ -435,6 +445,15 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
             
         dup_author_obj = dup_author_obj_lazy or await _load_user_by_wallet(db, dup.author_address)
         dup_author = dup.original_author_name if dup.original_author_name else _display_author_name(dup_author_obj, dup.author_address)
+        dup_avatar = _author_avatar_url(dup_author_obj)
+        
+        if not dup_author_obj and dup.source_type == "nostr" and dup.author_address:
+            dup_stmt = select(Post).where(Post.author_address == dup.author_address, Post.item_type == "profile").order_by(Post.id.desc()).limit(1)
+            dup_profile = (await db.execute(dup_stmt)).scalar_one_or_none()
+            if dup_profile and dup_profile.metadata_ and isinstance(dup_profile.metadata_, dict):
+                dup_author = dup_profile.metadata_.get("name") or dup_profile.metadata_.get("display_name") or dup_author
+                dup_avatar = dup_profile.metadata_.get("picture") or dup_avatar
+
         also_posted_by.append({
             "id": dup.id,
             "source_type": dup.source_type,
@@ -444,7 +463,7 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
             "text": dup.text_content,
             "display_author": dup_author,
             "author_address": dup.author_address,
-            "avatar_url": _author_avatar_url(dup_author_obj),
+            "avatar_url": dup_avatar,
             "is_repost": dup.is_repost,
         })
 
@@ -539,7 +558,7 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
         "is_repost": post.is_repost,
         "metadata": post.metadata_,
         "also_posted_by": also_posted_by,
-        "avatar_url": _author_avatar_url(author),
+        "avatar_url": avatar_url,
         "relay_urls": getattr(post, "relay_urls", None) or ([post.relay_url] if getattr(post, "relay_url", None) else []),
     }
 
