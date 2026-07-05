@@ -1,0 +1,29 @@
+[package]
+name = "consensus-node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.7"
+prost = "0.13"
+shared-proto = { version = "0.1.0", path = "../shared-proto" }
+tokio = { version = "1.35", features = ["full"] }
+tonic = "0.12"
+
+ethers = "2.0"
+rs_merkle = "1.4"
+sled = "0.34"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+hex = "0.4"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+secp256k1 = { version = "0.28", features = ["hashes"] }
+base64 = "0.22.1"
+rand = "0.8"
+libp2p = { version = "0.53", features = ["macros", "tokio", "quic", "request-response", "cbor", "identify", "gossipsub", "kad", "mdns", "tcp", "noise", "yamux"] }
+futures = "0.3.32"
+tokio-stream = { version = "0.1.18", features = ["net"] }
+tower-http = { version = "0.6", features = ["cors"] }

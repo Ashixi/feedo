@@ -1,0 +1,4 @@
+websockets==12.0
+aiohttp==3.9.3
+secp256k1==0.14.0
+pydantic==2.6.3

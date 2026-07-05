@@ -1,0 +1,8 @@
+cargo:rerun-if-changed=proto/consensus.proto
+cargo:rerun-if-changed=proto
+cargo:rerun-if-changed=proto/storage.proto
+cargo:rerun-if-changed=proto
+cargo:rerun-if-changed=proto/feedo.proto
+cargo:rerun-if-changed=proto
+cargo:rerun-if-changed=proto/farcaster.proto
+cargo:rerun-if-changed=proto

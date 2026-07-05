@@ -1,0 +1,11 @@
+D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\quote-70143e933ef1b08e.d: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs
+
+D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\libquote-70143e933ef1b08e.rmeta: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs
+
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs:

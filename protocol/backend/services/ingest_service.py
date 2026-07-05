@@ -3,6 +3,9 @@ from sqlalchemy import select
 from models import Post, ContentType
 from datetime import datetime
 import logging
+import httpx
+import os
+import json
 
 logger = logging.getLogger("ingest_service")
 
@@ -63,6 +66,45 @@ class IngestService:
                 image_vector=image_vector,
                 relay_url=post_data.relay_url
             )
+            
+        # P2P Global Deduplication & Publishing
+        rust_core_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish")
+        # For Nostr we use size 0 or actual size to check existence.
+        content_size = len(post_data.text_content.encode('utf-8')) if post_data.text_content else 0
+        fetch_url = rust_core_url.replace("/local/publish", f"/local/fetch_content/{post_data.source_specific_id}/{content_size}")
+        
+        is_in_dht = False
+        if post_data.text_content:
+            async with httpx.AsyncClient() as client:
+                try:
+                    res = await client.get(fetch_url, timeout=1.5)
+                    if res.status_code == 200 and res.json(): # Returns JSON string if found
+                        is_in_dht = True
+                        logger.info(f"Post {post_data.source_specific_id} already in DHT, skipping P2P publish.")
+                except Exception:
+                    pass
+                    
+            if not is_in_dht:
+                try:
+                    import feedo_pb2
+                    pb_req = feedo_pb2.PublishRequest(
+                        text=post_data.text_content,
+                        author=post_data.author_address,
+                        signature="", # Nostr sig is verified before this
+                        hash_id=post_data.source_specific_id,
+                        source_type=post_data.source_type,
+                        metadata=json.dumps(post_data.metadata_ or {})
+                    )
+                    async with httpx.AsyncClient() as client:
+                        await client.post(
+                            rust_core_url,
+                            content=pb_req.SerializeToString(),
+                            headers={"Content-Type": "application/x-protobuf"},
+                            timeout=5.0
+                        )
+                        logger.info(f"Published post {post_data.source_specific_id} to P2P network.")
+                except Exception as e:
+                    logger.error(f"Failed to publish {post_data.source_specific_id} to DHT: {e}")
             
         # Create Post (Stateless Indexer - do NOT save text)
         new_post = Post(

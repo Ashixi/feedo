@@ -1,0 +1,118 @@
+version: "3.8"
+
+services:
+  storage-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      target: storage-node
+    ports:
+      - "8040:8040/udp"
+      - "3001:3001"
+      - "50052:50052"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - storage_db:/app/storage_db
+    networks:
+      - feedo-net
+
+  consensus-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      target: consensus-node
+    ports:
+      - "50051:50051"
+      - "3000:3000"
+      - "8041:8041/udp"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - ETH_RPC_URL=${ETH_RPC_URL:-https://polygon-rpc.com}
+      - P2P_PORT=8041
+    volumes:
+      - consensus_db:/app/consensus_db
+    networks:
+      - feedo-net
+
+  search-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        APP_DIR: search-node
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - GATEWAYS=${GATEWAYS:-http://storage-node:3001}
+      - STORAGE_NODE_URL=${STORAGE_NODE_URL:-http://storage-node:3001}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - lancedb_data:/app/lancedb_data
+      - ./search-node:/app
+    depends_on:
+      - storage-node
+    networks:
+      - feedo-net
+
+  feedo-algo:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        APP_DIR: feedo-algo
+    environment:
+      - DB_PATH=/app/lancedb_data
+      - SEARCH_NODE_URL=${SEARCH_NODE_URL:-http://search-node:8000}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "worker.py"]
+    volumes:
+      - lancedb_data:/app/lancedb_data
+      - ./feedo-algo:/app
+    depends_on:
+      - search-node
+    networks:
+      - feedo-net
+
+  feedo-ingester:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        APP_DIR: feedo-ingester
+    environment:
+      - GATEWAYS=${GATEWAYS:-http://storage-node:3001}
+      - STORAGE_NODE_URL=${STORAGE_NODE_URL:-http://storage-node:3001}
+      - SEARCH_NODE_URL=${SEARCH_NODE_URL:-http://search-node:8000}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "main.py"]
+    volumes:
+      - ./feedo-ingester:/app
+    depends_on:
+      - storage-node
+      - search-node
+    networks:
+      - feedo-net
+
+  feedo-search-ui:
+    build:
+      context: ./feedo_search_ui
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${PUBLIC_API_URL:-https://api.feedo.ink}
+    ports:
+      - "8080:80"
+    networks:
+      - feedo-net
+
+volumes:
+  lancedb_data:
+  storage_db:
+  consensus_db:
+
+networks:
+  feedo-net:
+    driver: bridge

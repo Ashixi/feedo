@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+# Accept the application directory as an argument
+ARG APP_DIR
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements if it exists and install
+COPY ${APP_DIR}/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt || echo "No requirements.txt found"
+
+# Copy the specific app folder
+COPY ${APP_DIR} /app/
+
+# The CMD will be overridden in docker-compose.yml
+CMD ["python", "main.py"]

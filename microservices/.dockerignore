@@ -1,0 +1,10 @@
+target/
+**/.pytest_cache
+**/.idea
+**/__pycache__
+**/*.pyc
+.git/
+lancedb_data/
+storage_db/
+consensus_db/
+.env

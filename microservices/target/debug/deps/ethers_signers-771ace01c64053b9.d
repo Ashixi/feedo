@@ -1,0 +1,9 @@
+D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\ethers_signers-771ace01c64053b9.d: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mod.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mnemonic.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\private_key.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\../README.md
+
+D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\libethers_signers-771ace01c64053b9.rmeta: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mod.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mnemonic.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\private_key.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\../README.md
+
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\lib.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mod.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\mnemonic.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\wallet\private_key.rs:
+C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\ethers-signers-2.0.14\src\../README.md:

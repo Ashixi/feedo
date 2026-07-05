@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package feedo.storage;
+
+service StorageService {
+    // Швидке отримання файлу без HTTP оверхеду
+    rpc InternalFetchFile(FetchRequest) returns (stream ChunkData);
+    
+    // Підписка на події "у мережі з'явився новий файл" (для індексатора)
+    rpc StreamNewUploads(Empty) returns (stream NewFileEvent);
+}
+
+message FetchRequest {
+    string file_hash = 1;
+}
+
+message ChunkData {
+    bytes data = 1;
+}
+
+message Empty {}
+
+message NewFileEvent {
+    string file_hash = 1;
+    string file_metadata = 2; // або інший формат метаданих
+}

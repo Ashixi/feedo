@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package feedo.consensus;
+
+service ConsensusService {
+    // Перевірка чи можна пустити файл в DHT мережу
+    rpc VerifyUploadRights(VerifyUploadRequest) returns (VerifyUploadResponse);
+    
+    // Ноди-сховища скаржаться сюди, якщо інша нода втратила файл
+    rpc ReportMissingChunk(MissingChunkRequest) returns (MissingChunkResponse);
+    
+    // Отримати список IP адрес топ-валідаторів
+    rpc GetActiveValidators(Empty) returns (ValidatorList);
+
+    // Зробити мапінг домену у хеш файлу
+    rpc ResolveName(ResolveNameRequest) returns (ResolveNameResponse);
+}
+
+message VerifyUploadRequest {
+    string user_did = 1;
+    string file_hash = 2;
+    uint64 file_size = 3;
+}
+
+message VerifyUploadResponse {
+    bool is_allowed = 1;
+    string reason = 2;
+}
+
+message MissingChunkRequest {
+    string chunk_hash = 1;
+    string missing_node_id = 2;
+}
+
+message MissingChunkResponse {
+    bool reported = 1;
+}
+
+message Empty {}
+
+message Validator {
+    string node_id = 1;
+    string ip_address = 2;
+}
+
+message ValidatorList {
+    repeated Validator validators = 1;
+}
+
+message ResolveNameRequest {
+    string name = 1;
+}
+
+message ResolveNameResponse {
+    string file_hash = 1;
+    bool found = 2;
+}

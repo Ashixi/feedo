@@ -483,13 +483,11 @@ async def _serialize_post_for_client(db: AsyncSession, post: Post) -> dict[str, 
             relay_urls.append(getattr(post, "relay_url"))
             
         try:
-            rust_fetch_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish").replace("/local/publish", f"/local/fetch_hash/{post.hash_id}")
+            rust_fetch_url = os.environ.get("RUST_CORE_URL", "http://127.0.0.1:8041/local/publish").replace("/local/publish", f"/local/fetch_content/{post.hash_id}/{post.content_size or 0}")
             async with httpx.AsyncClient() as client:
                 res = await client.get(rust_fetch_url, timeout=0.8)
                 if res.status_code == 200 and res.json():
-                    data = res.json()
-                    if data.get("text_preview"):
-                        text = data["text_preview"]
+                    text = res.json()
         except Exception:
             pass
             
@@ -780,13 +778,7 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
             existing_post.text_content = None
             existing_post.title = p_data.get("title", "")
             
-            compressed_val = None
-            if p_data.get("text_content"):
-                try:
-                    compressed_val = zlib.compress(p_data["text_content"].encode('utf-8'))
-                except Exception:
-                    pass
-            existing_post.compressed_content = compressed_val
+            existing_post.compressed_content = None
             
             existing_post.prev_post_hash = prev_hash
             existing_post.hash_id = p_data["hash_id"]
@@ -845,18 +837,13 @@ async def process_incoming_post(db: AsyncSession, p_data: dict, check_chain: boo
         content_type_val = ContentType.TEXT
         
     compressed_val = None
-    if p_data.get("text_content"):
-        try:
-            compressed_val = zlib.compress(p_data["text_content"].encode('utf-8'))
-        except Exception:
-            pass
 
     new_post = Post(
         source_type=source_type,
         source_specific_id=p_data.get("source_specific_id"),
         title=p_data.get("title", "") if source_type == "nostr" else "", 
         text_content=None,
-        compressed_content=compressed_val,
+        compressed_content=None,
         content_size=p_data.get("content_size", len(p_data["text_content"].encode('utf-8'))),
         is_full_content_loaded=p_data.get("is_full_content_loaded", True),
         author_address=author_address,
@@ -2120,7 +2107,12 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
                     if new_profiles:
                         try:
                             await db.commit()
-                            posts.extend(new_profiles)
+                            # Re-query to avoid DetachedInstanceError/MissingGreenlet due to expired instances after commit
+                            all_ids = [p.id for p in posts] + [p.id for p in new_profiles]
+                            stmt_refresh = select(Post).options(selectinload(Post.author), selectinload(Post.duplicates)).where(
+                                Post.id.in_(all_ids)
+                            ).order_by(desc(Post.sequence_number))
+                            posts = list((await db.execute(stmt_refresh)).scalars().all())
                         except IntegrityError:
                             await db.rollback()
             except Exception as e:
@@ -2170,9 +2162,9 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
             
             # Sort posts to match the order of rel_hash_ids (most relevant first, with anti-bubble injected)
             post_map = {p.hash_id: p for p in posts}
-            for hid in rel_hash_ids:
-                if hid in post_map:
-                    results.append(await _serialize_post_for_client(db, post_map[hid]))
+            posts_to_serialize = [post_map[hid] for hid in rel_hash_ids if hid in post_map]
+            serialized_results = await asyncio.gather(*[_serialize_post_for_client(db, p) for p in posts_to_serialize])
+            results.extend(serialized_results)
         if federated:
             if p2p:
                 peer_addrs = set()
@@ -2209,12 +2201,17 @@ async def federated_query(text: str, limit: int = 10, offset: int = 0, federated
                     if remote_hids:
                         stmt_rem = select(Post).where(Post.hash_id.in_(remote_hids))
                         rem_posts = (await db.execute(stmt_rem)).scalars().all()
+                        unique_rem_posts = []
                         for rp in rem_posts:
                             # Avoid duplicates
                             if not any(r["hash_id"] == rp.hash_id for r in results):
-                                serialized = await _serialize_post_for_client(db, rp)
-                                serialized["is_federated"] = True
-                                results.append(serialized)
+                                unique_rem_posts.append(rp)
+                                
+                        if unique_rem_posts:
+                            serialized_rem = await asyncio.gather(*[_serialize_post_for_client(db, rp) for rp in unique_rem_posts])
+                            for s in serialized_rem:
+                                s["is_federated"] = True
+                                results.append(s)
                                 
         return {"query": text, "results": results}
     except Exception as e:
