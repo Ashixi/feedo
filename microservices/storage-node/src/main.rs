@@ -240,7 +240,15 @@ async fn handle_ws(mut socket: WebSocket, topic: String, mut rx: tokio::sync::br
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let local_key = identity::Keypair::generate_ed25519();
+    let keypair_path = "storage_db/peer_key.bin";
+    std::fs::create_dir_all("storage_db").unwrap_or_default();
+    let local_key = if let Ok(bytes) = std::fs::read(keypair_path) {
+        identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| identity::Keypair::generate_ed25519())
+    } else {
+        let key = identity::Keypair::generate_ed25519();
+        let _ = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap());
+        key
+    };
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);
 
@@ -312,9 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
-
     swarm.listen_on("/ip4/0.0.0.0/udp/8040/quic-v1".parse()?)?;
-
     if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
         for s in nodes_csv.split(',') {
             let s = s.trim();

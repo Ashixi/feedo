@@ -76,39 +76,66 @@ impl DidDocument {
     }
 }
 
-pub fn verify_signature(public_key_hex: &str, payload: &[u8], signature_hex: &str) -> bool {
-    use ed25519_dalek::{VerifyingKey, Signature, Verifier};
-    
-    // Clean hex strings
-    let pub_clean = public_key_hex.trim_start_matches("0x").trim_start_matches("z").trim_start_matches("f");
-    let sig_clean = signature_hex.trim_start_matches("0x");
+/// Перевіряє Ethereum ECDSA підпис (EIP-191).
+/// address_hex — Ethereum-адреса підписувача (0x...)
+/// payload — оригінальні байти повідомлення (без prefix)
+/// signature_hex — hex-підпис від ethers::LocalWallet::sign_message (0x{r}{s}{v})
+pub fn verify_signature(address_hex: &str, payload: &[u8], signature_hex: &str) -> bool {
+    use ethers::core::types::{Signature, H160};
+    use ethers::utils::hash_message;
+    use std::str::FromStr;
 
-    let pub_bytes = match hex::decode(pub_clean) {
-        Ok(b) => b,
-        Err(_) => return false,
+    // Нормалізуємо підпис (ethers повертає його як десяткове число або hex)
+    // Формат підпису: "r:s:v" або "0x{130 hex chars}"
+    let sig_result = if signature_hex.starts_with("0x") || signature_hex.len() == 130 {
+        // hex формат
+        let hex_clean = if signature_hex.starts_with("0x") {
+            signature_hex.to_string()
+        } else {
+            format!("0x{}", signature_hex)
+        };
+        hex_clean.parse::<Signature>()
+    } else {
+        // десятковий формат (ethers повертає u8 значення як decimal)
+        // Пробуємо hex після trim
+        format!("0x{}", signature_hex).parse::<Signature>()
     };
-    
-    let sig_bytes = match hex::decode(sig_clean) {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
 
-    if pub_bytes.len() != 32 || sig_bytes.len() != 64 {
-        return false;
-    }
-
-    let verifying_key = match VerifyingKey::try_from(pub_bytes.as_slice()) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-
-    let signature = match Signature::from_slice(&sig_bytes) {
+    let signature = match sig_result {
         Ok(s) => s,
-        Err(_) => return false,
+        Err(e) => {
+            println!("ECDSA signature parse error: {:?}", e);
+            return false;
+        }
     };
 
-    verifying_key.verify(payload, &signature).is_ok()
+    // Ethereum prefix hashing (EIP-191): "\x19Ethereum Signed Message:\n{len}{msg}"
+    let message_hash = hash_message(payload);
+
+    let recovered = match signature.recover(message_hash) {
+        Ok(addr) => addr,
+        Err(e) => {
+            println!("ECDSA signature recovery error: {:?}", e);
+            return false;
+        }
+    };
+
+    let clean_addr = address_hex.trim_start_matches("0x");
+    let expected = match H160::from_str(clean_addr) {
+        Ok(a) => a,
+        Err(e) => {
+            println!("Address parse error: {:?}", e);
+            return false;
+        }
+    };
+
+    let ok = recovered == expected;
+    if !ok {
+        println!("ECDSA mismatch: recovered={:?}, expected={:?}", recovered, expected);
+    }
+    ok
 }
+
 
 #[cfg(test)]
 mod tests {

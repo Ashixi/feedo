@@ -17,13 +17,15 @@ impl NameDb {
                 did TEXT NOT NULL,
                 public_key TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                cid TEXT
+                cid TEXT,
+                gateways TEXT
             )",
             [],
         )?;
         
         // Спроба додати колонку, якщо база була створена раніше.
         let _ = conn.execute("ALTER TABLE name_registry ADD COLUMN cid TEXT", []);
+        let _ = conn.execute("ALTER TABLE name_registry ADD COLUMN gateways TEXT", []);
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -45,25 +47,40 @@ impl NameDb {
         Ok(())
     }
 
-    pub fn update_cid(&self, name: &str, cid: &str) -> Result<()> {
+    pub fn update_cid(&self, name: &str, cid: &str, gateways_json: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE name_registry SET cid = ?1 WHERE name = ?2",
-            params![cid, name],
+            "UPDATE name_registry SET cid = ?1, gateways = ?2 WHERE name = ?3",
+            params![cid, gateways_json, name],
         )?;
         Ok(())
     }
 
-    pub fn resolve_name(&self, name: &str) -> Result<Option<(String, Option<String>)>> {
+    pub fn resolve_name(&self, name: &str) -> Result<Option<(String, Option<String>, Option<String>)>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT did, cid FROM name_registry WHERE name = ?1")?;
+        let mut stmt = conn.prepare("SELECT did, cid, gateways FROM name_registry WHERE name = ?1")?;
         
         let mut rows = stmt.query(params![name])?;
         
         if let Some(row) = rows.next()? {
             let did: String = row.get(0)?;
             let cid: Option<String> = row.get(1)?;
-            Ok(Some((did, cid)))
+            let gateways: Option<String> = row.get(2)?;
+            Ok(Some((did, cid, gateways)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn resolve_cid(&self, cid: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT name FROM name_registry WHERE cid = ?1 LIMIT 1")?;
+        
+        let mut rows = stmt.query(params![cid])?;
+        
+        if let Some(row) = rows.next()? {
+            let name: String = row.get(0)?;
+            Ok(Some(name))
         } else {
             Ok(None)
         }
@@ -77,15 +94,35 @@ impl NameDb {
         Ok(rows.next()?.is_some())
     }
 
-    pub fn get_all_records(&self) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn get_all_records(&self) -> Result<Vec<(String, String, Option<String>, Option<String>)>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT name, did, cid FROM name_registry")?;
+        let mut stmt = conn.prepare("SELECT name, did, cid, gateways FROM name_registry")?;
         
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?;
+        
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(row?);
+        }
+        
+        Ok(records)
+    }
+
+    pub fn get_names_by_did(&self, did: &str) -> Result<Vec<(String, Option<String>)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT name, cid FROM name_registry WHERE did = ?1")?;
+        
+        let rows = stmt.query_map(params![did], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
             ))
         })?;
         

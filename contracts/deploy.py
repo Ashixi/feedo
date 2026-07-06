@@ -10,7 +10,7 @@ def deploy_contract():
     install_solc("0.8.19")
     
     # Read Contract
-    contract_path = os.path.join(os.path.dirname(__file__), "FeedoPayment.sol")
+    contract_path = os.path.join(os.path.dirname(__file__), "PporTreasury.sol")
     with open(contract_path, "r", encoding="utf-8") as f:
         contract_source = f.read()
     
@@ -73,10 +73,22 @@ def deploy_contract():
         return
         
     print("Creating contract transaction...")
-    FeedoPayment = w3.eth.contract(abi=abi, bytecode=bytecode)
+    PporTreasury = w3.eth.contract(abi=abi, bytecode=bytecode)
+    
+    usdc_address = input("Enter USDC token address on Polygon (e.g., 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359): ").strip()
+    if not usdc_address or not w3.is_address(usdc_address):
+        print("Invalid USDC address!")
+        return
+    usdc_address = Web3.to_checksum_address(usdc_address)
+
+    committee_input = input("Enter initial committee addresses (comma separated): ").strip()
+    initial_committee = [Web3.to_checksum_address(addr.strip()) for addr in committee_input.split(",") if w3.is_address(addr.strip())]
+    if not initial_committee:
+        print("Invalid committee addresses!")
+        return
     
     try:
-        construct_txn = FeedoPayment.constructor().build_transaction({
+        construct_txn = PporTreasury.constructor(usdc_address, initial_committee).build_transaction({
             'from': account.address,
             'nonce': w3.eth.get_transaction_count(account.address),
             'gasPrice': w3.eth.gas_price
@@ -105,7 +117,7 @@ def deploy_contract():
         "abi": abi
     }
     
-    output_file = os.path.join(os.path.dirname(__file__), "FeedoPayment.json")
+    output_file = os.path.join(os.path.dirname(__file__), "PporTreasury.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2)
         

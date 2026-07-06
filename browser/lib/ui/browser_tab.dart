@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:webview_windows/webview_windows.dart';
 
-import '../core/local_server.dart';
+
 
 class BrowserTab extends StatefulWidget {
-  final String initialCid;
-  
-  const BrowserTab({super.key, required this.initialCid});
+  final String url;
+
+  const BrowserTab({super.key, required this.url});
 
   @override
   State<BrowserTab> createState() => _BrowserTabState();
@@ -22,20 +22,10 @@ class _BrowserTabState extends State<BrowserTab> {
     _initWebview();
   }
 
-  String _buildUrl(String cid) {
-    if (cid.startsWith('Qm') || cid.startsWith('bafy')) {
-      return 'http://127.0.0.1:8080/ipfs/$cid/';
-    } else {
-      final p1 = cid.substring(0, 32);
-      final p2 = cid.substring(32);
-      return 'http://$p1.$p2.localhost:${LocalFeedoServer.port}/';
-    }
-  }
-
   Future<void> _initWebview() async {
     await _controller.initialize();
     await _controller.setBackgroundColor(Colors.transparent);
-    await _controller.loadUrl(_buildUrl(widget.initialCid));
+    await _controller.loadUrl(widget.url);
     if (mounted) {
       setState(() {
         _isInitialized = true;
@@ -46,8 +36,8 @@ class _BrowserTabState extends State<BrowserTab> {
   @override
   void didUpdateWidget(BrowserTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialCid != widget.initialCid && _isInitialized) {
-      _controller.loadUrl(_buildUrl(widget.initialCid));
+    if (oldWidget.url != widget.url && _isInitialized) {
+      _controller.loadUrl(widget.url);
     }
   }
 

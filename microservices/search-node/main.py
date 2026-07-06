@@ -100,6 +100,8 @@ async def client_query(text: str, limit: int = 50, federated: bool = True, item_
     try:
         fetch_limit = (limit + offset) * 5
         def search_lance_vector(qv, flimit):
+            if item_type != "all":
+                return brain.table.search(qv, vector_column_name="vector").where(f"item_type = '{item_type}'").limit(flimit).to_list()
             return brain.table.search(qv, vector_column_name="vector").limit(flimit).to_list()
             
         records = await asyncio.to_thread(search_lance_vector, query_vector, fetch_limit)
@@ -397,6 +399,24 @@ async def proxy_unpin(cid: str):
         return {"status": "ok", "message": f"CID {cid} not found on Pinata, but removed from VectorBrain"}
     else:
         raise HTTPException(status_code=500, detail=f"Pinata error: {resp.text}")
+
+@app.delete("/proxy/unpin_feedo/{cid}")
+async def proxy_unpin_feedo(cid: str):
+    import requests
+    storage_node_url = os.getenv("STORAGE_NODE_URL", "http://storage-node:3001")
+    url = f"{storage_node_url}/delete/{cid}"
+    
+    try:
+        resp = await asyncio.to_thread(requests.delete, url)
+        await brain.delete_vector_async(cid)
+        
+        if resp.status_code == 200:
+            return {"status": "ok", "message": f"Deleted {cid} from storage and search index"}
+        else:
+            return {"status": "partial", "message": f"Storage returned {resp.status_code}, but removed from search index"}
+    except Exception as e:
+        await brain.delete_vector_async(cid)
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))

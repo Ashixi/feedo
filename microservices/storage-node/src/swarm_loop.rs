@@ -288,7 +288,35 @@ pub async fn run_swarm(
                                                     }
                                                 }
                                             }
+                                            DirectResponse::ShardData(None) => {
+                                                if let Some((hash, _index)) = req_resp_to_fetch.remove(&request_id) {
+                                                    if let Some(state) = active_fetches.get_mut(&hash) {
+                                                        state.failed += 1;
+                                                        if state.failed + state.received >= TOTAL_SHARDS {
+                                                            println!("Fetch failed for {}: not enough shards (received: {}, failed: {})", hash, state.received, state.failed);
+                                                            if let Some(sender) = state.sender.take() {
+                                                                let _ = sender.send(None);
+                                                            }
+                                                            active_fetches.remove(&hash);
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                            request_response::Event::OutboundFailure { request_id, .. } => {
+                                if let Some((hash, _index)) = req_resp_to_fetch.remove(&request_id) {
+                                    if let Some(state) = active_fetches.get_mut(&hash) {
+                                        state.failed += 1;
+                                        if state.failed + state.received >= TOTAL_SHARDS {
+                                            println!("Fetch failed for {}: not enough shards (received: {}, failed: {})", hash, state.received, state.failed);
+                                            if let Some(sender) = state.sender.take() {
+                                                let _ = sender.send(None);
+                                            }
+                                            active_fetches.remove(&hash);
                                         }
                                     }
                                 }

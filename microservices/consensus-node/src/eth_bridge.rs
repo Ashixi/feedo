@@ -2,18 +2,17 @@ use ethers::prelude::*;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
-pub const FEEDO_CONTRACT_ADDRESS: &str = "0x54dd160Ee32062c37424B58Aef6e3EA02d7326cb";
+pub const FEEDO_CONTRACT_ADDRESS: &str = "0x6C060F17e3BC6B8BaaE9eb638632Fdc3DfAAc51b";
 
 // Generate the type-safe contract bindings
 abigen!(
-    FeedoPayment,
+    PporTreasury,
     r#"[
-        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"node","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"Claimed","type":"event"},
-        {"anonymous":false,"inputs":[{"indexed":false,"internalType":"bytes32","name":"newRoot","type":"bytes32"},{"indexed":false,"internalType":"address","name":"validator","type":"address"}],"name":"MerkleRootUpdated","type":"event"},
-        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"client","type":"address"},{"indexed":true,"internalType":"bytes32","name":"serviceHash","type":"bytes32"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"PaymentReceived","type":"event"},
-        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"node","type":"address"},{"indexed":false,"internalType":"uint256","name":"slashedAmount","type":"uint256"}],"name":"Slashed","type":"event"},
-        {"inputs":[{"internalType":"uint256","name":"totalEarned","type":"uint256"},{"internalType":"bytes32[]","name":"merkleProof","type":"bytes32[]"}],"name":"claim","outputs":[],"stateMutability":"nonpayable","type":"function"},
-        {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"claimedAmounts","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"client","type":"address"},{"indexed":true,"internalType":"bytes32","name":"serviceHash","type":"bytes32"},{"indexed":false,"internalType":"uint256","name":"poolAmount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"protocolFee","type":"uint256"}],"name":"PaymentReceived","type":"event"},
+        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"node","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"NodeRegistered","type":"event"},
+        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"Withdrawn","type":"event"},
+        {"anonymous":false,"inputs":[{"indexed":false,"internalType":"address[]","name":"newCommittee","type":"address[]"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"CommitteeUpdated","type":"event"},
+        {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"bytes[]","name":"signatures","type":"bytes[]"}],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}
     ]"#
 );
 
@@ -62,18 +61,16 @@ impl Web3Bridge {
                 if let Ok(logs) = self.provider.get_logs(&filter).await {
                     for log in logs {
                         // Парсимо лог як PaymentReceivedFilter
-                        if let Ok(event) = FeedoPaymentEvents::decode_log(&log.into()) {
+                        if let Ok(event) = PporTreasuryEvents::decode_log(&log.into()) {
                             match event {
-                                FeedoPaymentEvents::PaymentReceivedFilter(payment) => {
+                                PporTreasuryEvents::PaymentReceivedFilter(payment) => {
                                     // serviceHash - це наш targetId (ID отримувача)
                                     let target_id_hex = format!("0x{}", hex::encode(payment.service_hash));
                                     
-                                    // Конвертуємо WEI у u128 (чи u64). Для простоти ділимо на 10^12 щоб влізло в u64 (μMATIC) або залишаємо U256. 
-                                    // Поки що конвертуємо в u64 (обережно з великими сумами).
-                                    // 1 MATIC = 10^18 WEI. 
-                                    let amount_u64 = payment.amount.as_u64(); // Тимчасово припускаємо невеликі суми < 18 MATIC
+                                    // Конвертуємо USDC (6 decimals зазвичай) у u64
+                                    let amount_u64 = payment.pool_amount.as_u64(); 
                                     
-                                    println!("Web3 Deposit: {} sent {} wei for target {}", payment.client, payment.amount, target_id_hex);
+                                    println!("Web3 Deposit: {} sent {} USDC (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
                                     
                                     self.ledger.credit(&target_id_hex, amount_u64).await;
                                 },
@@ -98,7 +95,7 @@ impl Web3Bridge {
         
         let client = Arc::new(SignerMiddleware::new(provider, wallet.clone()));
         let address = FEEDO_CONTRACT_ADDRESS.parse::<Address>().unwrap();
-        let contract = FeedoPayment::new(address, client.clone());
+        let _contract = PporTreasury::new(address, client.clone());
 
         println!("Started Auto-Claim daemon for node wallet: {:?}", wallet.address());
 
@@ -107,24 +104,16 @@ impl Web3Bridge {
             
             // Integration point for accounting.rs:
             // 1. Fetch `totalEarned` for this node from local SQLite/sled
-            // 2. Fetch the corresponding Merkle Proof
-            // 3. Call contract.claim()
+            // 2. Broadcast a P2P request to the PPoR committee for signatures
+            // 3. Collect 15+ signatures
+            // 4. Call contract.withdraw(address, amount, signatures)
             
             /*
-            let total_earned = U256::from(0); 
-            let already_claimed = contract.claimed_amounts(wallet.address()).call().await.unwrap_or(U256::zero());
-            let owed = total_earned.saturating_sub(already_claimed);
-            
-            let threshold = U256::from(5) * U256::exp10(18); // e.g. 5 MATIC
+            let threshold = U256::from(50) * U256::exp10(6); // 50 USDC
             
             if owed > threshold {
-                println!("Auto-claiming {} MATIC", owed);
-                let proof: Vec<[u8; 32]> = vec![];
-                let tx = contract.claim(total_earned, proof);
-                match tx.send().await {
-                    Ok(pending_tx) => println!("Claim TX sent: {:?}", pending_tx.tx_hash()),
-                    Err(e) => eprintln!("Failed to send claim TX: {}", e),
-                }
+                println!("Auto-claiming {} USDC", owed);
+                // Implementation for collecting signatures over P2P goes here...
             }
             */
         }

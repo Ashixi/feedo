@@ -19,7 +19,7 @@ pub mod accounting;
 pub mod did;
 pub mod eth_bridge;
 pub mod name_db;
-pub mod pbft;
+pub mod ppor;
 pub mod network;
 pub mod swarm_loop;
 
@@ -30,7 +30,7 @@ pub struct MyConsensusService {
     did_manager: Arc<Mutex<did::DidManager>>,
     eth_bridge: Arc<eth_bridge::Web3Bridge>,
     name_db: Arc<Mutex<name_db::NameDb>>,
-    pbft_manager: Arc<Mutex<pbft::PbftManager>>,
+    ppor_manager: Arc<Mutex<ppor::PporManager>>,
     swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
 }
 
@@ -84,7 +84,7 @@ impl ConsensusService for MyConsensusService {
     ) -> Result<Response<ResolveNameResponse>, Status> {
         let req = request.into_inner();
         let name_db = self.name_db.lock().await;
-        if let Ok(Some((_, Some(hash)))) = name_db.resolve_name(&req.name) {
+        if let Ok(Some((_, Some(hash), _))) = name_db.resolve_name(&req.name) {
             Ok(Response::new(ResolveNameResponse {
                 file_hash: hash,
                 found: true,
@@ -130,12 +130,14 @@ pub struct UpdateCidReq {
     pub name: String,
     pub cid: String,
     pub signature: String,
+    pub gateways: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ResolveRes {
     pub did: String,
     pub cid: Option<String>,
+    pub gateways: Option<Vec<String>>,
 }
 
 async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
@@ -173,7 +175,7 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
     let _ = name_db.insert_name(&payload.name, &payload.did, &payload.public_key);
     
     // Publish to DHT
-    let res = ResolveRes { did: payload.did.clone(), cid: None };
+    let res = ResolveRes { did: payload.did.clone(), cid: None, gateways: None };
     let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
     
     Json(NameRegisterRes { success: true, error: None })
@@ -182,7 +184,7 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
 async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCidReq>) -> Json<NameRegisterRes> {
     let name_db = state.name_db.lock().await;
     let resolved = name_db.resolve_name(&payload.name).unwrap_or(None);
-    if let Some((did_id, _)) = resolved {
+    if let Some((did_id, _, _)) = resolved {
         let did_manager = state.did_manager.lock().await;
         if let Some(doc) = did_manager.get_document(&did_id) {
             let pub_key = &doc.verification_method[0].public_key_multibase;
@@ -190,10 +192,12 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
             if !did::verify_signature(pub_key, &payload_bytes, &payload.signature) {
                 return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
             }
-            let _ = name_db.update_cid(&payload.name, &payload.cid);
+            let gateways_json = serde_json::to_string(&payload.gateways).unwrap_or_else(|_| "[]".to_string());
+            let _ = name_db.update_cid(&payload.name, &payload.cid, &gateways_json);
             
             // Publish to DHT
-            let res = ResolveRes { did: did_id, cid: Some(payload.cid.clone()) };
+            let gateways = Some(payload.gateways.clone());
+            let res = ResolveRes { did: did_id, cid: Some(payload.cid.clone()), gateways };
             let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
             
             return Json(NameRegisterRes { success: true, error: None });
@@ -204,8 +208,9 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
 
 async fn resolve_name_http(State(state): State<AppState>, Path(name): Path<String>) -> Json<Option<ResolveRes>> {
     let name_db = state.name_db.lock().await;
-    if let Ok(Some((did, cid))) = name_db.resolve_name(&name) {
-        return Json(Some(ResolveRes { did, cid }));
+    if let Ok(Some((did, cid, gateways_json))) = name_db.resolve_name(&name) {
+        let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
+        return Json(Some(ResolveRes { did, cid, gateways }));
     }
     drop(name_db);
 
@@ -218,6 +223,28 @@ async fn resolve_name_http(State(state): State<AppState>, Path(name): Path<Strin
     }
     
     Json(None)
+}
+
+async fn resolve_cid_http(State(state): State<AppState>, Path(cid): Path<String>) -> Json<Option<String>> {
+    let name_db = state.name_db.lock().await;
+    if let Ok(Some(name)) = name_db.resolve_cid(&cid) {
+        return Json(Some(name));
+    }
+    Json(None)
+}
+
+async fn get_names_by_did(State(state): State<AppState>, Path(did): Path<String>) -> Json<Vec<serde_json::Value>> {
+    let name_db = state.name_db.lock().await;
+    let mut results = Vec::new();
+    if let Ok(records) = name_db.get_names_by_did(&did) {
+        for (name, cid) in records {
+            results.push(serde_json::json!({
+                "domain": name,
+                "cid": cid
+            }));
+        }
+    }
+    Json(results)
 }
 
 #[tokio::main]
@@ -239,9 +266,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bridge_clone.start_event_listener().await;
     });
     
-    let pbft_manager = Arc::new(Mutex::new(pbft::PbftManager::new("node_id_placeholder".to_string())));
+    let ppor_manager = Arc::new(Mutex::new(ppor::PporManager::new("node_id_placeholder".to_string())));
 
-    let local_key = identity::Keypair::generate_ed25519();
+    let keypair_path = "consensus_db/peer_key.bin";
+    std::fs::create_dir_all("consensus_db").unwrap_or_default();
+    let local_key = if let Ok(bytes) = std::fs::read(keypair_path) {
+        identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| identity::Keypair::generate_ed25519())
+    } else {
+        let key = identity::Keypair::generate_ed25519();
+        let _ = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap());
+        key
+    };
     let local_peer_id = PeerId::from(local_key.public());
     println!("Consensus Local peer id: {:?}", local_peer_id);
 
@@ -266,7 +301,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gossipsub_config,
             ).expect("Valid gossipsub behaviour");
 
-            gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_consensus_pbft")).unwrap();
+            gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_consensus_ppor")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_name_registrations")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_did_updates")).unwrap();
 
@@ -312,11 +347,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (swarm_tx, swarm_rx) = mpsc::unbounded_channel();
-    let pbft_clone = pbft_manager.clone();
+    let ppor_clone = ppor_manager.clone();
     let name_clone = name_db.clone();
     
     tokio::spawn(async move {
-        crate::swarm_loop::run_swarm(swarm, swarm_rx, pbft_clone, name_clone).await;
+        crate::swarm_loop::run_swarm(swarm, swarm_rx, ppor_clone, name_clone).await;
     });
 
     let consensus_service = MyConsensusService {
@@ -324,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         did_manager: did_manager.clone(),
         eth_bridge,
         name_db: name_db.clone(),
-        pbft_manager,
+        ppor_manager,
         swarm_tx: swarm_tx.clone(),
     };
 
@@ -343,8 +378,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Republish local records to DHT on startup
     let local_name_db = name_db.lock().await;
     if let Ok(records) = local_name_db.get_all_records() {
-        for (name, did, cid) in records {
-            let res = ResolveRes { did, cid };
+        for (name, did, cid, gateways_json) in records {
+            let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
+            let res = ResolveRes { did, cid, gateways };
             let _ = swarm_tx.send(SwarmCommand::PublishDht(name, res));
         }
     }
@@ -352,6 +388,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let app = Router::new()
         .route("/resolve/:name", get(resolve_name_http))
+        .route("/resolve_cid/:cid", get(resolve_cid_http))
+        .route("/did/:did/names", get(get_names_by_did))
         .route("/did/register", post(register_did))
         .route("/name/register", post(register_name))
         .route("/name/update_cid", post(update_cid))

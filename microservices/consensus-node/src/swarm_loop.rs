@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use shared_proto::feedo::PbftMessage;
 
 pub enum SwarmCommand {
-    PublishPbft(PbftMessage),
+    PublishPpor(PbftMessage),
     PublishName(String, String, String), // name, did, public_key
     PublishDidUpdate(String, String), // dummy for future use
     PublishDht(String, crate::ResolveRes), // name, resolve_res
@@ -25,7 +25,7 @@ pub struct NameRegistrationPayload {
 pub async fn run_swarm(
     mut swarm: Swarm<ConsensusBehaviour>,
     mut command_rx: mpsc::UnboundedReceiver<SwarmCommand>,
-    pbft_manager: Arc<Mutex<crate::pbft::PbftManager>>,
+    ppor_manager: Arc<Mutex<crate::ppor::PporManager>>,
     name_db: Arc<Mutex<crate::name_db::NameDb>>,
 ) {
     use std::collections::HashMap;
@@ -43,12 +43,12 @@ pub async fn run_swarm(
                     }
                     SwarmEvent::Behaviour(ConsensusBehaviourEvent::Gossipsub(libp2p::gossipsub::Event::Message { message, .. })) => {
                         let topic = message.topic.as_str();
-                        if topic == "feedo_consensus_pbft" {
+                        if topic == "feedo_consensus_ppor" {
                             if let Ok(pbft_msg) = prost::Message::decode(&message.data[..]) {
-                                let mut manager = pbft_manager.lock().await;
-                                if let Some(reply_msg) = manager.handle_message(pbft_msg, 4) { // total nodes = 4 for example
+                                let mut manager = ppor_manager.lock().await;
+                                if let Some(reply_msg) = manager.handle_message(pbft_msg) {
                                     let data = prost::Message::encode_to_vec(&reply_msg);
-                                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_pbft");
+                                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
                                     let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
                                 }
                             }
@@ -91,11 +91,11 @@ pub async fn run_swarm(
             }
             Some(command) = command_rx.recv() => {
                 match command {
-                    SwarmCommand::PublishPbft(msg) => {
+                    SwarmCommand::PublishPpor(msg) => {
                         let data = prost::Message::encode_to_vec(&msg);
-                        let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_pbft");
+                        let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
                         if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                            println!("Failed to publish PBFT message: {:?}", e);
+                            println!("Failed to publish PPoR message: {:?}", e);
                         }
                     }
                     SwarmCommand::PublishName(name, did, public_key) => {

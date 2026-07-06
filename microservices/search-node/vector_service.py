@@ -46,25 +46,8 @@ class VectorBrain:
         
         try:
             self.table = self.db.create_table(self.table_name, schema=schema, exist_ok=True)
-            
-            vector_field = self.table.schema.field("vector")
-            needs_recreate = False
-            if "item_type" not in self.table.schema.names or "author" not in self.table.schema.names or "metadata" not in self.table.schema.names:
-                needs_recreate = True
-            elif not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 384:
-                needs_recreate = True
-                
-            if needs_recreate:
-                print("⚠️ Схема LanceDB змінилася (Потрібно 384 виміри або нові поля). Перестворюємо таблицю...")
-                self.db.drop_table(self.table_name)
-                self.table = self.db.create_table(self.table_name, schema=schema)
-        except ValueError:
+        except Exception:
             self.table = self.db.open_table(self.table_name)
-            vector_field = self.table.schema.field("vector")
-            if not pa.types.is_fixed_size_list(vector_field.type) or vector_field.type.list_size != 384 or "item_type" not in self.table.schema.names:
-                print("⚠️ Схема LanceDB змінилася. Перестворюємо таблицю...")
-                self.db.drop_table(self.table_name)
-                self.table = self.db.create_table(self.table_name, schema=schema)
 
         self.executor = ThreadPoolExecutor(max_workers=2)
         
