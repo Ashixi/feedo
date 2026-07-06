@@ -177,9 +177,8 @@ class _FeedTabState extends State<FeedTab> {
           
           final filter = globalFeedFilter.value;
           
-          NostrResolver.resolve(data, onUpdate: () {
-            if (mounted) setState(() {});
-          });
+          await NostrResolver.resolve(data);
+          if (mounted) setState(() {});
           
           List<dynamic> validPosts = [];
           for (var item in data) {

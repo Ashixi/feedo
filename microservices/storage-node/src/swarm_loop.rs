@@ -111,6 +111,7 @@ pub struct PeerAnnounce {
 pub enum SwarmCommand {
     DhtUpload(Vec<u8>, oneshot::Sender<String>),
     DhtDownload(String, oneshot::Sender<Option<Vec<u8>>>),
+    DhtDelete(String),
     SavePeerCache,
     GcPeerCache(u64), // days
     AnnouncePeer,
@@ -433,6 +434,19 @@ pub async fn run_swarm(
                             manifest: None,
                         });
                     }
+                    SwarmCommand::DhtDelete(hash) => {
+                        println!("Deleting file from local storage: {}", hash);
+                        let manifest_key = RecordKey::new(&format!("{}_manifest", hash));
+                        if let Some(record) = swarm.behaviour_mut().kademlia.store_mut().get(&manifest_key) {
+                            if let Ok(manifest) = serde_json::from_slice::<Manifest>(&record.value) {
+                                for index in manifest.shards.keys() {
+                                    let chunk_key = RecordKey::new(&format!("{}_chunk_{}", hash, index));
+                                    swarm.behaviour_mut().kademlia.remove_record(&chunk_key);
+                                }
+                            }
+                        }
+                        swarm.behaviour_mut().kademlia.remove_record(&manifest_key);
+                    }
                     SwarmCommand::SavePeerCache => {
                         peer_cache.save(peer_cache_path);
                     }
@@ -464,6 +478,7 @@ pub async fn run_swarm(
                                     announce.signature = Some(hex::encode(sig));
                                     if let Ok(final_payload) = serde_json::to_vec(&announce) {
                                         let announce_topic = libp2p::gossipsub::IdentTopic::new("storage_announcements");
+                                        println!("Publishing announce, size: {}", final_payload.len());
                                         let _ = swarm.behaviour_mut().gossipsub.publish(announce_topic, final_payload);
                                     }
                                 }
@@ -471,9 +486,14 @@ pub async fn run_swarm(
                         }
                     }
                     SwarmCommand::Publish(topic_name, data) => {
+                        println!("Publishing to {}, size: {} bytes", topic_name, data.len());
                         let topic = libp2p::gossipsub::IdentTopic::new(topic_name);
                         if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                            println!("Failed to publish message: {:?}", e);
+                            if let libp2p::gossipsub::PublishError::InsufficientPeers = e {
+                                // Ігноруємо, оскільки це нормально при старті ноди або малій кількості пірів
+                            } else {
+                                println!("Failed to publish message: {:?}", e);
+                            }
                         }
                     }
                     SwarmCommand::SubscribeTopic(topic_name) => {

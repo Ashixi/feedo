@@ -1,4 +1,4 @@
-use axum::{routing::{get, post}, Router, extract::{State, Multipart, Path, ws::{WebSocketUpgrade, WebSocket, Message as WsMessage}}};
+use axum::{routing::{get, post, delete}, Router, extract::{State, Multipart, Path, ws::{WebSocketUpgrade, WebSocket, Message as WsMessage}}};
 use shared_proto::storage::storage_service_server::{StorageService, StorageServiceServer};
 use shared_proto::storage::{ChunkData, Empty, FetchRequest, NewFileEvent};
 use tonic::{transport::Server, Request, Response, Status};
@@ -148,6 +148,26 @@ async fn handle_json_ingest(
     }
 }
 
+async fn handle_batch_json_ingest(
+    State(state): State<AppState>,
+    axum::Json(payloads): axum::Json<Vec<IngestPayload>>,
+) -> Result<axum::Json<Vec<String>>, (axum::http::StatusCode, String)> {
+    let mut hashes = Vec::new();
+    for payload in payloads {
+        let file_data = match serde_json::to_vec(&payload) {
+            Ok(data) => data,
+            Err(_) => continue,
+        };
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, resp_tx));
+        if let Ok(hash) = resp_rx.await {
+            state.recent_hashes.lock().unwrap().push(hash.clone());
+            hashes.push(hash);
+        }
+    }
+    Ok(axum::Json(hashes))
+}
+
 async fn handle_recent_files(
     State(state): State<AppState>,
 ) -> axum::Json<serde_json::Value> {
@@ -165,6 +185,15 @@ async fn handle_download(
         Ok(Some(data)) => Ok(data),
         _ => Err((axum::http::StatusCode::NOT_FOUND, "Not found in DHT".to_string())),
     }
+}
+
+async fn handle_delete(
+    State(state): State<AppState>,
+    Path(hash): Path<String>,
+) -> Result<String, (axum::http::StatusCode, String)> {
+    let _ = state.swarm_tx.send(SwarmCommand::DhtDelete(hash.clone()));
+    state.recent_hashes.lock().unwrap().retain(|h| h != &hash);
+    Ok("Deleted locally".to_string())
 }
 
 #[derive(serde::Deserialize)]
@@ -244,7 +273,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_behaviour(|key| {
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
+                // Bust cache for docker build
                 .validation_mode(gossipsub::ValidationMode::Strict)
+                .max_transmit_size(10 * 1024 * 1024)
                 .build()
                 .expect("Valid gossipsub config");
             
@@ -332,12 +363,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/upload", post(handle_upload))
         .route("/api/v1/ingest/post", post(handle_json_ingest))
+        .route("/api/v1/ingest/batch", post(handle_batch_json_ingest))
         .route("/api/v1/pubsub/publish", post(handle_publish))
         .route("/api/v1/pubsub/subscribe/:topic", get(handle_subscribe))
         .route("/api/files/recent", get(handle_recent_files))
         .route("/download/:hash", get(handle_download))
+        .route("/delete/:hash", delete(handle_delete))
         .with_state(app_state)
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024));
 
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();
     println!("Starting HTTP server on {}", http_addr);

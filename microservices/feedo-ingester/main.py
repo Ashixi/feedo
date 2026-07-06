@@ -39,6 +39,7 @@ class NostrIngester:
         self.running_tasks = set()
         self.processed_events = set()
         self.known_profiles = set()
+        self.profile_buffer = {}  # pubkey -> (event, extracted)
         
     def verify_schnorr(self, pubkey_hex: str, event_id: str, sig_hex: str) -> bool:
         """Verify the Schnorr signature of a Nostr event."""
@@ -148,7 +149,12 @@ class NostrIngester:
                                             logger.warning(f"Failed to check profile on disk: {e}")
                                             
                                 # 5. Forward to network
-                                await self.forward_to_storage(event, extracted)
+                                if event.get('kind') == 0:
+                                    existing = self.profile_buffer.get(pubkey)
+                                    if not existing or existing[0]['created_at'] < event['created_at']:
+                                        self.profile_buffer[pubkey] = (event, extracted)
+                                else:
+                                    await self.forward_to_storage(event, extracted)
                                 
                         except Exception as e:
                             logger.error(f"Error processing message: {e}")
@@ -171,8 +177,83 @@ class NostrIngester:
                 
             await asyncio.sleep(5)
 
+    async def profile_batch_manager(self):
+        """Periodically flushes profile_buffer to P2P storage in batches."""
+        while True:
+            await asyncio.sleep(5)
+            if not self.profile_buffer:
+                continue
+                
+            batch = list(self.profile_buffer.values())
+            self.profile_buffer.clear()
+            
+            valid_batch = []
+            sync_payloads = []
+            
+            async def check_and_prepare(item):
+                ev, ext = item
+                pubkey = ev['pubkey']
+                p2p_hash = f"profile_{pubkey}"
+                
+                # Query DHT via storage-node
+                is_newer = True
+                async with aiohttp.ClientSession() as session:
+                    for gateway in GATEWAYS:
+                        try:
+                            dl_resp = await session.get(f"{gateway}/download/{p2p_hash}", timeout=2.0)
+                            if dl_resp.status == 200:
+                                data = await dl_resp.json()
+                                existing_created_at = data.get("metadata", {}).get("nostr_created_at", 0)
+                                if existing_created_at >= ev['created_at']:
+                                    is_newer = False
+                            break # successfully queried this gateway, whether 200 or 404
+                        except Exception:
+                            pass
+                            
+                if is_newer:
+                    payload = {
+                        "hash_id": p2p_hash,
+                        "author": f"did:feedo:schnorr:{ev['pubkey']}",
+                        "text": ext["text"],
+                        "target_hash": None,
+                        "signature": ev["sig"],
+                        "metadata": {
+                            "nostr_kind": 0,
+                            "nostr_created_at": ev["created_at"],
+                            "nostr_tags": ev["tags"]
+                        },
+                        "ttl_days": 365
+                    }
+                    valid_batch.append(payload)
+                    sync_payloads.append({
+                        "pubkey": pubkey,
+                        "p2p_hash": p2p_hash,
+                        "nostr_created_at": ev["created_at"],
+                        "profile_json": json.dumps(payload)
+                    })
+
+            await asyncio.gather(*(check_and_prepare(item) for item in batch))
+            
+            if valid_batch:
+                logger.info(f"Uploading batch of {len(valid_batch)} profiles to DHT...")
+                async with aiohttp.ClientSession() as session:
+                    for gateway in GATEWAYS:
+                        try:
+                            async with session.post(f"{gateway}/api/v1/ingest/batch", json=valid_batch, timeout=10.0) as resp:
+                                if resp.status == 200:
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Batch upload to {gateway} failed: {e}")
+                            
+                # Sync to search-node SQLite
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        await session.post(f"{SEARCH_NODE_URL}/v1/profiles/sync", json=sync_payloads, timeout=5.0)
+                except Exception as e:
+                    logger.error(f"Failed to sync profiles to search-node: {e}")
+
     async def run(self):
-        # Start the dynamic spider manager
+        asyncio.create_task(self.profile_batch_manager())
         await self.dynamic_spider_manager()
 
 if __name__ == "__main__":

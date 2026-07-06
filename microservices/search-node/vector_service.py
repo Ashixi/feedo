@@ -364,6 +364,16 @@ class VectorBrain:
         updated = [(1 - weight) * c + weight * n for c, n in zip(current_vector, new_interest)]
         return updated
 
+    def delete_vector(self, hash_id: str):
+        try:
+            self.table.delete(f"hash_id = '{hash_id}'")
+        except Exception as e:
+            print(f"⚠️ Error deleting from LanceDB: {e}")
+
+    async def delete_vector_async(self, hash_id: str):
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(self.executor, self.delete_vector, hash_id)
+
 
 
     # --- Stage V: Supernode AI Scaling ---

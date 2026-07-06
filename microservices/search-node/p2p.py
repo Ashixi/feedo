@@ -1,5 +1,6 @@
 import httpx
 import asyncio
+import os
 from vector_service import VectorBrain
 
 class P2PNetwork:
@@ -7,15 +8,19 @@ class P2PNetwork:
         self.vector_brain = vector_brain
         self.host = host
         self.port = port
-        self.my_url = f"http://{host}:{port}"
         
-        # In a real DHT network, we would discover peers dynamically.
-        # For simplicity in this demo, we'll hardcode some possible local peer ports
-        self.known_peers = set([
-            "http://127.0.0.1:8000",
-            "http://127.0.0.1:8001",
-            "http://127.0.0.1:8002"
-        ])
+        base_url = os.environ.get("PUBLIC_API_URL")
+        if base_url:
+            self.my_url = f"{base_url.rstrip('/')}/search"
+        else:
+            self.my_url = f"http://{host}:{port}"
+        
+        peers_env = os.environ.get("KNOWN_PEERS", "")
+        if peers_env:
+            self.known_peers = set([p.strip() for p in peers_env.split(",") if p.strip()])
+        else:
+            self.known_peers = set()
+            
         if self.my_url in self.known_peers:
             self.known_peers.remove(self.my_url)
             

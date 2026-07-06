@@ -58,6 +58,31 @@ services:
     networks:
       - feedo-net
 
+  social-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        APP_DIR: social-node
+    ports:
+      - "8010:8010"
+    environment:
+      - PORT=8010
+      - HOST=0.0.0.0
+      - SEARCH_NODE_URL=${SEARCH_NODE_URL:-http://search-node:8000}
+      - GATEWAYS=${GATEWAYS:-http://storage-node:3001}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8010"]
+    volumes:
+      - social_data:/app/social_data
+      - ./social-node:/app
+    depends_on:
+      - search-node
+      - storage-node
+    networks:
+      - feedo-net
+
+
   feedo-algo:
     build:
       context: .
@@ -112,6 +137,7 @@ volumes:
   lancedb_data:
   storage_db:
   consensus_db:
+  social_data:
 
 networks:
   feedo-net:

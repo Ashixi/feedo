@@ -1,3 +1,0 @@
-import bech32
-print(bech32.bech32_decode("note15l4l5m7pypx8e2ypsk22y9vsm8q7880rtyaezuay6q8nrysh6e6qd4d4ps"))
-print(bech32.bech32_decode("nevent1qqstzv7x8a0nnt4xszxks3y690k4g6h5f7hxk7z6mhnxfsz4y6n79uqzpzpmhxue69uhhyetvv9ujjmkxss98d00m"))

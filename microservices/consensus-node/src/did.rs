@@ -149,4 +149,10 @@ impl DidManager {
             None
         }
     }
+
+    pub fn insert_document(&self, doc: &DidDocument) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let data = serde_json::to_vec(doc)?;
+        self.db.insert(format!("did:{}", doc.id).as_bytes(), data)?;
+        Ok(())
+    }
 }

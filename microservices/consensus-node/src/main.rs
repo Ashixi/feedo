@@ -1,4 +1,6 @@
-use axum::{routing::get, Router};
+use axum::{routing::{get, post}, Router, Json, extract::{State, Path}};
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 use shared_proto::consensus::consensus_service_server::{ConsensusService, ConsensusServiceServer};
 use shared_proto::consensus::{
     Empty, MissingChunkRequest, MissingChunkResponse, ResolveNameRequest,
@@ -82,7 +84,7 @@ impl ConsensusService for MyConsensusService {
     ) -> Result<Response<ResolveNameResponse>, Status> {
         let req = request.into_inner();
         let name_db = self.name_db.lock().await;
-        if let Ok(Some(hash)) = name_db.resolve_name(&req.name) {
+        if let Ok(Some((_, Some(hash)))) = name_db.resolve_name(&req.name) {
             Ok(Response::new(ResolveNameResponse {
                 file_hash: hash,
                 found: true,
@@ -96,8 +98,126 @@ impl ConsensusService for MyConsensusService {
     }
 }
 
-async fn handle_resolve() -> &'static str {
-    "Resolve endpoint stub"
+#[derive(Clone)]
+pub struct AppState {
+    pub name_db: Arc<Mutex<name_db::NameDb>>,
+    pub did_manager: Arc<Mutex<did::DidManager>>,
+    pub swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
+}
+
+#[derive(Deserialize)]
+pub struct DidRegisterReq { pub public_key: String }
+
+#[derive(Serialize)]
+pub struct DidRegisterRes { pub did: String }
+
+#[derive(Deserialize)]
+pub struct NameRegisterReq {
+    pub name: String,
+    pub did: String,
+    pub public_key: String,
+    pub signature: String,
+}
+
+#[derive(Serialize)]
+pub struct NameRegisterRes {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateCidReq {
+    pub name: String,
+    pub cid: String,
+    pub signature: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ResolveRes {
+    pub did: String,
+    pub cid: Option<String>,
+}
+
+async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let did_id = format!("did:feedo:{}", payload.public_key.trim_start_matches("0x"));
+    let doc = did::DidDocument::new(did_id.clone(), payload.public_key.clone(), ts);
+    let did_manager = state.did_manager.lock().await;
+    let _ = did_manager.insert_document(&doc);
+    Json(DidRegisterRes { did: did_id })
+}
+
+async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRegisterReq>) -> Json<NameRegisterRes> {
+    let payload_bytes = format!("{}{}", payload.name, payload.did).into_bytes();
+    if !did::verify_signature(&payload.public_key, &payload_bytes, &payload.signature) {
+        return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
+    }
+
+    let name_db = state.name_db.lock().await;
+    if name_db.name_exists(&payload.name).unwrap_or(false) {
+        return Json(NameRegisterRes { success: false, error: Some("Name already exists".into()) });
+    }
+
+    let did_manager = state.did_manager.lock().await;
+    let doc = did_manager.get_document(&payload.did);
+    if let Some(mut doc) = doc {
+        if doc.feedo_state.balance_credits < 100 {
+            return Json(NameRegisterRes { success: false, error: Some("Insufficient credits".into()) });
+        }
+        doc.feedo_state.balance_credits -= 100;
+        let _ = did_manager.insert_document(&doc);
+    } else {
+        return Json(NameRegisterRes { success: false, error: Some("DID not found".into()) });
+    }
+
+    let _ = name_db.insert_name(&payload.name, &payload.did, &payload.public_key);
+    
+    // Publish to DHT
+    let res = ResolveRes { did: payload.did.clone(), cid: None };
+    let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
+    
+    Json(NameRegisterRes { success: true, error: None })
+}
+
+async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCidReq>) -> Json<NameRegisterRes> {
+    let name_db = state.name_db.lock().await;
+    let resolved = name_db.resolve_name(&payload.name).unwrap_or(None);
+    if let Some((did_id, _)) = resolved {
+        let did_manager = state.did_manager.lock().await;
+        if let Some(doc) = did_manager.get_document(&did_id) {
+            let pub_key = &doc.verification_method[0].public_key_multibase;
+            let payload_bytes = format!("{}{}", payload.name, payload.cid).into_bytes();
+            if !did::verify_signature(pub_key, &payload_bytes, &payload.signature) {
+                return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
+            }
+            let _ = name_db.update_cid(&payload.name, &payload.cid);
+            
+            // Publish to DHT
+            let res = ResolveRes { did: did_id, cid: Some(payload.cid.clone()) };
+            let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
+            
+            return Json(NameRegisterRes { success: true, error: None });
+        }
+    }
+    Json(NameRegisterRes { success: false, error: Some("Name not found or DID missing".into()) })
+}
+
+async fn resolve_name_http(State(state): State<AppState>, Path(name): Path<String>) -> Json<Option<ResolveRes>> {
+    let name_db = state.name_db.lock().await;
+    if let Ok(Some((did, cid))) = name_db.resolve_name(&name) {
+        return Json(Some(ResolveRes { did, cid }));
+    }
+    drop(name_db);
+
+    // Fallback to Kademlia DHT
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if state.swarm_tx.send(SwarmCommand::LookupDht(name.clone(), tx)).is_ok() {
+        if let Ok(Some(res)) = rx.await {
+            return Json(Some(res));
+        }
+    }
+    
+    Json(None)
 }
 
 #[tokio::main]
@@ -137,6 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
+                .max_transmit_size(10 * 1024 * 1024)
                 .build()
                 .expect("Valid gossipsub config");
             
@@ -200,11 +321,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consensus_service = MyConsensusService {
         ledger,
-        did_manager,
+        did_manager: did_manager.clone(),
         eth_bridge,
-        name_db,
+        name_db: name_db.clone(),
         pbft_manager,
-        swarm_tx,
+        swarm_tx: swarm_tx.clone(),
     };
 
     println!("Starting gRPC Consensus Service on {}", grpc_addr);
@@ -213,7 +334,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .serve(grpc_addr);
 
     let cors = tower_http::cors::CorsLayer::permissive();
-    let app = Router::new().route("/resolve", get(handle_resolve)).layer(cors);
+    let app_state = AppState {
+        name_db: name_db.clone(),
+        did_manager: did_manager.clone(),
+        swarm_tx: swarm_tx.clone(),
+    };
+    
+    // Republish local records to DHT on startup
+    let local_name_db = name_db.lock().await;
+    if let Ok(records) = local_name_db.get_all_records() {
+        for (name, did, cid) in records {
+            let res = ResolveRes { did, cid };
+            let _ = swarm_tx.send(SwarmCommand::PublishDht(name, res));
+        }
+    }
+    drop(local_name_db);
+    
+    let app = Router::new()
+        .route("/resolve/:name", get(resolve_name_http))
+        .route("/did/register", post(register_did))
+        .route("/name/register", post(register_name))
+        .route("/name/update_cid", post(update_cid))
+        .layer(cors)
+        .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();
     println!("Starting HTTP server on {}", http_addr);
     let http_server = axum::serve(listener, app);
