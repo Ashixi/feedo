@@ -1,9 +1,0 @@
-D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\futures_executor-bd3ab77a90a5be3f.d: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\local_pool.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\thread_pool.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\unpark_mutex.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\enter.rs
-
-D:\Projects\Development\Projects\feedo\microservices\target\debug\deps\libfutures_executor-bd3ab77a90a5be3f.rmeta: C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\lib.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\local_pool.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\thread_pool.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\unpark_mutex.rs C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\enter.rs
-
-C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\lib.rs:
-C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\local_pool.rs:
-C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\thread_pool.rs:
-C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\unpark_mutex.rs:
-C:\Users\andri\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.32\src\enter.rs:
