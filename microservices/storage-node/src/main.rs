@@ -237,18 +237,42 @@ async fn handle_ws(mut socket: WebSocket, topic: String, mut rx: tokio::sync::br
     }
 }
 
+fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
+    if let Ok(hex_str) = std::env::var("NODE_PRIVATE_KEY") {
+        if let Ok(bytes) = hex::decode(hex_str.trim()) {
+            let mut key_bytes = bytes;
+            if let Ok(secret_key) = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut key_bytes) {
+                let kp = libp2p::identity::ed25519::Keypair::from(secret_key);
+                println!("Loaded Peer Key from NODE_PRIVATE_KEY env var");
+                return libp2p::identity::Keypair::from(kp);
+            }
+        }
+        println!("Failed to parse NODE_PRIVATE_KEY from env, falling back to file");
+    }
+    
+    if let Ok(bytes) = std::fs::read(keypair_path) {
+        libp2p::identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| {
+            println!("Failed to decode peer_key.bin protobuf, generating a new key");
+            let key = libp2p::identity::Keypair::generate_ed25519();
+            if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
+                println!("Failed to write generated peer_key.bin: {:?}", e);
+            }
+            key
+        })
+    } else {
+        let key = libp2p::identity::Keypair::generate_ed25519();
+        if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
+            println!("Failed to write generated peer_key.bin: {:?}", e);
+        }
+        key
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypair_path = "storage_db/peer_key.bin";
     std::fs::create_dir_all("storage_db").unwrap_or_default();
-    let local_key = if let Ok(bytes) = std::fs::read(keypair_path) {
-        identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| identity::Keypair::generate_ed25519())
-    } else {
-        let key = identity::Keypair::generate_ed25519();
-        let _ = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap());
-        key
-    };
+    let local_key = load_keypair_from_env_or_file(keypair_path);
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);
 

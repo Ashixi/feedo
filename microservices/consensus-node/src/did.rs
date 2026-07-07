@@ -35,7 +35,6 @@ pub struct ServiceEndpoint {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct FeedoState {
     pub nonce: u64,
-    pub balance_credits: u64,
     pub reputation_score: u64,
     pub registered_names: Vec<String>,
     pub created_at: u64,
@@ -55,7 +54,6 @@ impl DidDocument {
 
         let feedo_state = FeedoState {
             nonce: 0,
-            balance_credits: 1000, 
             reputation_score: 0,
             registered_names: Vec::new(),
             created_at: timestamp,

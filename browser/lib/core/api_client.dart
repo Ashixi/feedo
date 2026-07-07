@@ -126,21 +126,21 @@ class ApiClient {
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> search(String query) async {
+  Future<Map<String, dynamic>> search(String query) async {
     try {
       final encodedQuery = Uri.encodeComponent(query);
-      final response = await http.get(Uri.parse('$searchProxyUrl/query?text=$encodedQuery&item_type=website'));
+      final response = await http.get(Uri.parse('$searchProxyUrl/query?text=$encodedQuery&limit=50&federated=true&item_type=website'));
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data != null && data['results'] != null) {
-          return List<Map<String, dynamic>>.from(data['results']);
-        }
+        return data as Map<String, dynamic>;
+      } else {
+        return {'results': [], 'error': 'Server returned ${response.statusCode}'};
       }
     } catch (e) {
       print('Search error: $e');
+      return {'results': [], 'error': 'Network error: $e'};
     }
-    return [];
   }
 
   Future<String?> publishToFeedoStorage(File zipFile) async {

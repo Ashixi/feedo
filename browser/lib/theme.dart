@@ -31,4 +31,36 @@ class AppTheme {
       typography: Typography.material2021(),
     );
   }
+
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF4C82F6), // Vibrant blue accent
+        surface: Color(0xFF1E1E1E), // Deep dark gray for background
+        surfaceContainerHighest: Color(0xFF2D2D2D), // Elevated dark gray
+        onSurface: Color(0xFFE0E0E0), // Clean light gray text
+        secondary: Color(0xFF9AA0A6),
+      ),
+      scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF1E1E1E),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: Color(0xFFE0E0E0)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF2D2D2D),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(24),
+          borderSide: BorderSide.none,
+        ),
+        hintStyle: const TextStyle(color: Color(0xFF9AA0A6)),
+      ),
+      typography: Typography.material2021(),
+    );
+  }
 }

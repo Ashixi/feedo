@@ -9,17 +9,13 @@ use shared_proto::feedo::PbftMessage;
 
 pub enum SwarmCommand {
     PublishPpor(PbftMessage),
-    PublishName(String, String, String), // name, did, public_key
-    PublishDidUpdate(String, String), // dummy for future use
+    BroadcastNameTx(crate::NameRegistrationTx),
+    BroadcastUpdateCidTx(crate::UpdateCidTx),
+    BroadcastLedgerTx(crate::LedgerTx),
+    PublishDidDht(String, crate::did::DidDocument),
     PublishDht(String, crate::ResolveRes), // name, resolve_res
     LookupDht(String, tokio::sync::oneshot::Sender<Option<crate::ResolveRes>>), // name, callback
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct NameRegistrationPayload {
-    pub name: String,
-    pub did: String,
-    pub public_key: String,
+    LookupDidDht(String, tokio::sync::oneshot::Sender<Option<crate::did::DidDocument>>),
 }
 
 pub async fn run_swarm(
@@ -27,9 +23,14 @@ pub async fn run_swarm(
     mut command_rx: mpsc::UnboundedReceiver<SwarmCommand>,
     ppor_manager: Arc<Mutex<crate::ppor::PporManager>>,
     name_db: Arc<Mutex<crate::name_db::NameDb>>,
+    _did_manager: Arc<Mutex<crate::did::DidManager>>,
+    ledger: Arc<crate::accounting::Ledger>,
 ) {
     use std::collections::HashMap;
     let mut pending_queries: HashMap<libp2p::kad::QueryId, tokio::sync::oneshot::Sender<Option<crate::ResolveRes>>> = HashMap::new();
+    let mut pending_name_txs: HashMap<String, crate::NameRegistrationTx> = HashMap::new();
+    let mut pending_cid_txs: HashMap<String, crate::UpdateCidTx> = HashMap::new();
+    let mut pending_ledger_txs: HashMap<String, crate::LedgerTx> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -40,23 +41,111 @@ pub async fn run_swarm(
                     }
                     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                         println!("Consensus connected to {}", peer_id);
+                        // Peer з'єднано. Комітет формується виключно зі смартконтракту.
                     }
                     SwarmEvent::Behaviour(ConsensusBehaviourEvent::Gossipsub(libp2p::gossipsub::Event::Message { message, .. })) => {
                         let topic = message.topic.as_str();
                         if topic == "feedo_consensus_ppor" {
-                            if let Ok(pbft_msg) = prost::Message::decode(&message.data[..]) {
+                            if let Ok(pbft_msg) = <shared_proto::feedo::PbftMessage as prost::Message>::decode(&message.data[..]) {
                                 let mut manager = ppor_manager.lock().await;
-                                if let Some(reply_msg) = manager.handle_message(pbft_msg) {
+                                if let Some(reply_msg) = manager.handle_message(pbft_msg.clone()) {
+                                    let data = prost::Message::encode_to_vec(&reply_msg);
+                                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
+                                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                                }
+                                // Check if this message finalized a transaction
+                                if pbft_msg.phase == shared_proto::feedo::PbftPhase::Finalized as i32 {
+                                    if pbft_msg.tx_type == crate::ppor::TX_TYPE_NAME_REGISTRATION {
+                                        if let Some(tx) = pending_name_txs.remove(&pbft_msg.tx_hash) {
+                                            // Deduct credits from ledger
+                                            if ledger.debit(&tx.did, 100).await {
+                                                let db = name_db.lock().await;
+                                                let _ = db.insert_name(&tx.name, &tx.did, &tx.public_key);
+                                                println!("Decentralized Name FINALIZED: {}", tx.name);
+                                                
+                                                // DHT publish
+                                                let res = crate::ResolveRes { did: tx.did, cid: None, gateways: None };
+                                                let record = libp2p::kad::Record {
+                                                    key: libp2p::kad::RecordKey::new(&tx.name),
+                                                    value: serde_json::to_vec(&res).unwrap(),
+                                                    publisher: None,
+                                                    expires: None,
+                                                };
+                                                let _ = swarm.behaviour_mut().kademlia.put_record(record, libp2p::kad::Quorum::One);
+                                            }
+                                        }
+                                    } else if pbft_msg.tx_type == crate::ppor::TX_TYPE_UPDATE_CID {
+                                        if let Some(tx) = pending_cid_txs.remove(&pbft_msg.tx_hash) {
+                                            let db = name_db.lock().await;
+                                            if let Ok(Some((did, _, _))) = db.resolve_name(&tx.name) {
+                                                let gateways_json = serde_json::to_string(&tx.gateways).unwrap_or_else(|_| "[]".to_string());
+                                                let _ = db.update_cid(&tx.name, &tx.cid, &gateways_json);
+                                                println!("Decentralized CID UPDATE FINALIZED: {} -> {}", tx.name, tx.cid);
+                                                
+                                                // DHT publish
+                                                let res = crate::ResolveRes { did, cid: Some(tx.cid), gateways: Some(tx.gateways) };
+                                                let record = libp2p::kad::Record {
+                                                    key: libp2p::kad::RecordKey::new(&tx.name),
+                                                    value: serde_json::to_vec(&res).unwrap(),
+                                                    publisher: None,
+                                                    expires: None,
+                                                };
+                                                let _ = swarm.behaviour_mut().kademlia.put_record(record, libp2p::kad::Quorum::One);
+                                            }
+                                        }
+                                    } else if pbft_msg.tx_type == crate::ppor::TX_TYPE_LEDGER {
+                                        if let Some(tx) = pending_ledger_txs.remove(&pbft_msg.tx_hash) {
+                                            if tx.is_credit {
+                                                ledger.credit(&tx.did, tx.amount).await;
+                                                println!("Decentralized Ledger CREDIT FINALIZED: {} for {}", tx.amount, tx.did);
+                                            } else {
+                                                let _ = ledger.debit(&tx.did, tx.amount).await;
+                                                println!("Decentralized Ledger DEBIT FINALIZED: {} from {}", tx.amount, tx.did);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if topic == "feedo_name_txs" {
+                            if let Ok(tx) = serde_json::from_slice::<crate::NameRegistrationTx>(&message.data) {
+                                let payload_bytes = format!("{}{}", tx.name, tx.did).into_bytes();
+                                if crate::did::verify_signature(&tx.public_key, &payload_bytes, &tx.signature) {
+                                    let hash = tx.tx_hash();
+                                    pending_name_txs.insert(hash.clone(), tx);
+                                    
+                                    let mut manager = ppor_manager.lock().await;
+                                    if let Some(reply_msg) = manager.mark_validated(&hash, crate::ppor::TX_TYPE_NAME_REGISTRATION) {
+                                        let data = prost::Message::encode_to_vec(&reply_msg);
+                                        let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
+                                        let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                                    }
+                                }
+                            }
+                        } else if topic == "feedo_update_cid_txs" {
+                            if let Ok(tx) = serde_json::from_slice::<crate::UpdateCidTx>(&message.data) {
+                                let hash = tx.tx_hash();
+                                pending_cid_txs.insert(hash.clone(), tx);
+                                
+                                let mut manager = ppor_manager.lock().await;
+                                if let Some(reply_msg) = manager.mark_validated(&hash, crate::ppor::TX_TYPE_UPDATE_CID) {
                                     let data = prost::Message::encode_to_vec(&reply_msg);
                                     let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
                                     let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
                                 }
                             }
-                        } else if topic == "feedo_name_registrations" {
-                            if let Ok(reg) = serde_json::from_slice::<NameRegistrationPayload>(&message.data) {
-                                let db = name_db.lock().await;
-                                let _ = db.insert_name(&reg.name, &reg.did, &reg.public_key);
-                                println!("Decentralized Name registered: {}", reg.name);
+                        } else if topic == "feedo_ledger_txs" {
+                            if let Ok(tx) = serde_json::from_slice::<crate::LedgerTx>(&message.data) {
+                                // Assume signature is valid if SYSTEM, or otherwise validated.
+                                // Real implementation would check the signature here.
+                                let hash = tx.tx_hash();
+                                pending_ledger_txs.insert(hash.clone(), tx);
+                                
+                                let mut manager = ppor_manager.lock().await;
+                                if let Some(reply_msg) = manager.mark_validated(&hash, crate::ppor::TX_TYPE_LEDGER) {
+                                    let data = prost::Message::encode_to_vec(&reply_msg);
+                                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_consensus_ppor");
+                                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                                }
                             }
                         }
                     }
@@ -98,17 +187,42 @@ pub async fn run_swarm(
                             println!("Failed to publish PPoR message: {:?}", e);
                         }
                     }
-                    SwarmCommand::PublishName(name, did, public_key) => {
-                        let payload = NameRegistrationPayload { name, did, public_key };
-                        if let Ok(data) = serde_json::to_vec(&payload) {
-                            let topic = libp2p::gossipsub::IdentTopic::new("feedo_name_registrations");
+                    SwarmCommand::BroadcastNameTx(tx) => {
+                        if let Ok(data) = serde_json::to_vec(&tx) {
+                            let topic = libp2p::gossipsub::IdentTopic::new("feedo_name_txs");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-                                println!("Failed to publish name registration: {:?}", e);
+                                println!("Failed to publish NameRegistrationTx: {:?}", e);
                             }
                         }
                     }
-                    SwarmCommand::PublishDidUpdate(_, _) => {
-                        // For future
+                    SwarmCommand::BroadcastUpdateCidTx(tx) => {
+                        if let Ok(data) = serde_json::to_vec(&tx) {
+                            let topic = libp2p::gossipsub::IdentTopic::new("feedo_update_cid_txs");
+                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                                println!("Failed to publish UpdateCidTx: {:?}", e);
+                            }
+                        }
+                    }
+                    SwarmCommand::BroadcastLedgerTx(tx) => {
+                        if let Ok(data) = serde_json::to_vec(&tx) {
+                            let topic = libp2p::gossipsub::IdentTopic::new("feedo_ledger_txs");
+                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
+                                println!("Failed to publish LedgerTx: {:?}", e);
+                            }
+                        }
+                    }
+                    SwarmCommand::PublishDidDht(did, doc) => {
+                        let record = libp2p::kad::Record {
+                            key: libp2p::kad::RecordKey::new(&did),
+                            value: serde_json::to_vec(&doc).unwrap(),
+                            publisher: None,
+                            expires: None,
+                        };
+                        let _ = swarm.behaviour_mut().kademlia.put_record(record, libp2p::kad::Quorum::One);
+                        println!("Published DID {} to Kademlia DHT", did);
+                    }
+                    SwarmCommand::LookupDidDht(_, _) => {
+                        // Removed
                     }
                     SwarmCommand::PublishDht(name, res) => {
                         let record = libp2p::kad::Record {

@@ -12,7 +12,8 @@ abigen!(
         {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"node","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"NodeRegistered","type":"event"},
         {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"Withdrawn","type":"event"},
         {"anonymous":false,"inputs":[{"indexed":false,"internalType":"address[]","name":"newCommittee","type":"address[]"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"CommitteeUpdated","type":"event"},
-        {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"bytes[]","name":"signatures","type":"bytes[]"}],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}
+        {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"bytes[]","name":"signatures","type":"bytes[]"}],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"},
+        {"inputs":[],"name":"committee","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"}
     ]"#
 );
 
@@ -32,6 +33,25 @@ impl Web3Bridge {
             contract_address,
             ledger,
         })
+    }
+
+    /// Читає поточний комітет валідаторів зі смартконтракту
+    /// Повертає список адрес у нижньому регістрі (0x...)
+    pub async fn fetch_committee(&self) -> Vec<String> {
+        let contract = PporTreasury::new(self.contract_address, Arc::new(self.provider.clone()));
+        match contract.committee().call().await {
+            Ok(members) => {
+                let addrs: Vec<String> = members.iter()
+                    .map(|a| format!("{:?}", a).to_lowercase())
+                    .collect();
+                println!("Fetched on-chain committee ({} members): {:?}", addrs.len(), addrs);
+                addrs
+            }
+            Err(e) => {
+                eprintln!("Failed to fetch committee from contract: {:?}", e);
+                vec![]
+            }
+        }
     }
 
     /// Starts a background worker that periodically checks for new payments

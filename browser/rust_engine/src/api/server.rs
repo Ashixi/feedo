@@ -80,8 +80,8 @@ pub fn start_local_server() -> anyhow::Result<()> {
             let bootstrap_nodes = vec![
                 "/dns4/api.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWNdq2dFr2mAiwbhzMZCBYG8QmtVSqjxNeSorAsjWozFoe",
                 "/dns4/api.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWKMfF1XmYDXTjwNfkEjQMmvZSPcYRhSCP3ibWKwXcnndL",
-                "/dns4/api2.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWFYpVhBAEd3RJ9ZrD575wNZ8jxa2pmZywYGxgMRpjtb7q",
-                "/dns4/api2.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWRFXMcoTPJhV2RifWjyBCrc8sFZuBtR5UvjDJ2rjTa3hY"
+                "/dns4/api2.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWCMJpJrVAu4eUsixc28xAWXifYeA2tf6PK3beZLru2GGx",
+                "/dns4/api2.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWRccQbYbwX3ufZowDwMBxT5LnA5625koUL4FYp7XGbYDt"
             ];
             for node in bootstrap_nodes {
                 if let Ok(addr) = node.parse::<libp2p::Multiaddr>() {

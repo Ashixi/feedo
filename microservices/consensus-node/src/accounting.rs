@@ -40,6 +40,19 @@ impl Ledger {
         let _ = self.db.insert(db_key.as_bytes(), &entry.to_be_bytes());
     }
 
+    pub async fn debit(&self, wallet: &str, amount: u64) -> bool {
+        let mut map = self.balances.lock().await;
+        let entry = map.entry(wallet.to_string()).or_insert(0);
+        if *entry >= amount {
+            *entry -= amount;
+            let db_key = format!("balance:{}", wallet);
+            let _ = self.db.insert(db_key.as_bytes(), &entry.to_be_bytes());
+            true
+        } else {
+            false
+        }
+    }
+
     /// Отримати поточний накопичений баланс
     pub async fn get_balance(&self, wallet: &str) -> u64 {
         let map = self.balances.lock().await;

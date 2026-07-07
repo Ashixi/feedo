@@ -16,6 +16,7 @@ import 'ui/onboarding_screen.dart';
 import 'ui/search_disambiguation_view.dart';
 import 'ui/native_search_results_view.dart';
 import 'ui/publish_screen.dart';
+import 'ui/start_page_view.dart';
 
 // Import Rust bindings
 import 'package:browser/src/rust/frb_generated.dart';
@@ -43,6 +44,8 @@ class FeedoBrowserApp extends StatelessWidget {
     return MaterialApp(
       title: 'Feedo Browser',
       theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
       home: const OnboardingScreen(),
       debugShowCheckedModeBanner: false,
     );
@@ -58,6 +61,7 @@ class TabModel {
   String? searchQuery;
   List<Map<String, dynamic>>? searchResults;
   List<Map<String, String>>? googleSearchResults;
+  String? feedoSearchError;
   String? ambiguousWeb2Url;
   String? ambiguousFeedoUrl;
   TabState state;
@@ -71,6 +75,7 @@ class TabModel {
     this.searchQuery,
     this.searchResults,
     this.googleSearchResults,
+    this.feedoSearchError,
     this.ambiguousWeb2Url,
     this.ambiguousFeedoUrl,
     this.state = TabState.empty,
@@ -191,7 +196,10 @@ class _MainScreenState extends State<MainScreen> {
             GoogleScraper.search(inputUrl)
           ]);
           
-          final feedoRes = results[0] as List<Map<String, dynamic>>;
+          final feedoResData = results[0] as Map<String, dynamic>;
+          final feedoRes = List<Map<String, dynamic>>.from(feedoResData['results'] ?? []);
+          final feedoError = feedoResData['error'] as String?;
+
           for (var result in feedoRes) {
             final metadata = result['metadata'] ?? <String, dynamic>{};
             final hasUrl = metadata.containsKey('url') && metadata['url'].toString().isNotEmpty;
@@ -212,6 +220,7 @@ class _MainScreenState extends State<MainScreen> {
           }
           
           tab.searchResults = feedoRes;
+          tab.feedoSearchError = feedoError;
           tab.googleSearchResults = results[1] as List<Map<String, String>>;
           tab.state = TabState.nativeSearch;
         } catch (e) {
@@ -336,18 +345,18 @@ class _MainScreenState extends State<MainScreen> {
     final activeTab = _tabs[_activeTabIndex];
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Row(
+      backgroundColor: Theme.of(context).appBarTheme.backgroundColor, // Unified top background
+      body: Column(
         children: [
-          Expanded(
-            child: Column(
-              children: [
-                // Custom Tab Bar
+          // 1. TOP TAB BAR (Full Width)
           Container(
-            color: Colors.grey.shade200,
+            color: Theme.of(context).appBarTheme.backgroundColor,
             height: 48,
             child: Row(
               children: [
+                const SizedBox(width: 12),
+                Icon(Icons.public, color: Theme.of(context).colorScheme.primary, size: 24), // Feedo Logo moved here
+                const SizedBox(width: 12),
                 Expanded(
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
@@ -392,14 +401,14 @@ class _MainScreenState extends State<MainScreen> {
                               height: tab.groupColor != null ? 36 : 40,
                               padding: const EdgeInsets.symmetric(horizontal: 8),
                               decoration: BoxDecoration(
-                                color: isActive ? Colors.white : Colors.transparent,
+                                color: isActive ? Theme.of(context).scaffoldBackgroundColor : Colors.transparent,
                                 borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                                border: isActive ? Border.all(color: Colors.grey.shade300) : null,
+                                border: isActive ? Border.all(color: Theme.of(context).dividerColor.withOpacity(0.1)) : null,
                               ),
                               margin: const EdgeInsets.only(top: 8, left: 4),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.public, size: 16, color: Colors.grey),
+                                  Icon(Icons.public, size: 16, color: Theme.of(context).colorScheme.secondary),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -431,10 +440,22 @@ class _MainScreenState extends State<MainScreen> {
               ],
             ),
           ),
-
-          // Address Bar
-          Container(
-            color: Colors.white,
+          
+          // 2. MAIN BROWSER AREA
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildSidebar(),
+                if (_showHistoryPanel) _buildHistoryPanel(),
+                if (_showBookmarksPanel) _buildBookmarksPanel(),
+                
+                Expanded(
+                  child: Column(
+                    children: [
+                      // Address Bar
+                      Container(
+                        color: Theme.of(context).appBarTheme.backgroundColor,
             padding: const EdgeInsets.all(8),
             child: Row(
               children: [
@@ -448,13 +469,13 @@ class _MainScreenState extends State<MainScreen> {
                   child: Container(
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: Theme.of(context).inputDecorationTheme.fillColor,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       children: [
                         const SizedBox(width: 16),
-                        const Icon(Icons.search, size: 20, color: Colors.grey),
+                        Icon(Icons.search, size: 20, color: Theme.of(context).colorScheme.secondary),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
@@ -478,96 +499,110 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
+              ],
+            ),
+          ),
 
-                // Main Browser Menu (Hamburger)
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.menu, color: Colors.black87),
-                  tooltip: 'Feedo Menu',
-                  onSelected: (value) {
-                    if (value == 'wallet') {
-                      _showAccountInfo();
-                    } else if (value == 'publish') {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => PublishScreen(apiClient: widget.apiClient)));
-                    } else if (value == 'bookmarks') {
-                      setState(() {
-                        _showBookmarksPanel = !_showBookmarksPanel;
-                        _showHistoryPanel = false;
-                      });
-                    } else if (value == 'history') {
-                      setState(() {
-                        _showHistoryPanel = !_showHistoryPanel;
-                        _showBookmarksPanel = false;
-                      });
-                    } else if (value == 'clear_storage') {
-                      DbHelper.clearAll().then((_) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Локальне сховище повністю очищено!')));
-                        setState(() { _tabs.clear(); _addTab(); });
-                      });
-                    }
-                  },
-                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(
-                      value: 'publish',
-                      child: ListTile(leading: Icon(Icons.dns), title: Text('Domain Management'), contentPadding: EdgeInsets.zero),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem<String>(
-                      value: 'bookmarks',
-                      child: ListTile(leading: Icon(Icons.star), title: Text('Bookmarks'), contentPadding: EdgeInsets.zero),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'history',
-                      child: ListTile(leading: Icon(Icons.history), title: Text('History'), contentPadding: EdgeInsets.zero),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem<String>(
-                      value: 'wallet',
-                      child: ListTile(leading: Icon(Icons.account_balance_wallet), title: Text('Wallet / Account'), contentPadding: EdgeInsets.zero),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem<String>(
-                      value: 'clear_storage',
-                      child: ListTile(leading: Icon(Icons.delete_forever, color: Colors.red), title: Text('Clear Local Storage', style: TextStyle(color: Colors.red)), contentPadding: EdgeInsets.zero),
-                    ),
-                  ],
+                      // Tab Content with Rounded Corner
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                            borderRadius: const BorderRadius.only(topLeft: Radius.circular(8)),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: _buildTabContent(activeTab, _activeTabIndex),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
 
-          const Divider(height: 1),
-
-          // Tab Content
-          Expanded(
-            child: _buildTabContent(activeTab, _activeTabIndex),
+  Widget _buildSidebar() {
+    final theme = Theme.of(context);
+    
+    return Container(
+      width: 48,
+      color: theme.appBarTheme.backgroundColor,
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          
+          IconButton(
+            icon: Icon(Icons.star, color: _showBookmarksPanel ? theme.colorScheme.primary : theme.iconTheme.color),
+            tooltip: 'Bookmarks',
+            onPressed: () {
+              setState(() {
+                _showBookmarksPanel = !_showBookmarksPanel;
+                _showHistoryPanel = false;
+              });
+            },
           ),
-              ],
-            ),
+          IconButton(
+            icon: Icon(Icons.history, color: _showHistoryPanel ? theme.colorScheme.primary : theme.iconTheme.color),
+            tooltip: 'History',
+            onPressed: () {
+              setState(() {
+                _showHistoryPanel = !_showHistoryPanel;
+                _showBookmarksPanel = false;
+              });
+            },
           ),
-          if (_showHistoryPanel) _buildHistoryPanel(),
-          if (_showBookmarksPanel) _buildBookmarksPanel(),
+          IconButton(
+            icon: Icon(Icons.dns, color: theme.iconTheme.color),
+            tooltip: 'Domain Management',
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (context) => PublishScreen(apiClient: widget.apiClient)));
+            },
+          ),
+          
+          const Spacer(),
+          
+          IconButton(
+            icon: Icon(Icons.account_balance_wallet, color: theme.iconTheme.color),
+            tooltip: 'Wallet / Account',
+            onPressed: _showAccountInfo,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+            tooltip: 'Clear Storage',
+            onPressed: () {
+              DbHelper.clearAll().then((_) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Локальне сховище повністю очищено!')));
+                setState(() { _tabs.clear(); _addTab(); });
+              });
+            },
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
   Widget _buildHistoryPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: 300,
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(left: BorderSide(color: Colors.grey.shade300)),
+        color: Theme.of(context).scaffoldBackgroundColor,
+        border: Border(right: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade300)),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
+            color: Theme.of(context).appBarTheme.backgroundColor,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('History', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('History', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                 IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => _showHistoryPanel = false)),
               ],
             ),
@@ -599,21 +634,22 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBookmarksPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: 300,
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(left: BorderSide(color: Colors.grey.shade300)),
+        color: Theme.of(context).scaffoldBackgroundColor,
+        border: Border(right: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade300)),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
+            color: Theme.of(context).appBarTheme.backgroundColor,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Bookmarks', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Bookmarks', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                 IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => _showBookmarksPanel = false)),
               ],
             ),
@@ -661,6 +697,7 @@ class _MainScreenState extends State<MainScreen> {
         return NativeSearchResultsView(
           query: activeTab.searchQuery ?? '',
           feedoResults: activeTab.searchResults ?? [],
+          feedoError: activeTab.feedoSearchError,
           googleResults: activeTab.googleSearchResults ?? [],
           onResultTap: (url) => _handleUrl(url, tabIndex),
         );
@@ -678,56 +715,11 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildEmptyTabState(int tabIndex) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            "FeedoNet",
-            style: TextStyle(
-              fontSize: 64,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -1.5,
-              color: Colors.blueAccent,
-            ),
-          ),
-          const SizedBox(height: 48),
-          SizedBox(
-            width: 600,
-            child: TextField(
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: "Search the decentralized web or type a domain...",
-                prefixIcon: const Padding(
-                  padding: EdgeInsets.only(left: 16.0, right: 8.0),
-                  child: Icon(Icons.search, size: 24),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                filled: true,
-                fillColor: Colors.white,
-              ),
-              style: const TextStyle(fontSize: 18),
-              onSubmitted: (value) {
-                if (value.trim().isNotEmpty) {
-                  _handleUrl(value.trim(), tabIndex, isSearch: !value.contains('.') && !value.contains('://'));
-                }
-              },
-            ),
-          ),
-        ],
-      ),
+    return StartPageView(
+      onSearchSubmitted: (query, isSearch) {
+        _handleUrl(query, tabIndex, isSearch: isSearch);
+      },
     );
   }
+
 }

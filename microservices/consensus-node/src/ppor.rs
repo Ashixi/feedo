@@ -7,6 +7,9 @@ use rand::rngs::StdRng;
 pub const TX_TYPE_DATA: i32 = 0;
 pub const TX_TYPE_MICRO_TX_BATCH: i32 = 1;
 pub const TX_TYPE_SLASHING: i32 = 2;
+pub const TX_TYPE_NAME_REGISTRATION: i32 = 3;
+pub const TX_TYPE_UPDATE_CID: i32 = 4;
+pub const TX_TYPE_LEDGER: i32 = 5;
 
 #[derive(Debug, Clone)]
 pub struct ReputationRecord {
@@ -110,6 +113,39 @@ impl PporManager {
         
         let mut comm = HashSet::new();
         comm.insert(node_id.clone());
+
+        Self {
+            states: HashMap::new(),
+            view: 0,
+            node_id,
+            secret_key: None,
+            secp: secp256k1::Secp256k1::new(),
+            reputation_table: rep,
+            current_committee: comm,
+            last_finalized_hash: "genesis_hash".to_string(),
+        }
+    }
+
+    /// Ініціалізація з комітетом зі смартконтракту
+    /// node_id - Ethereum адреса цієї ноди (NODE_WALLET_ADDRESS)
+    /// committee_addrs - список адрес з смартконтракту
+    pub fn new_with_committee(node_id: String, committee_addrs: Vec<String>) -> Self {
+        let mut rep = HashMap::new();
+        let mut comm = HashSet::new();
+
+        // Якщо отримали комітет зі смартконтракту — використовуємо його
+        if !committee_addrs.is_empty() {
+            for addr in &committee_addrs {
+                rep.insert(addr.clone(), 100);
+                comm.insert(addr.clone());
+            }
+            println!("PporManager initialized with on-chain committee: {:?}", committee_addrs);
+        } else {
+            // Fallback: комітет лише з цієї ноди (для локального тестування)
+            rep.insert(node_id.clone(), 100);
+            comm.insert(node_id.clone());
+            println!("PporManager: no on-chain committee found, fallback to self-only committee");
+        }
 
         Self {
             states: HashMap::new(),
