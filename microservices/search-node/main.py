@@ -27,7 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-brain = VectorBrain(db_path="./lancedb_data")
+lance_db_path = os.getenv("LANCE_DB_PATH", "./lancedb_data")
+brain = VectorBrain(db_path=lance_db_path)
 p2p_net = None
 crawler = None
 

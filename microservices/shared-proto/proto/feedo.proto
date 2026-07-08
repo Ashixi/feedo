@@ -43,6 +43,14 @@ message PbftMessage {
   TxType tx_type = 7;
 }
 
+message DhtStateCertificate {
+  string key = 1;
+  bytes value_payload = 2; // e.g., JSON representation of ResolveRes or Balance
+  string tx_hash = 3;
+  uint64 sequence = 4;
+  map<string, string> committee_signatures = 5; // Node ID -> Signature
+}
+
 message MempoolSubmission {
   FeedoBroadcast post = 1;
   // Node who accepted it into the mempool

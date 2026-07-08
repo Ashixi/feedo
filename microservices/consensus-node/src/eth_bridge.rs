@@ -44,7 +44,7 @@ impl Web3Bridge {
                 let addrs: Vec<String> = members.iter()
                     .map(|a| format!("{:?}", a).to_lowercase())
                     .collect();
-                println!("Fetched on-chain committee ({} members): {:?}", addrs.len(), addrs);
+                eprintln!("Fetched on-chain committee ({} members): {:?}", addrs.len(), addrs);
                 addrs
             }
             Err(e) => {
@@ -56,7 +56,7 @@ impl Web3Bridge {
 
     /// Starts a background worker that periodically checks for new payments
     pub async fn start_event_listener(self: Arc<Self>) {
-        println!("Started listening for Polygon Web3 Events on contract: {}", FEEDO_CONTRACT_ADDRESS);
+        eprintln!("Started listening for Polygon Web3 Events on contract: {}", FEEDO_CONTRACT_ADDRESS);
         
         let mut last_block = self.provider.get_block_number().await.unwrap_or(U64::from(0));
 
@@ -90,7 +90,7 @@ impl Web3Bridge {
                                     // Конвертуємо USDC (6 decimals зазвичай) у u64
                                     let amount_u64 = payment.pool_amount.as_u64(); 
                                     
-                                    println!("Web3 Deposit: {} sent {} USDC (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
+                                    eprintln!("Web3 Deposit: {} sent {} USDC (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
                                     
                                     self.ledger.credit(&target_id_hex, amount_u64).await;
                                 },
@@ -117,7 +117,7 @@ impl Web3Bridge {
         let address = FEEDO_CONTRACT_ADDRESS.parse::<Address>().unwrap();
         let _contract = PporTreasury::new(address, client.clone());
 
-        println!("Started Auto-Claim daemon for node wallet: {:?}", wallet.address());
+        eprintln!("Started Auto-Claim daemon for node wallet: {:?}", wallet.address());
 
         loop {
             sleep(Duration::from_secs(3600)).await; // Check every hour
@@ -132,7 +132,7 @@ impl Web3Bridge {
             let threshold = U256::from(50) * U256::exp10(6); // 50 USDC
             
             if owed > threshold {
-                println!("Auto-claiming {} USDC", owed);
+                eprintln!("Auto-claiming {} USDC", owed);
                 // Implementation for collecting signatures over P2P goes here...
             }
             */

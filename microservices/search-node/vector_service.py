@@ -18,9 +18,9 @@ from PIL import Image
 
 class VectorBrain:
     def __init__(self, db_path="./lancedb_data"):
-        print("🧠 Завантаження ML-моделі (intfloat/multilingual-e5-small) через ONNX Runtime...")
+        print("[SEARCH] Loading ML model (intfloat/multilingual-e5-small) via SentenceTransformers...")
         self.model = SentenceTransformer('intfloat/multilingual-e5-small')
-        print("👁️ Завантаження Multimodal-моделі (clip-ViT-B-32)...")
+        print("[SEARCH] Loading Multimodal model (clip-ViT-B-32)...")
         self.image_model = SentenceTransformer('clip-ViT-B-32')
         self.db = lancedb.connect(db_path)
 

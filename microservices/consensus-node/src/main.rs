@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use libp2p::{SwarmBuilder, PeerId, identity, gossipsub};
+use libp2p::{SwarmBuilder, PeerId, gossipsub};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -22,6 +22,7 @@ pub mod name_db;
 pub mod ppor;
 pub mod network;
 pub mod swarm_loop;
+pub mod replay;
 
 use swarm_loop::SwarmCommand;
 
@@ -41,7 +42,7 @@ impl ConsensusService for MyConsensusService {
         request: Request<VerifyUploadRequest>,
     ) -> Result<Response<VerifyUploadResponse>, Status> {
         let req = request.into_inner();
-        println!("VerifyUploadRequest: did={}, hash={}", req.user_did, req.file_hash);
+        eprintln!("VerifyUploadRequest: did={}, hash={}", req.user_did, req.file_hash);
         
         let balance = self.ledger.get_balance(&req.user_did).await;
         let did_manager = self.did_manager.lock().await;
@@ -172,7 +173,7 @@ pub struct LedgerTx {
     pub did: String,
     pub amount: u64,
     pub is_credit: bool,
-    pub signature: String, // Can be empty for system-issued credits like initial balance
+    pub signature: String,
 }
 impl LedgerTx {
     pub fn tx_hash(&self) -> String {
@@ -183,11 +184,13 @@ impl LedgerTx {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ResolveRes {
     pub did: String,
     pub cid: Option<String>,
     pub gateways: Option<Vec<String>>,
+    pub epoch: Option<u64>,
+    pub finalized_at: Option<u64>,
 }
 
 async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
@@ -198,12 +201,14 @@ async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegi
     let _ = did_manager.insert_document(&doc);
     drop(did_manager);
 
-    // Provide 500000 initial credits via PPoS LedgerTx instead of local credit
+    // Credit immediately locally so the user can use credits right away.
+    // The broadcast via consensus is a background operation.
+    state.ledger.credit(&did_id, 500000).await;
     let tx = LedgerTx {
         did: did_id.clone(),
         amount: 500000,
         is_credit: true,
-        signature: "SYSTEM".to_string(), // Initial registration bonus is system-authorized
+        signature: "SYSTEM".to_string(),
     };
     let _ = state.swarm_tx.send(SwarmCommand::BroadcastLedgerTx(tx));
 
@@ -234,7 +239,6 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
         let (tx, rx) = tokio::sync::oneshot::channel();
         if state.swarm_tx.send(SwarmCommand::LookupDidDht(payload.did.clone(), tx)).is_ok() {
             if let Ok(Some(doc)) = rx.await {
-                // Cache it locally
                 let did_manager = state.did_manager.lock().await;
                 let _ = did_manager.insert_document(&doc);
                 resolved_doc = Some(doc);
@@ -242,21 +246,35 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
         }
     }
 
-    if let Some(doc) = resolved_doc {
+    if let Some(_doc) = resolved_doc {
         let local_ledger_balance = state.ledger.get_balance(&payload.did).await;
         if local_ledger_balance < 100 {
             return Json(NameRegisterRes { success: false, error: Some("Insufficient credits".into()) });
         }
 
         let tx = NameRegistrationTx {
-            name: payload.name,
-            did: payload.did,
-            public_key: payload.public_key,
-            signature: payload.signature,
+            name: payload.name.clone(),
+            did: payload.did.clone(),
+            public_key: payload.public_key.clone(),
+            signature: payload.signature.clone(),
         };
         
-        // Broadcast via Swarm
         let _ = state.swarm_tx.send(SwarmCommand::BroadcastNameTx(tx));
+
+        // Write locally immediately AND publish to DHT for other nodes
+        {
+            let name_db = state.name_db.lock().await;
+            let _ = name_db.insert_name(&payload.name, &payload.did, &payload.public_key);
+            drop(name_db);
+        }
+        let res = ResolveRes {
+            did: payload.did.clone(),
+            cid: None,
+            gateways: None,
+            epoch: Some(0),
+            finalized_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+        };
+        let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
         
         return Json(NameRegisterRes { success: true, error: None });
     }
@@ -265,7 +283,6 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
 }
 
 async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCidReq>) -> Json<NameRegisterRes> {
-    // 1. Resolve name (local or DHT fallback)
     let mut resolved_did_id = None;
     
     let name_db = state.name_db.lock().await;
@@ -278,10 +295,9 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
         let (tx, rx) = tokio::sync::oneshot::channel();
         if state.swarm_tx.send(SwarmCommand::LookupDht(payload.name.clone(), tx)).is_ok() {
             if let Ok(Some(res)) = rx.await {
-                // Cache it locally
                 let name_db = state.name_db.lock().await;
                 let gateways_json = res.gateways.as_ref().map(|g| serde_json::to_string(g).unwrap_or_else(|_| "[]".to_string()));
-                let _ = name_db.insert_name(&payload.name, &res.did, ""); // empty pubkey for cache
+                let _ = name_db.insert_name(&payload.name, &res.did, "");
                 if let Some(cid) = &res.cid {
                     let _ = name_db.update_cid(&payload.name, cid, &gateways_json.unwrap_or_else(|| "[]".to_string()));
                 }
@@ -292,7 +308,6 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
     }
     
     if let Some(did_id) = resolved_did_id {
-        // 2. Resolve DID (local or DHT fallback)
         let mut resolved_doc = None;
         let did_manager = state.did_manager.lock().await;
         if let Some(doc) = did_manager.get_document(&did_id) {
@@ -304,7 +319,6 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
             let (tx, rx) = tokio::sync::oneshot::channel();
             if state.swarm_tx.send(SwarmCommand::LookupDidDht(did_id.clone(), tx)).is_ok() {
                 if let Ok(Some(doc)) = rx.await {
-                    // Cache it locally
                     let did_manager = state.did_manager.lock().await;
                     let _ = did_manager.insert_document(&doc);
                     resolved_doc = Some(doc);
@@ -320,14 +334,29 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
             }
             
             let tx = UpdateCidTx {
-                name: payload.name,
-                cid: payload.cid,
-                signature: payload.signature,
-                gateways: payload.gateways,
+                name: payload.name.clone(),
+                cid: payload.cid.clone(),
+                signature: payload.signature.clone(),
+                gateways: payload.gateways.clone(),
             };
             
-            // Broadcast via Swarm
             let _ = state.swarm_tx.send(SwarmCommand::BroadcastUpdateCidTx(tx));
+
+            // Write locally immediately AND publish to DHT
+            {
+                let name_db = state.name_db.lock().await;
+                let gateways_json = serde_json::to_string(&payload.gateways).unwrap_or_else(|_| "[]".to_string());
+                let _ = name_db.update_cid(&payload.name, &payload.cid, &gateways_json);
+                drop(name_db);
+            }
+            let res = ResolveRes {
+                did: did_id,
+                cid: Some(payload.cid.clone()),
+                gateways: Some(payload.gateways.clone()),
+                epoch: Some(0),
+                finalized_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+            };
+            let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
             
             return Json(NameRegisterRes { success: true, error: None });
         }
@@ -337,21 +366,71 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
 
 async fn resolve_name_http(State(state): State<AppState>, Path(name): Path<String>) -> Json<Option<ResolveRes>> {
     let name_db = state.name_db.lock().await;
-    if let Ok(Some((did, cid, gateways_json))) = name_db.resolve_name(&name) {
-        let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
-        return Json(Some(ResolveRes { did, cid, gateways }));
-    }
+    let local_tuple = name_db.resolve_name(&name).ok().flatten();
     drop(name_db);
 
-    // Fallback to Kademlia DHT
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    if state.swarm_tx.send(SwarmCommand::LookupDht(name.clone(), tx)).is_ok() {
-        if let Ok(Some(res)) = rx.await {
-            return Json(Some(res));
+    // Always try DHT to get the latest data (may have newer CID/gateways)
+    let dht_res = {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if state.swarm_tx.send(SwarmCommand::LookupDht(name.clone(), tx)).is_ok() {
+            rx.await.ok().flatten()
+        } else {
+            None
         }
+    };
+
+    eprintln!("[RESOLVE] name={}, local={:?}, dht={:?}", name, local_tuple, dht_res);
+
+    match (local_tuple, dht_res) {
+        (Some((local_did, local_cid, local_gw_json)), Some(dht)) => {
+            // Merge: pick the record with newer finalized_at timestamp
+            // If local has no CID but DHT does, use DHT data (stale->fresh upgrade)
+            let use_dht = match (&local_cid, &dht.cid) {
+                (None, Some(_)) => true,  // DHT has CID, local doesn't
+                (Some(_), None) => false, // Local has CID, DHT doesn't
+                (None, None) | (Some(_), Some(_)) => {
+                    // Both have or both don't have CID: compare finalized_at
+                    dht.finalized_at.unwrap_or(0) > 0
+                }
+            };
+
+            let (did, cid, gateways, epoch, finalized_at) = if use_dht {
+                // Update local cache with fresher DHT data
+                let db = state.name_db.lock().await;
+                if let Some(ref c) = dht.cid {
+                    let gw_json = dht.gateways.as_ref()
+                        .map(|g| serde_json::to_string(g).unwrap_or_else(|_| "[]".to_string()))
+                        .unwrap_or_else(|| "[]".to_string());
+                    let _ = db.update_cid(&name, c, &gw_json);
+                }
+                drop(db);
+                (dht.did, dht.cid, dht.gateways, dht.epoch, dht.finalized_at)
+            } else {
+                let gateways = local_gw_json.as_ref().and_then(|j| serde_json::from_str::<Vec<String>>(j).ok());
+                (local_did, local_cid, gateways, None, None)
+            };
+
+            Json(Some(ResolveRes { did, cid, gateways, epoch, finalized_at }))
+        }
+        (Some((local_did, local_cid, local_gw_json)), None) => {
+            let gateways = local_gw_json.and_then(|json| serde_json::from_str(&json).ok());
+            Json(Some(ResolveRes { did: local_did, cid: local_cid, gateways, epoch: None, finalized_at: None }))
+        }
+        (None, Some(dht)) => {
+            // Cache DHT data locally
+            let db = state.name_db.lock().await;
+            let _ = db.insert_name(&name, &dht.did, "");
+            if let Some(cid) = &dht.cid {
+                let gateways_json = dht.gateways.as_ref()
+                    .map(|g| serde_json::to_string(g).unwrap_or_else(|_| "[]".to_string()))
+                    .unwrap_or_else(|| "[]".to_string());
+                let _ = db.update_cid(&name, cid, &gateways_json);
+            }
+            drop(db);
+            Json(Some(dht))
+        }
+        (None, None) => Json(None),
     }
-    
-    Json(None)
 }
 
 async fn resolve_cid_http(State(state): State<AppState>, Path(cid): Path<String>) -> Json<Option<String>> {
@@ -369,8 +448,6 @@ pub struct BalanceRes {
 
 async fn get_did_balance(State(state): State<AppState>, Path(did): Path<String>) -> Json<Option<BalanceRes>> {
     let balance = state.ledger.get_balance(&did).await;
-    // We assume if balance > 0 or if DID exists, we return it.
-    // To strictly match Optional return if DID doesn't exist:
     let did_manager = state.did_manager.lock().await;
     if did_manager.get_document(&did).is_none() && balance == 0 {
         return Json(None);
@@ -396,16 +473,58 @@ async fn get_names_by_did(State(state): State<AppState>, Path(did): Path<String>
     Json(results)
 }
 
+fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
+    if let Ok(hex_str) = std::env::var("NODE_PRIVATE_KEY") {
+        if let Ok(bytes) = hex::decode(hex_str.trim()) {
+            let mut key_bytes = bytes;
+            if let Ok(secret_key) = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut key_bytes[..]) {
+                let kp = libp2p::identity::ed25519::Keypair::from(secret_key);
+                eprintln!("Loaded Peer Key from NODE_PRIVATE_KEY env var");
+                return libp2p::identity::Keypair::from(kp);
+            }
+        }
+        eprintln!("Failed to parse NODE_PRIVATE_KEY from env, falling back to file");
+    }
+    
+    if let Ok(bytes) = std::fs::read(keypair_path) {
+        libp2p::identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| {
+            eprintln!("Failed to decode peer_key.bin protobuf, generating a new key");
+            let key = libp2p::identity::Keypair::generate_ed25519();
+            if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
+                eprintln!("Failed to write generated peer_key.bin: {:?}", e);
+            }
+            key
+        })
+    } else {
+        let key = libp2p::identity::Keypair::generate_ed25519();
+        if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
+            eprintln!("Failed to write generated peer_key.bin: {:?}", e);
+        }
+        key
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let grpc_addr: SocketAddr = "0.0.0.0:50051".parse().unwrap();
-    let http_addr: SocketAddr = "0.0.0.0:3000".parse().unwrap();
+    let grpc_port: u16 = std::env::var("GRPC_PORT")
+        .unwrap_or_else(|_| "50051".to_string())
+        .parse()
+        .unwrap_or(50051);
+    let http_port: u16 = std::env::var("HTTP_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .unwrap_or(3000);
+    let grpc_addr: SocketAddr = format!("0.0.0.0:{}", grpc_port).parse().unwrap();
+    let http_addr: SocketAddr = format!("0.0.0.0:{}", http_port).parse().unwrap();
 
-    let sled_db = sled::open("consensus_db")?;
+    let db_dir = std::env::var("DB_DIR").unwrap_or_else(|_| "consensus_db".to_string());
+    std::fs::create_dir_all(&db_dir).unwrap_or_default();
+
+    let sled_db = sled::open(format!("{}/sled", db_dir))?;
     let ledger = Arc::new(accounting::Ledger::new(sled_db.clone()));
     let did_manager = Arc::new(Mutex::new(did::DidManager::new(sled_db.clone())));
     
-    let name_db = Arc::new(Mutex::new(name_db::NameDb::new("names.db").unwrap()));
+    let name_db = Arc::new(Mutex::new(name_db::NameDb::new(&format!("{}/names.db", db_dir)).unwrap()));
 
     let rpc_url = std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "https://polygon-rpc.com".to_string());
     
@@ -414,56 +533,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         bridge_clone.start_event_listener().await;
     });
-    
-fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
-    if let Ok(hex_str) = std::env::var("NODE_PRIVATE_KEY") {
-        if let Ok(bytes) = hex::decode(hex_str.trim()) {
-            let mut key_bytes = bytes;
-            if let Ok(secret_key) = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut key_bytes) {
-                let kp = libp2p::identity::ed25519::Keypair::from(secret_key);
-                println!("Loaded Peer Key from NODE_PRIVATE_KEY env var");
-                return libp2p::identity::Keypair::from(kp);
-            }
-        }
-        println!("Failed to parse NODE_PRIVATE_KEY from env, falling back to file");
-    }
-    
-    if let Ok(bytes) = std::fs::read(keypair_path) {
-        libp2p::identity::Keypair::from_protobuf_encoding(&bytes).unwrap_or_else(|_| {
-            println!("Failed to decode peer_key.bin protobuf, generating a new key");
-            let key = libp2p::identity::Keypair::generate_ed25519();
-            if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
-                println!("Failed to write generated peer_key.bin: {:?}", e);
-            }
-            key
-        })
-    } else {
-        let key = libp2p::identity::Keypair::generate_ed25519();
-        if let Err(e) = std::fs::write(keypair_path, key.to_protobuf_encoding().unwrap()) {
-            println!("Failed to write generated peer_key.bin: {:?}", e);
-        }
-        key
-    }
-}
 
-    let keypair_path = "consensus_db/peer_key.bin";
-    std::fs::create_dir_all("consensus_db").unwrap_or_default();
-    let local_key = load_keypair_from_env_or_file(keypair_path);
+    let keypair_path = format!("{}/peer_key.bin", db_dir);
+    let local_key = load_keypair_from_env_or_file(&keypair_path);
     let local_peer_id = PeerId::from(local_key.public());
-    println!("Consensus Local peer id: {:?}", local_peer_id);
+    eprintln!("Consensus Local peer id: {:?}", local_peer_id);
 
-    // Читаємо адресу цієї ноди з env
     let node_wallet_address = std::env::var("NODE_WALLET_ADDRESS")
         .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string())
         .to_lowercase();
-    println!("Node Wallet Address (committee identity): {}", node_wallet_address);
+    eprintln!("Node Wallet Address (committee identity): {}", node_wallet_address);
 
-    // Отримуємо поточний комітет зі смартконтракту
     let on_chain_committee = eth_bridge.fetch_committee().await;
 
-    let ppor_manager = Arc::new(Mutex::new(ppor::PporManager::new_with_committee(
+    let epoch_secs: u64 = std::env::var("EPOCH_DURATION_SECS")
+        .unwrap_or_else(|_| "600".to_string())
+        .parse()
+        .unwrap_or(600);
+
+    let ppor_manager = Arc::new(Mutex::new(ppor::PporManager::new_with_committee_and_epoch(
         node_wallet_address.clone(),
         on_chain_committee,
+        Duration::from_secs(epoch_secs),
     )));
 
     let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
@@ -493,6 +584,7 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_name_txs")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_update_cid_txs")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_ledger_txs")).unwrap();
+            gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_peer_announce")).unwrap();
 
             let kad_config = libp2p::kad::Config::default();
             let store = libp2p::kad::store::MemoryStore::new(local_peer_id);
@@ -506,11 +598,19 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
 
             let mdns = libp2p::mdns::tokio::Behaviour::new(libp2p::mdns::Config::default(), local_peer_id).unwrap();
 
+            let rr_codec = network::TxCodec;
+            let rr_protocols = vec![
+                (network::TX_PROTOCOL.to_string(), libp2p::request_response::ProtocolSupport::Full)
+            ];
+            let rr_cfg = libp2p::request_response::Config::default();
+            let rr = libp2p::request_response::Behaviour::with_codec(rr_codec, rr_protocols, rr_cfg);
+
             network::ConsensusBehaviour {
                 gossipsub,
                 kademlia,
                 identify,
                 mdns,
+                request_response: rr,
             }
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
@@ -526,17 +626,18 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
             match s.parse::<libp2p::Multiaddr>() {
                 Ok(addr) => {
                     match swarm.dial(addr.clone()) {
-                        Ok(()) => println!("Dialing bootstrap node: {}", addr),
-                        Err(e) => println!("Error dialing {}: {:?}", addr, e),
+                        Ok(()) => eprintln!("Dialing bootstrap node: {}", addr),
+                        Err(e) => eprintln!("Error dialing {}: {:?}", addr, e),
                     }
                 }
-                Err(e) => println!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
+                Err(e) => eprintln!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
             }
         }
     }
 
     let (swarm_tx, swarm_rx) = mpsc::unbounded_channel();
     let ppor_clone = ppor_manager.clone();
+    let ppor_shutdown = ppor_manager.clone();
     let name_db_clone = name_db.clone();
     let did_manager_clone = did_manager.clone();
     let ledger_clone = ledger.clone();
@@ -554,12 +655,13 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
         swarm_tx: swarm_tx.clone(),
     };
 
-    println!("Starting gRPC Consensus Service on {}", grpc_addr);
+    eprintln!("Starting gRPC Consensus Service on {}", grpc_addr);
     let grpc_server = Server::builder()
         .add_service(ConsensusServiceServer::new(consensus_service))
         .serve(grpc_addr);
 
     let cors = tower_http::cors::CorsLayer::permissive();
+
     let app_state = AppState {
         name_db: name_db.clone(),
         did_manager: did_manager.clone(),
@@ -567,12 +669,11 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
         ledger: ledger.clone(),
     };
     
-    // Republish local records to DHT on startup
     let local_name_db = name_db.lock().await;
     if let Ok(records) = local_name_db.get_all_records() {
         for (name, did, cid, gateways_json) in records {
             let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
-            let res = ResolveRes { did, cid, gateways };
+            let res = ResolveRes { did, cid, gateways, epoch: None, finalized_at: None };
             let _ = swarm_tx.send(SwarmCommand::PublishDht(name, res));
         }
     }
@@ -589,12 +690,31 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
         .layer(cors)
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();
-    println!("Starting HTTP server on {}", http_addr);
+    eprintln!("Starting HTTP server on {}", http_addr);
     let http_server = axum::serve(listener, app);
 
+    let shutdown_swarm_tx = swarm_tx.clone();
+    let shutdown_ppor = ppor_shutdown;
+    let shutdown_handle = tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        eprintln!("[SHUTDOWN] Received SIGINT, initiating graceful shutdown...");
+
+        let manager = shutdown_ppor.lock().await;
+        let my_wallet = manager.node_id.clone();
+        let my_reputation = manager.reputation_table.get(&my_wallet).copied().unwrap_or(10);
+        drop(manager);
+        let _ = shutdown_swarm_tx.send(SwarmCommand::PublishReputationDht(my_wallet, my_reputation));
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        eprintln!("[SHUTDOWN] Graceful shutdown complete");
+        std::process::exit(0);
+    });
+
     tokio::select! {
-        _ = grpc_server => println!("gRPC server exited"),
-        _ = http_server => println!("HTTP server exited"),
+        _ = grpc_server => eprintln!("gRPC server exited"),
+        _ = http_server => eprintln!("HTTP server exited"),
+        _ = shutdown_handle => {},
     }
 
     Ok(())

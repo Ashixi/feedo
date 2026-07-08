@@ -1,5 +1,5 @@
 # Use Rust official image to build
-FROM rustlang/rust:nightly as builder
+FROM rustlang/rust:nightly AS builder
 WORKDIR /usr/src/app
 
 # Install protobuf compiler since we have a grpc shared-proto
@@ -13,7 +13,7 @@ RUN cargo build --release --bin storage-node
 RUN cargo build --release --bin consensus-node
 
 # Create final minimal image for storage-node
-FROM debian:bookworm-slim as storage-node
+FROM debian:bookworm-slim AS storage-node
 WORKDIR /app
 # Install OpenSSL which might be needed
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -21,7 +21,7 @@ COPY --from=builder /usr/src/app/target/release/storage-node /app/storage-node
 CMD ["./storage-node"]
 
 # Create final minimal image for consensus-node
-FROM debian:bookworm-slim as consensus-node
+FROM debian:bookworm-slim AS consensus-node
 WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/src/app/target/release/consensus-node /app/consensus-node

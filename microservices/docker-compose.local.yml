@@ -1,0 +1,63 @@
+# Local 2-node consensus test setup.
+# Node1 is bootstrap (no BOOTSTRAP_NODES).
+# Node2 connects to Node1.
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up --build
+#   docker compose -f docker-compose.local.yml down -v
+
+services:
+  consensus-node1:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      target: consensus-node
+    container_name: feedo-consensus-node1
+    ports:
+      - "3000:3000"
+      - "50051:50051"
+      - "8041:8041/udp"
+    environment:
+      - RUST_LOG=info
+      - ETH_RPC_URL=https://polygon-rpc.com
+      - P2P_PORT=8041
+      - NODE_WALLET_ADDRESS=0x0827e8caf5ff9652c5d89eb69d55ce083c750b21
+      - NODE_WALLET_PRIVATE_KEY=
+    volumes:
+      - consensus_db1:/app/consensus_db
+    networks:
+      - feedo-local
+    restart: unless-stopped
+
+  consensus-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      target: consensus-node
+    container_name: feedo-consensus-node2
+    ports:
+      - "3001:3000"
+      - "50052:50051"
+      - "8042:8041/udp"
+    environment:
+      - RUST_LOG=info
+      - ETH_RPC_URL=https://polygon-rpc.com
+      - P2P_PORT=8041
+      - BOOTSTRAP_NODES=/ip4/consensus-node1/udp/8041/quic-v1/p2p/12D3KooWKpn8LR3km7qQ39vF2zK3LjADhVnMdZsBftvmV85c52mt
+      - NODE_WALLET_ADDRESS=0x89bf2d987a05d6244bcef70f1d66fd4395c1588d
+      - NODE_WALLET_PRIVATE_KEY=7a59469c245ad41c903602d5df8fea6cba0b2fa49a2e4abfada42c985ae1e509
+    volumes:
+      - consensus_db2:/app/consensus_db
+    networks:
+      - feedo-local
+    depends_on:
+      - consensus-node1
+    restart: unless-stopped
+
+volumes:
+  consensus_db1:
+  consensus_db2:
+
+networks:
+  feedo-local:
+    driver: bridge

@@ -270,20 +270,22 @@ fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypai
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let keypair_path = "storage_db/peer_key.bin";
-    std::fs::create_dir_all("storage_db").unwrap_or_default();
-    let local_key = load_keypair_from_env_or_file(keypair_path);
+    let db_dir = std::env::var("DB_DIR").unwrap_or_else(|_| "storage_db".to_string());
+    let keypair_path = format!("{}/peer_key.bin", db_dir);
+    std::fs::create_dir_all(&db_dir).unwrap_or_default();
+    let local_key = load_keypair_from_env_or_file(&keypair_path);
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);
 
-    let db = sled::open("storage_db").unwrap();
+    let db = sled::open(&db_dir).unwrap();
     let storage_full = Arc::new(AtomicBool::new(false));
     let store = HybridStore::new(local_peer_id, db, storage_full.clone());
 
+    let db_dir_clone = db_dir.clone();
     let sf_clone = storage_full.clone();
     tokio::spawn(async move {
         loop {
-            if let Ok(size) = get_dir_size("storage_db") {
+            if let Ok(size) = get_dir_size(&db_dir_clone) {
                 if size > 10 * 1024 * 1024 * 1024 { // 10 GB limit for example
                     sf_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                 } else {
@@ -344,7 +346,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
-    swarm.listen_on("/ip4/0.0.0.0/udp/8040/quic-v1".parse()?)?;
+    let p2p_port: u16 = std::env::var("P2P_PORT")
+        .unwrap_or_else(|_| "8040".to_string())
+        .parse()
+        .unwrap_or(8040);
+    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", p2p_port).parse()?)?;
     if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
         for s in nodes_csv.split(',') {
             let s = s.trim();
@@ -372,8 +378,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         crate::swarm_loop::run_swarm(swarm, swarm_rx, key_clone, sf_clone2, gossip_tx_clone).await;
     });
 
-    let grpc_addr: SocketAddr = "0.0.0.0:50052".parse().unwrap();
-    let http_addr: SocketAddr = "0.0.0.0:3001".parse().unwrap();
+    let grpc_port: u16 = std::env::var("GRPC_PORT")
+        .unwrap_or_else(|_| "50052".to_string())
+        .parse()
+        .unwrap_or(50052);
+    let http_port: u16 = std::env::var("HTTP_PORT")
+        .unwrap_or_else(|_| "3001".to_string())
+        .parse()
+        .unwrap_or(3001);
+    let grpc_addr: SocketAddr = format!("0.0.0.0:{}", grpc_port).parse().unwrap();
+    let http_addr: SocketAddr = format!("0.0.0.0:{}", http_port).parse().unwrap();
 
     let storage_service = MyStorageService {
         swarm_tx: swarm_tx.clone(),

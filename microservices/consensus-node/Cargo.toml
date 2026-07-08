@@ -26,4 +26,5 @@ rand = "0.8"
 libp2p = { version = "0.53", features = ["macros", "tokio", "quic", "request-response", "cbor", "identify", "gossipsub", "kad", "mdns", "tcp", "noise", "yamux"] }
 futures = "0.3.32"
 tokio-stream = { version = "0.1.18", features = ["net"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "timeout", "limit"] }
+async-trait = "0.1.89"

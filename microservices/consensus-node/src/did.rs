@@ -102,7 +102,7 @@ pub fn verify_signature(address_hex: &str, payload: &[u8], signature_hex: &str) 
     let signature = match sig_result {
         Ok(s) => s,
         Err(e) => {
-            println!("ECDSA signature parse error: {:?}", e);
+            eprintln!("ECDSA signature parse error: {:?}", e);
             return false;
         }
     };
@@ -113,7 +113,7 @@ pub fn verify_signature(address_hex: &str, payload: &[u8], signature_hex: &str) 
     let recovered = match signature.recover(message_hash) {
         Ok(addr) => addr,
         Err(e) => {
-            println!("ECDSA signature recovery error: {:?}", e);
+            eprintln!("ECDSA signature recovery error: {:?}", e);
             return false;
         }
     };
@@ -122,14 +122,14 @@ pub fn verify_signature(address_hex: &str, payload: &[u8], signature_hex: &str) 
     let expected = match H160::from_str(clean_addr) {
         Ok(a) => a,
         Err(e) => {
-            println!("Address parse error: {:?}", e);
+            eprintln!("Address parse error: {:?}", e);
             return false;
         }
     };
 
     let ok = recovered == expected;
     if !ok {
-        println!("ECDSA mismatch: recovered={:?}, expected={:?}", recovered, expected);
+        eprintln!("ECDSA mismatch: recovered={:?}, expected={:?}", recovered, expected);
     }
     ok
 }
