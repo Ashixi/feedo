@@ -2,6 +2,7 @@ import asyncio
 import os
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi.responses import Response
 import zipfile
 import tempfile
 import shutil
@@ -135,19 +136,68 @@ async def client_query(text: str, limit: int = 50, federated: bool = True, item_
     all_results = local_results + federated_results
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
     
-    seen = set()
+    # Group duplicates by hash_id instead of discarding them
+    seen = {}  # hash_id -> index in final_results
     final_results = []
     for r in all_results:
-        if r["hash_id"] not in seen:
-            if item_type == "all" or item_type == r["item_type"]:
-                seen.add(r["hash_id"])
-                final_results.append(r)
-            if len(final_results) >= limit + offset:
-                break
-                
+        hid = r["hash_id"]
+        if item_type != "all" and item_type != r.get("item_type", ""):
+            continue
+
+        if hid in seen:
+            # Duplicate: add to the primary record's duplicates list
+            idx = seen[hid]
+            primary = final_results[idx]
+            if "duplicates" not in primary:
+                primary["duplicates"] = []
+            # Extract readable URL info for the duplicate
+            dup_meta = r.get("metadata", {}) or {}
+            if isinstance(dup_meta, str):
+                try: dup_meta = json.loads(dup_meta)
+                except: dup_meta = {}
+            primary["duplicates"].append({
+                "hash_id": hid,
+                "domain": dup_meta.get("domain", ""),
+                "url": dup_meta.get("url", ""),
+                "source_type": r.get("source_type", ""),
+                "text": (r.get("text") or "")[:300],
+                "metadata": dup_meta,
+            })
+            # Promote duplicate to primary if it has richer metadata
+            primary_meta = primary.get("metadata", {}) or {}
+            if isinstance(primary_meta, str):
+                try: primary_meta = json.loads(primary_meta)
+                except: primary_meta = {}
+            if (not primary_meta.get("title") and dup_meta.get("title")) or \
+               (not primary_meta.get("description") and dup_meta.get("description")) or \
+               (not primary_meta.get("domain") and dup_meta.get("domain")):
+                # Swap: duplicate becomes primary, primary becomes duplicate
+                old_primary = dict(final_results[idx])
+                # Keep the duplicate's hash_id but carry over primary data
+                final_results[idx] = dict(r)
+                final_results[idx]["duplicates"] = [{
+                    "hash_id": hid,
+                    "domain": primary_meta.get("domain", ""),
+                    "url": primary_meta.get("url", ""),
+                    "source_type": old_primary.get("source_type", ""),
+                    "text": (old_primary.get("text") or "")[:300],
+                    "metadata": primary_meta,
+                }] + final_results[idx].get("duplicates", [])
+        else:
+            seen[hid] = len(final_results)
+            final_results.append(r)
+
+        if len(final_results) >= limit + offset:
+            break
+
     final_results = final_results[offset:]
     await fetch_missing_text_from_dht(final_results)
-            
+    # Also fetch text for duplicates
+    for r in final_results:
+        for dup in r.get("duplicates", []):
+            if not dup.get("text"):
+                dup["text"] = r.get("text", "")
+
     return {"results": final_results}
 
 @app.get("/documents")

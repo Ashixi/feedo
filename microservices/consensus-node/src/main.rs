@@ -217,13 +217,17 @@ async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegi
 }
 
 async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRegisterReq>) -> Json<NameRegisterRes> {
+    eprintln!("[REGISTER_NAME] Received: name={}, did={}, public_key={}", payload.name, payload.did, payload.public_key);
     let payload_bytes = format!("{}{}", payload.name, payload.did).into_bytes();
     if !did::verify_signature(&payload.public_key, &payload_bytes, &payload.signature) {
+        eprintln!("[REGISTER_NAME] Signature INVALID for name={}, sig_len={}", payload.name, payload.signature.len());
         return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
     }
+    eprintln!("[REGISTER_NAME] Signature VALID for name={}", payload.name);
 
     let name_db = state.name_db.lock().await;
     if name_db.name_exists(&payload.name).unwrap_or(false) {
+        eprintln!("[REGISTER_NAME] Name already exists: {}", payload.name);
         return Json(NameRegisterRes { success: false, error: Some("Name already exists".into()) });
     }
     drop(name_db);

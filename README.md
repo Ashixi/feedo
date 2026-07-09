@@ -1,94 +1,162 @@
 # Feedo Protocol 🚀
 
-**Feedo is the Unified Semantic Layer for the decentralized internet (let's boldly call it Web4).**
-
-The core vision is for Feedo to serve as a foundational protocol and infrastructure layer where developers can build the decentralized applications (dApps) of the future. It provides a censorship-resistant, sharded P2P storage system with native AI-powered semantic search.
-
-By combining global decentralized networks with an advanced AI vector engine, Feedo breaks the "filter bubble" and delivers highly relevant, algorithmically curated feeds without central authorities controlling the narrative.
-
----
-
-## 🏗️ Core Architecture Overview
-
-The Feedo ecosystem consists of three main pillars working in harmony:
-
-1. **The Ingesters (e.g., Nostr Bridge)**
-   Python-based microservices that act as the "eyes" of the network. They connect to external decentralized networks (like Nostr), scrape content in real-time, filter out noise, and forward the clean data to the main backend.
-
-2. **The Backend (Main Node & VectorBrain)**
-   A high-performance FastAPI server that acts as the brain of the operation. 
-   - It receives raw data from Ingesters.
-   - Uses SentenceTransformers (CLIP for images, Multilingual-e5 for text) to convert the semantic meaning of the content into dense vector embeddings.
-   - Stores these vectors in **LanceDB** and exposes an algorithmic feed endpoint (/api/v1/feed) that serves personalized content based on a user's interest vector.
-
-3. **The P2P Node (Rust)**
-   A robust, libp2p Kademlia DHT-based Rust node. This allows independent Feedo instances to connect globally, sharding the workload and sharing semantic clusters (global knowledge map) without relying on a centralized database.
+> **We're building what everyone else only dreamed about.**
+>
+> **Feedo is the first fully decentralized search engine.**
+>
+> No central servers. No censorship. No filter bubbles controlled by a single company.
+> We're destroying Web2's grip on information — one search query at a time.
 
 ---
 
-## 🛡️ The "Stateless Indexer" Concept (Nostr Integration)
+## 🌍 The Problem
 
-A key architectural and legal pillar of Feedo is the **Stateless Indexer** model, applied specifically to our Nostr integration. 
+Today, the internet is controlled by three or four massive corporations.
+They decide what you see, what you don't see, and who gets to exist online.
+You can be deplatformed, shadowbanned, or wiped from the index — not because you broke a law, but because **they simply didn't like it**.
 
-When the Nostr Bridge scrapes a post:
-- We **process the text and images solely to extract their semantic meaning** (mathematical vectors).
-- Once the vector is generated, **the original text content and images are instantly discarded**. We do not save them in our PostgreSQL or LanceDB databases.
-- Feedo only stores the hash_id, the generated ector, and a elay_url pointer.
+Web3 started with a beautiful dream. The plan was right. True digital freedom.
+But somewhere along the way, we took a wrong turn.
+We got addicted to the money.
+Tokens, speculation, gambling on memes — while the one thing that actually matters was left behind.
+**Search. Discovery. The ability to find anything.**
 
-This means Feedo is not a hosting provider. It simply tells frontend clients *where* to find the content (the Nostr Relay) and *how relevant* it is to the user (the vector). The client's device fetches the actual text and images directly from the decentralized source.
+Think about it: we have decentralized money (Bitcoin), decentralized contracts (Ethereum), decentralized storage (IPFS) — but when was the last time you **searched** for something on a decentralized network? You can't. The search box still belongs to them.
+
+That changes now.
+
+**Feedo is how we fix Web3.**
+With a search engine that nobody controls, nobody censors, and nobody can shut down.
+
+The dream was never about the money.
+It was about freedom.
+We're bringing it back.
 
 ---
 
-## 💻 Quickstart Guide (Local Development)
+## 🏗️ How It Works
 
-You can spin up the entire Feedo Protocol locally in just a few steps using Docker.
+Feedo is built on three independent layers that work together as a single search engine — without a single central server.
 
-### Prerequisites
-- Docker and Docker Compose
-- Git
+### 🔗 Consensus Layer (Rust)
+A P2P network of nodes that agree on who owns what. Names, content hashes, and identity records are validated through a PBFT consensus protocol with a reputation-based rotating committee. No single node controls the truth.
 
-### Step 1: Clone the repository
-```bash
-git clone https://github.com/Ashixi/feedo.git
-cd feedo
-```
+**Key features**: PBFT consensus, DID identity system, DNS-like name resolution, on-chain treasury via `PporTreasury.sol` on Polygon, 25-node testnet verified.
 
-### Step 2: Configure Environment
-Copy the provided example environment file:
-```bash
-cp .env.example .env
-```
-Open `.env` and configure your credentials (e.g., set `INGEST_API_KEY` and `POSTGRES_PASSWORD`).
+### 💾 Storage Layer (Rust)
+All content — websites, social posts, profiles, and arbitrary files — is stored using Reed-Solomon erasure coding. Every file is split into data shards + parity shards and distributed across the Kademlia DHT. If nodes go offline, the network self-heals and rebuilds lost shards automatically.
 
-### Step 3: Run the Protocol
-The project uses two separate Docker Compose files:
+**Key features**: Erasure coding (30+15), Kademlia DHT storage, proactive self-healing, TTL-based garbage collection, censorship-resistant by design.
 
-**Start the Main Stack** (PostgreSQL, FastAPI Backend, Rust P2P Node):
-```bash
-docker-compose build
-docker-compose up -d
-```
+### 🔍 Search Layer (Python)
+Content is converted into dense vector embeddings using machine learning models. These vectors are stored locally and indexed for semantic search — meaning you find what you *mean*, not just what you *type*. Multiple search nodes form a federated network: each node knows which semantic clusters live where, and queries are routed intelligently without a central coordinator.
 
-**Start the Nostr Bridge** (The data scraper worker):
-```bash
-docker-compose -f docker-compose.nostr.yml up -d
-```
+**Key features**: Vector semantic search (384-dim embeddings), CLIP image embeddings, federated P2P search via KMeans centroids, LanceDB for local vector storage, real-time indexing via WebSocket pub/sub.
 
-### Validation
-To verify the system is running:
-- Open your browser and navigate to `http://localhost:8040/docs` to see the FastAPI Swagger UI.
-- Check the docker logs to ensure the containers are healthy:
-  ```bash
-  docker-compose logs -f feedo-backend
-  docker-compose -f docker-compose.nostr.yml logs -f feedo-nostr-bridge
-  ```
+---
+
+**Together, these three layers form a complete search engine with no central authority, no single point of failure, and no censorship.**
 
 ---
 
 ## 📂 Repository Structure
 
-- /protocol/backend - The FastAPI Main Node, VectorBrain logic, and PostgreSQL models.
-- /protocol/p2p-node - The Rust libp2p node handling global DHT communication.
-- /protocol/ingesters - Specialized workers (e.g., 
-ostr-bridge) that fetch data.
-- /feedo_search_ui - The cross-platform Flutter frontend application for interacting with the protocol.
+```
+feedo/
+├── microservices/
+│   ├── consensus-node/        # PBFT consensus & name resolution (Rust)
+│   ├── storage-node/          # Erasure-coded P2P storage (Rust)
+│   ├── search-node/           # Vector semantic search engine (Python)
+│   ├── feedo-ingester/        # Nostr bridge — real-time data ingestion
+│   ├── social-node/           # Social feed & profile aggregation
+│   └── feedo-algo/            # Background clustering & trending math
+├── contracts/                 # PporTreasury.sol (Polygon smart contract)
+├── feedo_sdk/                 # Client SDKs (js, python, rust, dart)
+└── feedo_search_ui/           # Flutter cross-platform search app
+```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Git
+
+### 1. Clone & Configure
+```bash
+git clone https://github.com/Ashixi/feedo.git
+cd feedo/microservices
+cp .env.example .env.local
+```
+
+### 2. Start the Stack
+```bash
+docker-compose up -d
+```
+This starts all three core nodes — consensus, storage, and search — plus the social node, ingester, and search UI.
+
+### 3. Verify
+```bash
+# Test search
+curl "http://localhost:8000/query?text=test"
+
+# Test name resolution
+curl "http://localhost:3000/resolve/test.feedo"
+
+# Check node stats
+curl "http://localhost:8000/explorer/stats"
+```
+
+---
+
+## 🧪 Tests
+
+All three core nodes have integration tests covering real P2P scenarios.
+
+```bash
+# Consensus — 25-node PBFT test
+cd microservices/consensus-node
+cargo test --test integration_test_25
+
+# Storage — erasure coding + DHT test
+cd microservices/storage-node
+cargo test --test integration_test
+
+# Search — publish + query + relevance test
+cd microservices/search-node
+python tests/full_cycle_test.py
+```
+
+| Test | Status | What it validates |
+|------|--------|-------------------|
+| 25-node consensus | ✅ Passed | PBFT, epoch rotation, fault tolerance (kill 5/25 nodes) |
+| Storage integration | ✅ Passed | Upload, download, delete, erasure coding |
+| Search pipeline | ✅ Passed | Publish site → index → search → relevance check |
+
+---
+
+## 🗺️ Roadmap
+
+Detailed roadmaps for each layer are available in their respective directories:
+
+- [Consensus Node Roadmap](microservices/consensus-node/CONSENSUS_ROADMAP.md) — scaling from 25 to 10,000+ nodes
+- [Storage Node Roadmap](microservices/storage-node/STORAGE_ROADMAP.md) — from 10 GB to unlimited storage, cloud storage protocol
+- [Search Node Roadmap](microservices/search-node/SEARCH_ROADMAP.md) — from full replication to semantic sharding, GPU inference, DuckDuckGo-level quality
+
+---
+
+## 🤝 Support the Project
+
+Feedo is fully open-source and community-funded. No VCs. No tokens. Just builders.
+
+- ☕ [Buy Me a Coffee](https://buymeacoffee.com/andriishumko)
+- 💎 [Giveth](https://giveth.io/project/feedo)
+- 🌐 [Open Collective](https://opencollective.com/feedo)
+- 🔶 Gitcoin Grants — coming soon (building community first)
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
