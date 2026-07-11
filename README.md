@@ -13,12 +13,12 @@
 
 Today, the internet is controlled by three or four massive corporations.
 They decide what you see, what you don't see, and who gets to exist online.
-You can be deplatformed, shadowbanned, or wiped from the index — not because you broke a law, but because **they simply didn't like it**.
+You can be deplatformed, shadowbanned, or wiped from the index not because you broke a law, but because **they simply didn't like it**.
 
 Web3 started with a beautiful dream. The plan was right. True digital freedom.
 But somewhere along the way, we took a wrong turn.
 We got addicted to the money.
-Tokens, speculation, gambling on memes — while the one thing that actually matters was left behind.
+Tokens, speculation, gambling on memes while the one thing that actually matters was left behind.
 **Search. Discovery. The ability to find anything.**
 
 Think about it: we have decentralized money (Bitcoin), decentralized contracts (Ethereum), decentralized storage (IPFS) — but when was the last time you **searched** for something on a decentralized network? You can't. The search box still belongs to them.
