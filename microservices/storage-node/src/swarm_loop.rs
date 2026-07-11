@@ -9,7 +9,9 @@ use sha2::{Sha256, Digest};
 use libp2p::kad::{Record, RecordKey, Quorum, store::RecordStore};
 use libp2p::request_response;
 use libp2p::PeerId;
+use std::sync::Arc;
 use crate::peer_cache::PeerCache;
+use crate::quota::{StorageClass, StorageQuotaManager};
 
 pub struct FetchState {
     pub sender: Option<oneshot::Sender<Option<Vec<u8>>>>,
@@ -33,6 +35,7 @@ pub fn do_self_healing(
             let mut new_manifest = state.manifest.clone().unwrap_or(Manifest {
                 file_hash: hash.to_string(),
                 size: state.original_size,
+                storage_class: None,
                 shards: HashMap::new(),
             });
             
@@ -104,12 +107,14 @@ pub struct PeerAnnounce {
     pub signature: Option<String>,
     pub public_key: Option<String>,
     pub storage_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_status: Option<serde_json::Value>,
     pub is_supernode: Option<bool>,
     pub api_url: Option<String>,
 }
 
 pub enum SwarmCommand {
-    DhtUpload(Vec<u8>, oneshot::Sender<String>),
+    DhtUpload(Vec<u8>, StorageClass, oneshot::Sender<String>),
     DhtDownload(String, oneshot::Sender<Option<Vec<u8>>>),
     DhtDelete(String),
     SavePeerCache,
@@ -125,6 +130,7 @@ pub async fn run_swarm(
     local_key: libp2p::identity::Keypair,
     storage_full: std::sync::Arc<std::sync::atomic::AtomicBool>,
     event_tx: tokio::sync::broadcast::Sender<(String, Vec<u8>)>,
+    quota_manager: Arc<StorageQuotaManager>,
 ) {
     let mut peer_cache = PeerCache::default();
     let peer_cache_path = "peer_cache.json";
@@ -329,17 +335,18 @@ pub async fn run_swarm(
             }
             Some(command) = command_rx.recv() => {
                 match command {
-                    SwarmCommand::DhtUpload(data, reply) => {
+                    SwarmCommand::DhtUpload(data, storage_class, reply) => {
                         let mut hasher = Sha256::new();
                         hasher.update(&data);
                         let hash = hex::encode(hasher.finalize());
-                        println!("Uploading file, hash: {}, size: {}", hash, data.len());
+                        println!("Uploading file, hash: {}, size: {} bytes, class: {}", hash, data.len(), storage_class);
 
                         match encode_data(&data) {
                             Ok(shards) => {
                                 let mut manifest = Manifest {
                                     file_hash: hash.clone(),
                                     size: data.len(),
+                                    storage_class: Some(storage_class.as_str().to_string()),
                                     shards: HashMap::new(),
                                 };
                                 
@@ -394,6 +401,8 @@ pub async fn run_swarm(
                                 let _ = reply.send(hash);
                             },
                             Err(e) => {
+                                // Release quota reservation on encoding failure
+                                quota_manager.release(storage_class, data.len() as u64);
                                 println!("Error encoding data: {:?}", e);
                                 let _ = reply.send("error".to_string());
                             }
@@ -489,6 +498,8 @@ pub async fn run_swarm(
                             let pubkey_b64 = general_purpose::STANDARD.encode(&pubkey_bytes);
                             let current_storage_full = storage_full.load(std::sync::atomic::Ordering::Relaxed);
                             let storage_status = if current_storage_full { "Full".to_string() } else { "OK".to_string() };
+                            // Phase 1: Include per-class quota status in announcements
+                            let quota_snapshot = quota_manager.usage_all();
                             let mut announce = PeerAnnounce {
                                 peer_id: swarm.local_peer_id().to_string(),
                                 listen_addrs,
@@ -497,6 +508,7 @@ pub async fn run_swarm(
                                 signature: None,
                                 public_key: Some(pubkey_b64),
                                 storage_status: Some(storage_status),
+                                quota_status: Some(quota_snapshot),
                                 is_supernode: Some(false),
                                 api_url: None,
                             };

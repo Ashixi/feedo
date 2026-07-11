@@ -13,39 +13,22 @@ use libp2p::gossipsub::{MessageAuthenticity, ValidationMode};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
-use std::fs;
-use std::path::Path as FsPath;
 
 mod network;
 mod swarm_loop;
 mod peer_cache;
+mod quota;
 
 use network::{StorageBehaviour, HybridStore, DirectRequest, DirectResponse};
 use swarm_loop::{SwarmCommand, run_swarm};
-
-fn get_dir_size(path: impl AsRef<FsPath>) -> std::io::Result<u64> {
-    let mut size = 0;
-    if path.as_ref().is_dir() {
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let p = entry.path();
-            if p.is_dir() {
-                size += get_dir_size(&p)?;
-            } else {
-                size += entry.metadata()?.len();
-            }
-        }
-    } else if path.as_ref().exists() {
-        size = path.as_ref().metadata()?.len();
-    }
-    Ok(size)
-}
+use quota::{StorageClass, StorageQuotaManager, QuotaConfig};
 
 #[derive(Clone)]
 pub struct AppState {
     pub swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
     pub recent_hashes: Arc<std::sync::Mutex<Vec<String>>>,
     pub gossip_tx: tokio::sync::broadcast::Sender<(String, Vec<u8>)>,
+    pub quota_manager: Arc<StorageQuotaManager>,
 }
 
 pub struct MyStorageService {
@@ -91,10 +74,23 @@ impl StorageService for MyStorageService {
     }
 }
 
+/// Extract StorageClass from HTTP header `X-Feedo-Storage-Class`.
+/// Falls back to Blob if header is missing or invalid.
+fn extract_storage_class_from_header(headers: &axum::http::HeaderMap) -> StorageClass {
+    headers
+        .get("X-Feedo-Storage-Class")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<StorageClass>().ok())
+        .unwrap_or_default()
+}
+
 async fn handle_upload(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     mut multipart: Multipart,
 ) -> Result<String, (axum::http::StatusCode, String)> {
+    let storage_class = extract_storage_class_from_header(&headers);
+
     let mut file_data = Vec::new();
     while let Some(field) = multipart.next_field().await.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))? {
         if field.name() == Some("file") {
@@ -106,9 +102,14 @@ async fn handle_upload(
     if file_data.is_empty() {
         return Err((axum::http::StatusCode::BAD_REQUEST, "No file provided".to_string()));
     }
-    
+
+    // Check quota before sending to swarm
+    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+        return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
+    }
+
     let (resp_tx, resp_rx) = oneshot::channel();
-    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, resp_tx));
+    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
     
     match resp_rx.await {
         Ok(hash) => {
@@ -128,16 +129,28 @@ pub struct IngestPayload {
     pub signature: String,
     pub metadata: serde_json::Value,
     pub ttl_days: Option<u32>,
+    #[serde(default)]
+    pub storage_class: Option<String>,
 }
 
 async fn handle_json_ingest(
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<IngestPayload>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
+    let storage_class: StorageClass = payload
+        .storage_class
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(StorageClass::SocialPost);
+
     let file_data = serde_json::to_vec(&payload).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
-    
+
+    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+        return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
+    }
+
     let (resp_tx, resp_rx) = oneshot::channel();
-    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, resp_tx));
+    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
     
     match resp_rx.await {
         Ok(hash) => {
@@ -154,18 +167,35 @@ async fn handle_batch_json_ingest(
 ) -> Result<axum::Json<Vec<String>>, (axum::http::StatusCode, String)> {
     let mut hashes = Vec::new();
     for payload in payloads {
+        let storage_class: StorageClass = payload
+            .storage_class
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(StorageClass::Profile);
+
         let file_data = match serde_json::to_vec(&payload) {
             Ok(data) => data,
             Err(_) => continue,
         };
+
+        if let Err(_msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+            continue; // skip this item, backpressure for class
+        }
+
         let (resp_tx, resp_rx) = oneshot::channel();
-        let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, resp_tx));
+        let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
         if let Ok(hash) = resp_rx.await {
             state.recent_hashes.lock().unwrap().push(hash.clone());
             hashes.push(hash);
         }
     }
     Ok(axum::Json(hashes))
+}
+
+async fn handle_quota(
+    State(state): State<AppState>,
+) -> axum::Json<serde_json::Value> {
+    axum::Json(state.quota_manager.usage_all())
 }
 
 async fn handle_recent_files(
@@ -278,23 +308,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Local peer id: {:?}", local_peer_id);
 
     let db = sled::open(&db_dir).unwrap();
+
+    // Phase 1: Replace hard-coded 10 GB global limit with per-class StorageQuotaManager
+    let quota_config = QuotaConfig::from_env();
+    let quota_manager = Arc::new(StorageQuotaManager::new(quota_config));
+
+    // HybridStore no longer enforces global storage_full; quotas are checked higher in the stack.
     let storage_full = Arc::new(AtomicBool::new(false));
     let store = HybridStore::new(local_peer_id, db, storage_full.clone());
-
-    let db_dir_clone = db_dir.clone();
-    let sf_clone = storage_full.clone();
-    tokio::spawn(async move {
-        loop {
-            if let Ok(size) = get_dir_size(&db_dir_clone) {
-                if size > 10 * 1024 * 1024 * 1024 { // 10 GB limit for example
-                    sf_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-                } else {
-                    sf_clone.store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-            }
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        }
-    });
 
     let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
@@ -307,7 +328,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_behaviour(|key| {
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
-                // Bust cache for docker build
                 .validation_mode(gossipsub::ValidationMode::Strict)
                 .max_transmit_size(10 * 1024 * 1024)
                 .build()
@@ -370,12 +390,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (swarm_tx, swarm_rx) = mpsc::unbounded_channel();
     let (gossip_tx, _) = tokio::sync::broadcast::channel::<(String, Vec<u8>)>(1024);
     
-    let swarm_tx_clone = swarm_tx.clone();
     let key_clone = local_key.clone();
     let sf_clone2 = storage_full.clone();
     let gossip_tx_clone = gossip_tx.clone();
+    let quota_clone = quota_manager.clone();
     tokio::spawn(async move {
-        crate::swarm_loop::run_swarm(swarm, swarm_rx, key_clone, sf_clone2, gossip_tx_clone).await;
+        crate::swarm_loop::run_swarm(swarm, swarm_rx, key_clone, sf_clone2, gossip_tx_clone, quota_clone).await;
     });
 
     let grpc_port: u16 = std::env::var("GRPC_PORT")
@@ -402,6 +422,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         swarm_tx,
         recent_hashes: Arc::new(std::sync::Mutex::new(Vec::new())),
         gossip_tx,
+        quota_manager,
     };
     let cors = tower_http::cors::CorsLayer::permissive();
     let app = Router::new()
@@ -413,6 +434,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/files/recent", get(handle_recent_files))
         .route("/download/:hash", get(handle_download))
         .route("/delete/:hash", delete(handle_delete))
+        .route("/api/v1/quota", get(handle_quota))
         .with_state(app_state)
         .layer(cors)
         .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024));

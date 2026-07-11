@@ -34,6 +34,8 @@ pub enum DirectResponse {
 pub struct Manifest {
     pub file_hash: String,
     pub size: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_class: Option<String>,
     pub shards: std::collections::HashMap<usize, String>,
 }
 
