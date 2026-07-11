@@ -92,7 +92,8 @@ GRPC_PORT=50052                    # Internal only — do NOT expose
 
 # Genesis node: leave empty
 # Follower nodes: comma-separated multiaddrs of ≥2 existing nodes
-BOOTSTRAP_NODES=
+# Current Feedo network bootstrap nodes:
+BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6,/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg
 
 # ==========================================
 # Storage

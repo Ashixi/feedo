@@ -200,21 +200,22 @@ Set `BOOTSTRAP_NODES` to the multiaddr of at least one existing node.
 
 **Format**: `/ip4/{PUBLIC_IP}/udp/{P2P_PORT}/quic-v1/p2p/{PEER_ID}`
 
-**Example**:
+**Example** (real Feedo bootstrap nodes):
 ```bash
-BOOTSTRAP_NODES=/ip4/93.184.216.34/udp/8040/quic-v1/p2p/12D3KooWJrccQcAxB7sfs4r5sdV4xJdzvr8GMSo2hJABRTEaB5dS
+# Two redundant bootstrap nodes:
+BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6,/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg
 ```
 
-**How to get a node's multiaddr**: Find these two lines in its logs:
-```
-Local peer id: PeerId("12D3KooW...")
-Listening on P2P address: /ip4/0.0.0.0/udp/8040/quic-v1
-```
-Replace `0.0.0.0` with the node's public IP. Combine: `/ip4/PUBLIC_IP/udp/8040/quic-v1/p2p/12D3KooW...`
+**Current Feedo network bootstrap nodes:**
 
-**Multiple bootstrap nodes** (for redundancy):
+| Node | IP | Port | PeerId |
+|------|----|------|--------|
+| Node 1 | 95.111.245.68 | 8040 | `12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6` |
+| Node 2 | 178.18.253.94 | 8040 | `12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg` |
+
 ```bash
-BOOTSTRAP_NODES=/ip4/1.2.3.4/udp/8040/quic-v1/p2p/12D3KooWA...,/ip4/5.6.7.8/udp/8040/quic-v1/p2p/12D3KooWB...
+# Connect to the Feedo storage network:
+BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6,/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg
 ```
 
 The node tries each in order and starts serving as soon as it connects to at least one.
