@@ -175,7 +175,11 @@ async def p2p_handshake(payload: HandshakePayload):
     brain.update_global_map(payload.peer_id, payload.centroids, payload.cluster_ids)
     if p2p_net and payload.peer_id:
         p2p_net.known_peers.add(payload.peer_id)
-    return {"status": "ok"}
+
+    # Peer Exchange: return our known peers so the sender can discover the rest of the network
+    known_peers_list = list(p2p_net.known_peers) if p2p_net else []
+    other_peers = [p for p in known_peers_list if p != payload.peer_id]
+    return {"status": "ok", "peers": other_peers}
 
 @app.get("/query")
 async def client_query(text: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0):

@@ -82,8 +82,15 @@ class P2PNetwork:
 
         for peer in self.known_peers:
             try:
-                await self.client.post(f"{peer}/p2p/handshake", json=payload)
-                print(f"📡 Sent centroids to {peer} ({reason})")
+                resp = await self.client.post(f"{peer}/p2p/handshake", json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Peer Exchange: learn about other nodes from the response
+                    for new_peer in data.get("peers", []):
+                        if new_peer != self.my_url and new_peer not in self.known_peers:
+                            self.known_peers.add(new_peer)
+                            print(f"🔗 Discovered new peer via exchange: {new_peer}")
+                    print(f"📡 Sent centroids to {peer} ({reason})")
             except Exception:
                 pass  # Peer might be offline
 
