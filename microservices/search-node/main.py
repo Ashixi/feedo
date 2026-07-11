@@ -2,14 +2,16 @@ import asyncio
 import os
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 import zipfile
 import tempfile
 import shutil
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 import aiohttp
+import httpx
 import json
+from collections import defaultdict
 
 from vector_service import VectorBrain
 from p2p import P2PNetwork
@@ -38,6 +40,73 @@ if gateways_env:
     GATEWAYS = [g.strip() for g in gateways_env.split(",") if g.strip()]
 else:
     GATEWAYS = [os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")]
+
+
+# --- In-memory Token Bucket Rate Limiter ---
+class TokenBucketRateLimiter:
+    """Per-path token bucket rate limiter with configurable rates."""
+    
+    def __init__(self):
+        # path -> (tokens, last_refill_timestamp)
+        self._buckets = {}
+        # Default rates per path (tokens/sec, bucket_capacity)
+        self._rate_config = {
+            "/query": (100.0, 100.0),
+            "/index_document": (50.0, 50.0),
+            "/p2p/search": (200.0, 200.0),
+            "/p2p/index_vector": (200.0, 200.0),
+        }
+        # Default for unconfigured paths
+        self._default_rate = (50.0, 50.0)
+    
+    def consume(self, path: str, tokens: float = 1.0) -> bool:
+        """Try to consume tokens. Returns True if allowed, False if rate limited."""
+        rate, capacity = self._rate_config.get(path, self._default_rate)
+        
+        if path not in self._buckets:
+            # Start with a full bucket
+            self._buckets[path] = [capacity, time.monotonic()]
+        
+        bucket = self._buckets[path]
+        current_tokens, last_refill = bucket
+        
+        now = time.monotonic()
+        elapsed = now - last_refill
+        
+        # Refill tokens based on elapsed time
+        current_tokens = min(capacity, current_tokens + elapsed * rate)
+        last_refill = now
+        
+        if current_tokens >= tokens:
+            current_tokens -= tokens
+            bucket[0] = current_tokens
+            bucket[1] = last_refill
+            return True
+        
+        bucket[0] = current_tokens
+        bucket[1] = last_refill
+        return False
+
+
+_rate_limiter = TokenBucketRateLimiter()
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to API endpoints."""
+    path = request.url.path
+    
+    # Only rate-limit specific endpoints
+    if path in ("/query", "/index_document", "/p2p/search", "/p2p/index_vector"):
+        if not _rate_limiter.consume(path):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Try again later."}
+            )
+    
+    response = await call_next(request)
+    return response
+
 
 async def fetch_missing_text_from_dht(results: list):
     async def fetch_text(r):
@@ -74,6 +143,17 @@ class IndexDocumentPayload(BaseModel):
     item_type: str = "document"
     metadata: dict = {}
 
+class IndexVectorPayload(BaseModel):
+    """Payload for /p2p/index_vector — receive a pre-computed vector from a peer node."""
+    post_id: int
+    hash_id: str
+    vector: list[float]
+    text: str = ""
+    source_type: str = "pubsub"
+    item_type: str = "text"
+    author: str = ""
+    metadata: str = ""
+
 @app.on_event("startup")
 async def startup_event():
     global p2p_net, crawler
@@ -82,9 +162,12 @@ async def startup_event():
     
     p2p_net = P2PNetwork(brain, host, port)
     asyncio.create_task(p2p_net.broadcast_centroids_loop())
-    
+
+    # Create shared HTTP client for shard vector forwarding
+    _http_client = httpx.AsyncClient(timeout=float(os.getenv("SHARD_FORWARD_TIMEOUT", "5.0")))
+
     adapters = [FeedoStorageAdapter(), IPFSStorageAdapter()]
-    crawler = SearchCrawler(brain, adapters)
+    crawler = SearchCrawler(brain, adapters, http_client=_http_client)
     asyncio.create_task(crawler.crawl_loop())
 
 @app.post("/p2p/handshake")
@@ -131,7 +214,15 @@ async def client_query(text: str, limit: int = 50, federated: bool = True, item_
 
     federated_results = []
     if federated and p2p_net:
-        federated_results = await p2p_net.federated_search(query_vector, text, ttl=3, top_k=5)
+        try:
+            federated_results = await asyncio.wait_for(
+                p2p_net.federated_search(query_vector, text, ttl=3, top_k=5),
+                timeout=2.0
+            )
+        except asyncio.TimeoutError:
+            print(f"⚠️ Federated search timed out after 2s for query: {text[:80]}")
+        except Exception as e:
+            print(f"⚠️ Federated search error: {e}")
     
     all_results = local_results + federated_results
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
@@ -396,7 +487,36 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
                 if meta_desc and meta_desc.get("content"):
                     description = meta_desc["content"]
                 text_content = soup.get_text(separator=' ', strip=True)
-                
+
+        # Extract favicon: search for favicon.ico, favicon.png, icon.png, apple-touch-icon.png
+        icon_cid = None
+        favicon_names = ["favicon.ico", "favicon.png", "icon.png", "apple-touch-icon.png"]
+        favicon_path = None
+        for fn in favicon_names:
+            candidate = os.path.join(extract_dir, fn)
+            if os.path.exists(candidate):
+                favicon_path = candidate
+                break
+        if favicon_path is None:
+            # Search one level deeper if favicon is in a subdirectory
+            for root, _, files_in_dir in os.walk(extract_dir):
+                for fn in favicon_names:
+                    if fn in files_in_dir:
+                        favicon_path = os.path.join(root, fn)
+                        break
+                if favicon_path:
+                    break
+
+        if favicon_path:
+            with open(favicon_path, 'rb') as icon_f:
+                icon_files = {'file': (os.path.basename(favicon_path), icon_f, 'application/octet-stream')}
+                try:
+                    icon_resp = await asyncio.to_thread(requests.post, f"{storage_node_url}/upload", files=icon_files)
+                    if icon_resp.status_code == 200:
+                        icon_cid = icon_resp.text.strip()
+                except Exception as e:
+                    print(f"⚠️ Failed to upload favicon: {e}")
+
         url = f"{storage_node_url}/upload"
         
         with open(zip_path, 'rb') as f_obj:
@@ -406,16 +526,23 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
         if resp.status_code == 200:
             feedo_hash = resp.text.strip()
             
+            metadata = {"title": title, "description": description}
+            if icon_cid:
+                metadata["icon_cid"] = icon_cid
+
             await brain.add_vector_async(
                 post_id=int(time.time()),
                 hash_id=feedo_hash,
                 text=text_content[:2000],
                 item_type="website",
                 author="",
-                metadata=json.dumps({"title": title, "description": description})
+                metadata=json.dumps(metadata)
             )
             # Returning "cid" for compatibility with frontend code
-            return {"cid": feedo_hash, "title": title}
+            result = {"cid": feedo_hash, "title": title}
+            if icon_cid:
+                result["icon_cid"] = icon_cid
+            return result
         else:
             raise HTTPException(status_code=500, detail=f"Storage node error: {resp.text}")
 
@@ -423,6 +550,27 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
 async def p2p_search(payload: SearchPayload):
     result = await client_query(payload.query, limit=10, federated=payload.ttl > 1)
     return {"query": payload.query, "results": result["results"]}
+
+@app.post("/p2p/index_vector")
+async def p2p_index_vector(payload: IndexVectorPayload):
+    """Receive a pre-computed vector from a peer node and index it locally.
+    This is the write-side of semantic sharding: when a crawler determines
+    a vector does not belong to its shard, it forwards it here.
+    No shard check is performed — we trust the sender."""
+    try:
+        brain.add_vector_by_emb(
+            post_id=payload.post_id,
+            hash_id=payload.hash_id,
+            vector=payload.vector,
+            source_type=payload.source_type,
+            item_type=payload.item_type,
+            author=payload.author,
+            text=payload.text,
+            metadata=payload.metadata,
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/proxy/unpin/{cid}")
 async def proxy_unpin(cid: str):

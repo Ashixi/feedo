@@ -40,20 +40,34 @@ SEARCH_SCRIPT = "main.py"
 # --- Helpers ---
 
 def find_storage_binary():
-    """Find the compiled storage-node binary."""
+    """Find the compiled storage-node binary (relative to workspace root)."""
+    # Walk up from the test file location to find the workspace root (has Cargo.toml)
+    test_dir = Path(__file__).resolve().parent  # microservices/search-node/tests
+    workspace_root = test_dir.parent.parent.parent  # feedo root
+    
     candidates = [
+        workspace_root / "microservices" / "target" / "debug" / "storage-node.exe",
+        workspace_root / "microservices" / "target" / "debug" / "storage-node",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    
+    # Fallback: relative paths from CWD
+    fallback = [
         "../target/debug/storage-node.exe",
         "../target/debug/storage-node",
         "../../target/debug/storage-node.exe",
         "../../target/debug/storage-node",
     ]
-    for c in candidates:
+    for c in fallback:
         p = Path(c)
         if p.exists():
             return str(p.resolve())
+    
     raise FileNotFoundError(
         "storage-node binary not found. Build with: cargo build --bin storage-node\n"
-        "Searched: " + ", ".join(candidates)
+        "Searched: " + ", ".join(str(c) for c in candidates + fallback)
     )
 
 

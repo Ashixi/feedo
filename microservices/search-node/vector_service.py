@@ -1,6 +1,7 @@
 import math
 import time
 import asyncio
+import os
 import json
 from collections import Counter, OrderedDict
 import lancedb
@@ -49,15 +50,23 @@ class VectorBrain:
         except Exception:
             self.table = self.db.open_table(self.table_name)
 
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        cpu_count = os.cpu_count() or 4
+        self.executor = ThreadPoolExecutor(max_workers=cpu_count)
+        print(f"[SEARCH] ThreadPoolExecutor with {cpu_count} workers")
         
+        # Embedding cache: LRU OrderedDict with TTL (1 hour)
+        # Value format: (vector, timestamp)
         self.emb_cache = OrderedDict()
-        self.max_emb_cache = 10000
+        self.max_emb_cache = 100000
+        self.emb_cache_ttl = 3600  # 1 hour in seconds
         
         self.inserts_since_optimize = 0
         
+        # Search cache: dict with TTL (5 minutes)
+        # Value format: (results, timestamp)
         self.search_cache = {}
-        self.max_search_cache = 2000
+        self.max_search_cache = 20000
+        self.search_cache_ttl = 300  # 5 minutes in seconds
         
         # --- Stage V: Supernode Global Knowledge Map ---
         # Stores global centroids from other supernodes
@@ -69,6 +78,17 @@ class VectorBrain:
         # Tracking for event-based updates
         self.last_cluster_post_count = 0
         self.default_vector = None
+
+        # --- Phase 1.5: Semantic Sharding ---
+        # Cached local centroids for is_my_shard() decisions
+        self._my_centroids_cache = None       # list[list[float]] | None
+        self._my_centroids_ts = 0.0           # timestamp of last computation
+        self._centroids_cache_ttl = int(os.getenv("SHARD_CENTROID_CACHE_TTL", "600"))  # 10 min
+        self.inserts_since_centroids_update = 0
+        self._centroids_update_threshold = int(os.getenv("SHARD_CENTROID_UPDATE_THRESHOLD", "100"))
+        self._sharding_enabled = os.getenv("SEMANTIC_SHARDING_ENABLED", "true").lower() in ("1", "true", "yes")
+        print(f"[SEARCH] Semantic sharding: {'ENABLED' if self._sharding_enabled else 'DISABLED'} "
+              f"(centroid_cache_ttl={self._centroids_cache_ttl}s, update_threshold={self._centroids_update_threshold})")
         
     async def update_default_vector(self):
         def run_query():
@@ -94,11 +114,46 @@ class VectorBrain:
         else:
             print("No vectors found in LanceDB to calculate default vector.")
 
+    def _cache_emb_get(self, text: str) -> list[float] | None:
+        """Get cached embedding if present and not expired."""
+        if text in self.emb_cache:
+            cached = self.emb_cache[text]
+            if isinstance(cached, tuple) and len(cached) == 2:
+                vec, ts = cached
+                if time.time() - ts < self.emb_cache_ttl:
+                    self.emb_cache.move_to_end(text)
+                    return vec
+                else:
+                    # Expired, remove
+                    del self.emb_cache[text]
+            else:
+                # Legacy format: just vector, no TTL — treat as valid
+                self.emb_cache.move_to_end(text)
+                return cached
+        return None
+
     def _cache_emb_set(self, text: str, vec: list[float]):
-        self.emb_cache[text] = vec
+        self.emb_cache[text] = (vec, time.time())
         self.emb_cache.move_to_end(text)
         while len(self.emb_cache) > self.max_emb_cache:
             self.emb_cache.popitem(last=False)
+    
+    def _cache_search_get(self, cache_key: str) -> list | None:
+        """Get cached search result if present and not expired."""
+        if cache_key in self.search_cache:
+            results, ts = self.search_cache[cache_key]
+            if time.time() - ts < self.search_cache_ttl:
+                return results
+            else:
+                del self.search_cache[cache_key]
+        return None
+    
+    def _cache_search_set(self, cache_key: str, results: list):
+        self.search_cache[cache_key] = (results, time.time())
+        # Evict oldest if over limit
+        while len(self.search_cache) > self.max_search_cache:
+            oldest_key = next(iter(self.search_cache))
+            del self.search_cache[oldest_key]
 
     def _coerce_vector(self, vector: list[float] | str | tuple) -> list[float]:
         if isinstance(vector, str):
@@ -153,9 +208,9 @@ class VectorBrain:
 
     def get_embedding(self, text: str, is_query: bool = False) -> list[float]:
         clean_text = self.clean_text_for_embedding(text)
-        if clean_text in self.emb_cache:
-            self.emb_cache.move_to_end(clean_text)
-            return self.emb_cache[clean_text]
+        cached = self._cache_emb_get(clean_text)
+        if cached is not None:
+            return cached
         prefix = "query: " if is_query else "passage: "
         vec = self.model.encode(prefix + clean_text, normalize_embeddings=True, show_progress_bar=False).tolist()
         self._cache_emb_set(clean_text, vec)
@@ -176,9 +231,9 @@ class VectorBrain:
         to_compute_texts = []
         
         for i, chunk in enumerate(all_chunks_flat):
-            if chunk in self.emb_cache:
-                self.emb_cache.move_to_end(chunk)
-                computed_flat[i] = self.emb_cache[chunk]
+            cached = self._cache_emb_get(chunk)
+            if cached is not None:
+                computed_flat[i] = cached
             else:
                 to_compute_idx.append(i)
                 to_compute_texts.append(chunk)
@@ -287,6 +342,12 @@ class VectorBrain:
             self.inserts_since_optimize = 0
             self.executor.submit(self.optimize_index)
 
+        # Invalidate centroid cache after threshold for event-driven updates
+        self.inserts_since_centroids_update += 1
+        if self.inserts_since_centroids_update >= self._centroids_update_threshold:
+            self.inserts_since_centroids_update = 0
+            self._my_centroids_cache = None
+
     def get_image_embedding(self, image_url: str) -> list[float]:
         try:
             response = requests.get(image_url, timeout=5.0)
@@ -318,7 +379,8 @@ class VectorBrain:
         if not language and text and len(text.strip()) > 5:
             try:
                 from langdetect import detect
-                language = detect(text)
+                loop = asyncio.get_event_loop()
+                language = await loop.run_in_executor(self.executor, detect, text)
             except Exception:
                 pass
                 
@@ -438,3 +500,91 @@ class VectorBrain:
         except Exception as e:
             print(f"⚠️ Error routing query: {e}")
             return []
+
+    # --- Phase 1.5: Semantic Sharding Methods ---
+
+    def _get_my_centroids(self, n_clusters: int = 20) -> list[list[float]]:
+        """
+        Returns cached local centroids, recomputing if stale.
+        This is a lightweight alternative to compute_centroids() that uses caching.
+        """
+        now = time.time()
+        cache_valid = (
+            self._my_centroids_cache is not None
+            and (now - self._my_centroids_ts) < self._centroids_cache_ttl
+        )
+        if cache_valid:
+            return self._my_centroids_cache
+
+        centroids = self.compute_centroids(n_clusters=n_clusters)
+        self._my_centroids_cache = centroids
+        self._my_centroids_ts = now
+        self.inserts_since_centroids_update = 0
+        return centroids
+
+    def is_my_shard(self, vector: list[float]) -> bool:
+        """
+        Determines whether a given vector belongs to this node's semantic shard.
+
+        Algorithm:
+        1. Get my local centroids (cached, recomputed lazily).
+        2. Compute min cosine distance from vector to my centroids.
+        3. Get foreign centroids from global_knowledge_map.
+        4. If no foreign centroids → True (fallback: solo node indexes everything).
+        5. Compute min cosine distance to foreign centroids.
+        6. Return True if my closest centroid is nearer than the closest foreign centroid.
+
+        Feature flag: SEMANTIC_SHARDING_ENABLED=false always returns True.
+        """
+        if not self._sharding_enabled:
+            return True
+
+        vector_np = np.array(vector, dtype=np.float64)
+        v_norm = np.linalg.norm(vector_np)
+        if v_norm == 0.0:
+            return True  # degenerate vector, keep locally
+
+        my_centroids = self._get_my_centroids()
+        if not my_centroids:
+            # No local centroids yet (empty table) — index locally
+            return True
+
+        my_np = np.array(my_centroids, dtype=np.float64)
+        my_norms = np.linalg.norm(my_np, axis=1)
+        # Cosine similarity: dot / (||v|| * ||c_i||)
+        my_similarities = np.dot(my_np, vector_np) / (v_norm * my_norms + 1e-10)
+        my_min_similarity = float(np.max(my_similarities))
+
+        # Check foreign centroids
+        if not self.global_knowledge_map:
+            # No peer data yet — index locally (safe default)
+            return True
+
+        foreign_centroids = np.array([c["centroid"] for c in self.global_knowledge_map], dtype=np.float64)
+        foreign_norms = np.linalg.norm(foreign_centroids, axis=1)
+        foreign_similarities = np.dot(foreign_centroids, vector_np) / (v_norm * foreign_norms + 1e-10)
+        foreign_min_similarity = float(np.max(foreign_similarities))
+
+        # Higher cosine similarity = closer in semantic space
+        return my_min_similarity >= foreign_min_similarity
+
+    def route_vector_to_node(self, vector: list[float]) -> str | None:
+        """
+        Returns the peer_id (URL) of the node whose centroid is closest to the vector.
+        Uses the NearestNeighbors model built by update_global_map().
+        Returns None if no global knowledge map is available.
+
+        This is called ONLY when is_my_shard() returns False, to determine
+        where to forward the vector.
+        """
+        if not self.nn_fitted or not self.global_knowledge_map:
+            return None
+
+        vec_np = np.array([vector], dtype=np.float64)
+        try:
+            distances, indices = self.nn_model.kneighbors(vec_np, n_neighbors=1)
+            idx = indices[0][0]
+            return self.global_knowledge_map[idx]["peer_id"]
+        except Exception as e:
+            print(f"⚠️ Error routing vector to node: {e}")
+            return None
