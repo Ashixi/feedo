@@ -64,6 +64,9 @@ lancedb_data_test/
 DONE.md
 TODO.md
 
+# Private documents (vision, research, notes)
+private-docs/
+
 # Dev env
 microservices/.env.local
 browser/feedo_wallet/
