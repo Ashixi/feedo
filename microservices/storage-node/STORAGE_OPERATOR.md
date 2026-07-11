@@ -170,7 +170,7 @@ All configuration via environment variables. Set these in your `.env` file or Do
 | `GRPC_PORT` | u16 | `50052` | Only if port conflict with another gRPC service |
 | `P2P_PORT` | u16 | `8040` | **Must be open on firewall** — change if your provider blocks UDP/8040 |
 | `BOOTSTRAP_NODES` | string | (empty) | Comma-separated multiaddrs of existing nodes to join the network. Leave empty to start a new network. |
-| `NODE_PRIVATE_KEY` | hex | auto-gen | Set a fixed key to preserve node identity across restarts/reinstalls. 64-byte Ed25519 hex. |
+| `NODE_PRIVATE_KEY` | hex | auto-gen | **Optional** — auto-generated and saved to `peer_key.bin` if not set. Only set explicitly if migrating to a new server, using IaC (Ansible/Terraform), or storing in a secrets manager. 64-char Ed25519 hex. |
 | `DHT_RAM_CACHE_LIMIT` | usize | `1000` | Reduce to `500` if your node has <2 GB RAM. Increase to `5000` for better DHT performance. |
 | `RUST_LOG` | string | — | `info` for normal operation, `debug` for troubleshooting, `info,storage_node=debug` for storage-specific detail |
 | `QUOTA_SITES_GB` | f64 | `100` | Max gigabytes for websites. **Highest priority** — never evicted. |
@@ -188,11 +188,13 @@ All configuration via environment variables. Set these in your `.env` file or Do
 
 **Wallet/identity variables** (important distinction):
 
-| Variable | Used by storage-node? | Purpose |
-|----------|:---:|---------|
-| `NODE_PRIVATE_KEY` | ✅ Yes | Ed25519 key for libp2p PeerId (P2P identity). 64-char hex. |
-| `NODE_WALLET_ADDRESS` | 🔜 Future (Phase 5) | Ethereum address for Proof-of-Storage rewards. Set it now — the node will use it when tokenomics are integrated. |
-| `NODE_WALLET_PRIVATE_KEY` | ❌ No | Used only by consensus-node for signing on-chain transactions. Storage-node never reads this. |
+| Variable | Type | Used by storage-node? | Purpose |
+|----------|------|:---:|---------|
+| `NODE_PRIVATE_KEY` | Ed25519 (64 hex) | ✅ Yes | P2P identity (libp2p PeerId). **Auto-generated** if not set — saved to `{DB_DIR}/peer_key.bin`. Only set explicitly for key migration or IaC. |
+| `NODE_WALLET_ADDRESS` | Ethereum address (42 hex) | 🔜 Future (Phase 5) | Address for Proof-of-Storage rewards. Set it now — not used yet, but will be when tokenomics are integrated. |
+| `NODE_WALLET_PRIVATE_KEY` | Ethereum (64 hex) | ❌ No | Used only by consensus-node for signing on-chain transactions. Storage-node **never reads** this variable. |
+
+`NODE_PRIVATE_KEY` (Ed25519) and `NODE_WALLET_PRIVATE_KEY` (Ethereum) are **different keys** for **different services**. They have similar names but serve completely different purposes.
 
 ---
 
