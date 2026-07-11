@@ -274,9 +274,10 @@ curl http://known-search-node:8000/v1/node/peers
 
 1. Your node sends a handshake to all `KNOWN_PEERS` (centroid broadcast)
 2. Peers reply with their centroids → your `global_knowledge_map` is populated
-3. Within 10 minutes (or sooner with event-driven updates), your node computes its own centroids and broadcasts them
-4. New vectors are now distributed across all nodes based on semantic sharding
-5. Search queries are automatically federated to relevant shards
+3. **Peer Exchange**: each handshake response includes a list of all other peers the remote node knows about. Your node automatically adds any new ones — enabling automatic mesh discovery.
+4. Within 10 minutes (or sooner with event-driven updates), your node computes its own centroids and broadcasts them
+5. New vectors are now distributed across all nodes based on semantic sharding
+6. Search queries are automatically federated to relevant shards
 
 ---
 

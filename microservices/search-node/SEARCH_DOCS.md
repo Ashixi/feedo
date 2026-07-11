@@ -380,7 +380,7 @@ All async wrappers (`get_embedding_async`, `get_embeddings_batch_async`, `get_im
 |-------|------|---------|
 | `vector_brain` | `VectorBrain` | Reference for centroid computation |
 | `my_url` | `str` | This node's self-identified URL |
-| `known_peers` | `set[str]` | Known peer URLs (from `KNOWN_PEERS` env + discovered via handshake) |
+| `known_peers` | `set[str]` | Known peer URLs (from `KNOWN_PEERS` env + discovered via handshake peer exchange) |
 | `client` | `httpx.AsyncClient` | HTTP client for P2P communication (timeout 5s) |
 
 **Phase 1.5 event-driven fields:**
@@ -815,6 +815,7 @@ Unpins from Pinata and removes from local LanceDB index.
 
 - **Endpoint**: `POST /p2p/handshake`
 - **Initiator**: Each node broadcasts to all `known_peers`
+- **Peer Exchange**: The response includes a `peers` list of all other known peers. The sender automatically adds any new peers it didn't know about — enabling automatic mesh discovery. A cluster reaches full connectivity within 1-2 handshake cycles.
 - **Frequency**: 
   - **Periodic**: every 10 minutes (unconditional)
   - **Event-driven**: when centroid cache is invalidated (100+ new vectors) AND centroid similarity drops below `CENTROID_CHANGE_THRESHOLD` (0.9)
