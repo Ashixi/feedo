@@ -186,6 +186,14 @@ All configuration via environment variables. Set these in your `.env` file or Do
 
 **Floating-point quotas** are supported: `QUOTA_SOCIAL_MB=0.5` = 512 KB.
 
+**Wallet/identity variables** (important distinction):
+
+| Variable | Used by storage-node? | Purpose |
+|----------|:---:|---------|
+| `NODE_PRIVATE_KEY` | ✅ Yes | Ed25519 key for libp2p PeerId (P2P identity). 64-char hex. |
+| `NODE_WALLET_ADDRESS` | 🔜 Future (Phase 5) | Ethereum address for Proof-of-Storage rewards. Set it now — the node will use it when tokenomics are integrated. |
+| `NODE_WALLET_PRIVATE_KEY` | ❌ No | Used only by consensus-node for signing on-chain transactions. Storage-node never reads this. |
+
 ---
 
 ## 5. First Node vs Joining an Existing Network
