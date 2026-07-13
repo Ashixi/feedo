@@ -1,3 +1,427 @@
+# Search Node — Scalability Roadmap / Roadmap масштабування
+
+> 🌐 **Language / Мова**: [🇺🇦 Українська](#uk) | [🇬🇧 English](#en)
+
+<div id="en">
+
+# Search Node — Scalability Roadmap
+
+> **Goal**: scale search-node from the current ~3-5 nodes (full index replication) to 1,000+ nodes with a sharded index, DuckDuckGo-level search quality, and GPU-accelerated inference.
+>
+> **Current problem**: Each search node stores a **full local index** in LanceDB — with 3 nodes this means 3 copies of the same vectors. Federated search helps *find* data, but doesn't help *distribute* storage load. Plus Python GIL limits inference to 2 workers.
+
+---
+
+## Current State (baseline)
+
+| Parameter | Value |
+|-----------|-------|
+| Language | Python 3 (FastAPI + uvicorn) |
+| Model | `intfloat/multilingual-e5-small` (384-dim) + `clip-ViT-B-32` (512-dim) |
+| Vector DB | LanceDB (embedded, local on disk) |
+| Federation | KMeans centroids → P2P handshake → NearestNeighbors routing |
+| Centroid Sync | Once every **1 hour** (`p2p.py: broadcast_centroids_loop`) |
+| Embedding Cache | LRU OrderedDict ≤ **10,000** entries (`vector_service.py: max_emb_cache`) |
+| Search Cache | Dict ≤ **2,000** entries (`vector_service.py: max_search_cache`) |
+| Inference | CPU, `ThreadPoolExecutor(max_workers=2)` |
+| Indexing | **Each node indexes all content** via WebSocket pub/sub crawler |
+| Deduplication | By vector (cosine > 0.95) + by hash_id (duplicate grouping) |
+| Multilingual | `langdetect` (synchronous call, blocks event loop) |
+| Search | Vector only (cosine distance) |
+| Rate limiting | None |
+| Image support | CLIP via `get_image_embedding()` (synchronous `requests.get`) |
+
+### Key Architectural Problems
+
+1. **Full index replication**: each node stores all vectors locally. 3 nodes = 3 copies of the same data. Federated search helps *find* data on other nodes (read path), but doesn't help *distribute* storage load (write path). This is the main scaling bottleneck.
+2. **Python GIL + 2 workers**: maximum ~2 concurrent inference requests at once. As QPS grows, inference becomes a bottleneck.
+3. **Centroids once per hour**: new content is invisible to other search nodes until the next sync cycle. With 10 nodes, this means a new node can be "blind" for up to 60 minutes.
+4. **Embedding cache 10,000**: at a flow of >10 posts/sec, the cache overflows in ~16 minutes. After that — repeated computation of the same texts.
+5. **Federated search sequential with timeout 5.0**: queries to other nodes go through `asyncio.gather`, but if one of 3 nodes is slow — the client waits 5 seconds.
+6. **langdetect blocks event loop**: synchronous call `detect()` in `add_vector_async()` (line `vector_service.py`). At high throughput, this creates latency.
+7. **Base model without fine-tuning**: the universal `multilingual-e5-small` is trained on general texts, not search queries. Because of this, a short query ("zucchini recipe") and a long cooking description may have low cosine similarity — the model doesn't know they are "the same thing". A search-specialized model is needed.
+8. **No rate limiting**: `/query` can be spammed.
+9. **Image embedding synchronous**: `requests.get()` + `PIL.Image.open()` even in ThreadPoolExecutor creates overhead.
+10. **No monitoring**: unknown latency, cache hit rate, QPS, index size.
+
+---
+
+## Phase 1: Performance Baseline — Faster Embeddings + Less Lag - DONE✅
+
+**Goal**: Remove the most obvious bottlenecks without architectural changes. Quick wins.
+
+**Expected growth**: QPS from ~10 to ~50, federation lag from 60 min to 10 min.
+
+### What to Change
+
+#### 1.1 `vector_service.py` — increase caches and workers
+
+- **Current code**: `ThreadPoolExecutor(max_workers=2)`, `max_emb_cache = 10000`, `max_search_cache = 2000`.
+- **What to do**:
+  - `max_workers`: 2 → `os.cpu_count()` (or 4) — more parallel inference
+  - `max_emb_cache`: 10,000 → **100,000** + TTL (1 hour) — not just LRU, but also time-based expiration
+  - `max_search_cache`: 2,000 → **20,000** + TTL (5 minutes) — frequent search queries are not recomputed
+  - `langdetect.detect()` → wrap in `loop.run_in_executor()` — no longer blocks event loop
+- **Files**: `vector_service.py`.
+
+#### 1.2 `p2p.py` — reduce centroid sync interval
+
+- **Current code** (line ~53): `asyncio.sleep(60 * 60)` — 1 hour between centroid broadcasts.
+- **What to do**: Reduce to **10 minutes** (`asyncio.sleep(60 * 10)`). This reduces federation lag by 6x — new content becomes visible to other nodes in 10 minutes instead of 60.
+- **Files**: `p2p.py` — `broadcast_centroids_loop()`.
+
+#### 1.3 `crawler.py` — batch event processing
+
+- **Current code**: each WebSocket event is processed separately via `await self.vector_brain.add_vector_async()` — sequential calls.
+- **What to do**: Accumulate events in a buffer (e.g., up to 32 items or up to 1 second) → process via `get_embeddings_batch_async()` → `add_vector_by_emb()` for each. Batch processing is orders of magnitude faster than sequential (one forward pass through the model instead of N).
+- **Files**: `crawler.py` — `crawl_loop()`.
+
+#### 1.4 `main.py` — rate limiting + federated search timeout
+
+- **Current code**: no rate limiting. Federated search — `asyncio.gather` with individual timeout 5.0 per httpx request.
+- **What to do**:
+  - Add in-memory token bucket rate limiter:
+    - `/query`: 100 req/sec (public search)
+    - `/index_document`: 50 req/sec (indexing)
+    - `/p2p/search`: 200 req/sec (internode traffic, don't limit strictly)
+  - Federated search: wrap the entire `asyncio.gather` in `asyncio.wait_for(..., timeout=2.0)` — don't wait for slow nodes longer than 2 seconds.
+- **Files**: `main.py` — middleware for rate limiting, changes in `client_query()`.
+
+### Phase 1 Result
+
+- QPS grows 5x (more workers + batch processing)
+- Federation lag reduced 6x (10 min instead of 60)
+- Cache holds 10x more entries
+- Rate limiting protects against spam
+- Slow federated nodes don't block the entire request
+
+---
+
+## Phase 1.5: Semantic Sharding — Moving Away from Full Index Replication ✅ DONE
+
+**Goal**: Each search node stores only its semantic shard (approximately 1/N of the total index). Moving away from the "everyone stores everything" model — the fastest path to true distribution.
+
+**Expected growth**: from ~5-10 nodes to **~10-50 nodes**. Each node stores ~1/N vectors. 10 nodes = ~10% of index per node (instead of 100%).
+
+**Why this can be done now**:
+- KMeans centroids **are already computed** (`compute_centroids()` in `vector_service.py`)
+- Federated search **already works** for read path (`route_query()`, `federated_search()`)
+- P2P handshake **already exists** (`/p2p/handshake`)
+- Global knowledge map **is already built** (`update_global_map()`)
+- Only need to add **write routing**: instead of "index everything locally" → "index only what belongs to my semantic shard"
+
+### How Semantic Sharding Works
+
+The current system uses centroids only for **reading** (where to send a search query). Phase 1.5 adds centroid usage for **writing** (which node should index this vector).
+
+**Decision algorithm for a new vector**:
+1. Crawler receives new content → embedding is computed
+2. `is_my_shard(vector)`:
+   - Find the nearest of **my** centroids to this vector → `my_min_dist`
+   - Find the nearest of **other** centroids (from `global_knowledge_map`) → `other_min_dist`
+   - If `my_min_dist < other_min_dist` → vector belongs to my shard → **index locally**
+   - If `other_min_dist < my_min_dist` → send to another node (the one whose centroid is closest)
+3. If `global_knowledge_map` is empty (haven't received any handshake yet) → fallback: index locally
+4. The other node receives the vector via `POST /p2p/index_vector` and indexes it locally
+
+**Result**: similar documents naturally group on the same nodes. Federated search (already working) automatically directs search queries to the correct shards — because those nodes' centroids will be closest to the query vector.
+
+### What to Change
+
+#### 1.5.1 `vector_service.py` — shard membership determination method
+
+- **What to do**: Add two new methods:
+  - `is_my_shard(vector: list[float]) -> bool`:
+    1. Get my local centroids (from `compute_centroids()` or cached)
+    2. Compute `min_distance` to my centroids
+    3. Get other centroids from `global_knowledge_map`
+    4. If no other centroids exist → `True` (fallback)
+    5. Compute `min_distance` to other centroids
+    6. `True` if my centroid is closer
+  - `route_vector_to_node(vector: list[float]) -> Option<String>`:
+    - Returns the `peer_id` (URL) of the node whose centroid is closest to the vector
+    - Uses `nn_model.kneighbors()` for fast search
+- **Files**: `vector_service.py` — new methods.
+
+#### 1.5.2 `crawler.py` + `main.py` — write routing
+
+- **Current code**: `crawler.py` always calls `self.vector_brain.add_vector_async()` locally (line ~42).
+- **What to do**: Change the logic:
+  1. Compute embedding for text (as before)
+  2. Call `vector_brain.is_my_shard(vector)`
+  3. If `True` → local `add_vector_by_emb()` (as now)
+  4. If `False` → get `target_node_url` via `route_vector_to_node()` → HTTP POST to `{target_node_url}/p2p/index_vector` with JSON body `{post_id, hash_id, vector, text, source_type, ...}`
+- **New endpoint** in `main.py`: `POST /p2p/index_vector` — accepts a vector from another node and calls `brain.add_vector_by_emb()` locally.
+- **Files**: `crawler.py` — modify `crawl_loop()`, `main.py` — new endpoint.
+
+#### 1.5.3 `p2p.py` — trigger centroid update on significant changes
+
+- **Current code**: centroids are sent only by timer (every 10 min after Phase 1).
+- **What to do**: Add a check: after every N new vectors (e.g., 100), recompute centroids and compare with previous ones. If `cosine_similarity(new_centroids, old_centroids) < 0.9` — immediately send handshake, without waiting for the timer.
+- **Files**: `p2p.py` — `broadcast_centroids_loop()`.
+
+### Phase 1.5 Result
+
+- Each node stores ~1/N vectors (where N is the number of search nodes)
+- No duplication: a site is indexed **once** on the node whose centroids are closest
+- 3 nodes: ~33% of index per node (instead of 100% per node)
+- 10 nodes: ~10% of index per node
+- 50 nodes: ~2% of index per node
+- Federated search automatically directs queries to the correct shards (already works via `route_query()`)
+- **The "everyone stores everything" model is eliminated in this phase**
+
+> **Analogy**: This works like a Distributed Hash Table (DHT): `hash(key) % N` determines which node stores the data. But instead of a hash, **semantic proximity** is used — KMeans centroids divide the semantic space into N shards. Technology documents go to one node, cooking content to another.
+
+---
+
+## Phase 2: Fine-tuned Search Models — Custom Models for Search 🔶
+
+**Goal**: Instead of the universal `multilingual-e5-small` — a custom embedding model, fine-tuned specifically on search data. The model learns that a short search query ("zucchini recipe") and a long document (cooking description) are the same thing, even without exact word match.
+
+**When**: Between Phase 1.5 and Phase 3, upon first revenue (GPU needed for training).
+
+**Why this is needed**:
+- The current `multilingual-e5-small` model is universal, trained on general texts (Wikipedia, news, books). It is not specialized for search.
+- Because of this, a short query and a long document may have low cosine similarity, even if they are about the same thing. "Zucchini recipe" ≠ "Take two young zucchinis, slice into rounds..." — the model doesn't know this.
+- Fine-tuning teaches the model that search queries and relevant documents should be closer in vector space, and irrelevant ones — farther apart (contrastive learning).
+- A specialized model also better handles synonyms ("zucchini" vs "courgette"), colloquial language, and domain-specific terminology.
+
+### What to Change
+
+#### 2.1 Collect search training data
+
+- **What to do**: Add lightweight tracking to the `/query` endpoint:
+  - Log pairs `(query_text, clicked_hash_id)` — which results users open after searching
+  - Store in a separate SQLite table (or LanceDB) for future training
+  - Anonymized: don't store IP or user_id, only query + hash_id + timestamp
+- **Files**: `main.py` — click tracking, new `click_logger.py`.
+
+#### 2.2 Fine-tuned model training (separate process, not in runtime)
+
+- **What to do**: Use contrastive learning (e.g., via `sentence-transformers` adapters):
+  - Positive pairs: `(query, clicked_document_text)` — cosine similarity should be high
+  - Negative pairs: `(query, random_document_text)` or `(query, shown_but_not_clicked)` — cosine similarity should be low
+  - Loss function: MultipleNegativesRankingLoss or CosineSimilarityLoss
+  - Result: new model `feedo-search-v1` (based on `multilingual-e5-small`, fine-tuned)
+- **Infrastructure**: Separate GPU instance for training (not on production). Training once a week/month with new data.
+
+#### 2.3 `vector_service.py` — model replacement
+
+- **What to do**: After training — replace `self.model = SentenceTransformer('intfloat/multilingual-e5-small')` with `self.model = SentenceTransformer('./models/feedo-search-v1')`.
+- Fallback support: if the fine-tuned model is not found — use the base model.
+- A/B testing: `GET /query?model=v1` vs `GET /query?model=base` for quality comparison on real traffic.
+- **Files**: `vector_service.py` — model loading.
+
+### Phase 2 Result
+
+- "Zucchini recipe" → high cosine similarity with any zucchini cooking description (even without the word "recipe" in the text)
+- "How to install Linux" → finds tutorials, even if they say "Ubuntu installation guide"
+- Synonyms handled correctly: "zucchini" = "courgette", "laptop" = "notebook"
+- Search quality at the level of centralized systems, without losing the flexibility of the vector approach
+
+---
+
+## Phase 3: GPU Inference Service
+
+**Goal**: Inference on GPU instead of CPU. Removes GIL limitations completely. Especially important for the fine-tuned model (Phase 2), which may be larger than the base model.
+
+**Expected growth**: QPS from ~100 to **~1,000+**, inference is no longer a bottleneck.
+
+### What to Change
+
+#### 3.1 New `inference_client.py` — client for GPU service
+
+- **What to do**: Replace direct `self.model.encode()` call with an HTTP/gRPC request to a separate inference service:
+  - `encode_batch(texts: list[str]) -> list[list[float]]` — sends a batch of texts, receives embeddings
+  - `encode_image(image_url: str) -> list[float]` — separate call for images
+  - Fallback support: if GPU service is unavailable → local CPU inference
+- **Files**: new `inference_client.py`.
+
+#### 3.2 New `Dockerfile.gpu` — separate container for the model
+
+- **What to do**: Separate Docker container with `sentence-transformers` on GPU:
+  - FastAPI server on port 8081
+  - Endpoints: `POST /v1/embeddings` (text batch), `POST /v1/image-embedding` (image URL)
+  - Automatic GPU usage via `model.to('cuda')`
+- **Alternative**: NVIDIA Triton Inference Server (ONNX model) — higher performance, but more complex setup.
+- **Files**: new `Dockerfile.gpu`, `inference_server.py` (or Triton config).
+
+#### 3.3 `vector_service.py` — transition to inference_client
+
+- **What to do**: `get_embedding()`, `get_embeddings_batch()`, `get_image_embedding()` → delegate to `inference_client` instead of local model call.
+- **Files**: `vector_service.py`.
+
+### Phase 3 Result
+
+- Inference on GPU (1000+ embeddings/sec instead of ~50 on CPU)
+- Python GIL no longer limits inference (GPU operates asynchronously)
+- Search runs on CPU, inference on GPU — full separation
+- Horizontal scaling: more GPU containers can be added
+- Fine-tuned model (Phase 2) operates without performance degradation
+
+---
+
+## Phase 4: Real-time Federation — Push Model
+
+**Goal**: Content is searchable within seconds of publication. No "10 minute lag."
+
+**Expected growth**: federation lag from 10 minutes to **<5 seconds**, scaling to ~200-1,000 nodes.
+
+### What to Change
+
+#### 4.1 `p2p.py` — event-driven push model instead of periodic poll
+
+- **Current code**: centroids are broadcast by timer (every 10 minutes).
+- **What to do**: Add event-driven mechanism:
+  1. After adding N new vectors to a shard (e.g., 50) → check if centroids have changed
+  2. If `cosine_similarity(new, old) < 0.9` → immediately broadcast handshake to all known nodes
+  3. Gossip component: upon receiving a handshake from another node → if its centroids significantly differ from previous → forward further (gossip propagation)
+- **Files**: `p2p.py` — `broadcast_centroids_loop()` → `event_driven_sync()`.
+
+#### 4.2 `crawler.py` — multi-threaded crawler
+
+- **Current code**: one WebSocket connection, round-robin between gateways.
+- **What to do**:
+  - Support **multiple parallel** WebSocket connections to different gateways simultaneously
+  - **Backpressure**: shared indexing queue. If queue > 1,000 — slow down acceptance of new events (but don't disconnect)
+  - **Prioritization**: sites (storage_class=site) → process first, social posts → second
+- **Files**: `crawler.py` — `crawl_loop()`.
+
+### Phase 4 Result
+
+- New content appears in search <5 seconds after publication
+- Push model instead of poll: centroids update instantly on changes
+- Multi-threaded crawler: fault tolerance when one gateway goes down
+- Backpressure: system doesn't choke under peak loads
+
+---
+
+## Phase 5: Multimodality, Personalization, Analytics
+
+**Goal**: Image search, personalized recommendations, full network visibility.
+
+**Expected growth**: UX quality (images in search, personalized results), operator visibility (metrics).
+
+### What to Change
+
+#### 5.1 Multimodal search
+
+- **Current code**: CLIP is already loaded (`image_model = SentenceTransformer('clip-ViT-B-32')`), `get_image_embedding()` already exists. But image search is not used in `/query`.
+- **What to do**: Add image search support:
+  - `GET /query?text=cat&include_images=true` → search both text and image_vector
+  - `POST /query/image` with `multipart/form-data` (upload image → find similar)
+  - Results include `image_url` from metadata
+- **Files**: `vector_service.py` — search by `image_vector`, `main.py` — new endpoints.
+
+#### 5.2 Personalized ranking
+
+- **Current code**: `update_user_vector_async()` already exists (line `vector_service.py`), but is not used in `/query`.
+- **What to do**: Add `user_did` parameter to `/query`:
+  - Get user_vector (accumulated interest)
+  - After federated search → rerank results by cosine_similarity(result_vector, user_vector)
+  - This gives a personalized feed without a centralized algorithm
+- **Files**: `vector_service.py` — `personalized_rerank()`, `main.py` — `client_query()`.
+
+#### 5.3 Prometheus metrics + Grafana
+
+- **What to do**: Add `/metrics` endpoint (Prometheus format):
+  - `search_requests_total` — total number of search queries
+  - `search_latency_seconds` — p50/p90/p99 latency
+  - `cache_hit_ratio` — cache hits/misses ratio for embeddings
+  - `index_size` — number of vectors in local shard
+  - `active_shards` — number of active search nodes in federation
+  - `federated_search_latency_seconds` — latency of federated queries
+  - `inference_queue_size` — inference queue size (GPU)
+- **Files**: `main.py` — `/metrics` endpoint.
+
+### Phase 5 Result
+
+- Image search: "red dress" → finds photos
+- Personalized ranking: each user sees results relevant specifically to them
+- Full visibility: operators see network state via Grafana
+- Scaling to 1,000+ nodes
+
+---
+
+## What NOT to Do
+
+- ❌ **Elasticsearch** — overkill for this project, centralized solution, not P2P
+- ❌ **Throw away LanceDB immediately** — for prototypes and early phases it's perfect. The problem is not the DB, but sharding (solved by Phase 1.5)
+- ❌ **Wait for Qdrant/Milvus for sharding** — semantic sharding (Phase 1.5) solves the index distribution problem without changing the DB
+- ❌ **Run inference and search in the same event loop** — they should be separated (GPU inference service — Phase 3)
+- ❌ **Rely on keyword search (BM25, etc.)** — it filters out good semantic results due to missing exact words. "Zucchini" vs "courgette" — keyword won't find, vector model will. The current architecture correctly uses only vector search. Strengthened through fine-tuning (Phase 2).
+- ❌ **Use only Python** for inference in production — GPU service is needed for scaling
+
+---
+
+## Scalability Summary Table
+
+| Phase | Max Search Nodes | Index/Node | QPS/Node | Inference | Model | Complexity |
+|-------|------------------|------------|----------|-----------|-------|-----------|
+| Current (baseline) | ~3-5 (full replica) | 100% vectors | ~10 | CPU, 2 workers | Base e5-small | — |
+| Phase 1 (perf baseline) ✅ | ~5-10 | 100% | ~50 | CPU, N workers | Base e5-small | Low (1-2 days) |
+| **Phase 1.5 (semantic sharding) ✅** | **~10-50** | **~1/N** (semantic shard) | **~50** | CPU | Base e5-small | **Medium (3-5 days)** |
+| **Phase 2 (fine-tuned model) 🔶** | **~10-50** | **~1/N** | **~100** | CPU | **Feedo-search-v1** (fine-tuned) | **High (1-2 weeks + GPU for training)** |
+| Phase 3 (GPU inference) | ~50-200 | ~1/N | ~1,000 | GPU (Triton) | Feedo-search-v1 | High (1-2 weeks) |
+| Phase 4 (real-time federation) | ~200-1,000 | ~1/N | ~1,000+ | GPU | Feedo-search-v1 | Medium (3-5 days) |
+| Phase 5 (multimodal + metrics) | ~1,000+ | ~1/N | ~1,000+ | GPU | Feedo-search-v1 | Medium (3-5 days) |
+
+### Explanation of Node Count
+
+- **Current (~3-5)**: federation works, but each node stores 100% of the index. 3 nodes = 3 copies. Adding a 4th node brings no benefit — only more duplication.
+- **Phase 1.5 (10-50)**: the main bottleneck is removed. Each node stores ~1/N of the index. The ~50 limit is determined by the number of centroid comparisons in `is_my_shard()`: 50 nodes × 20 centroids = 1000 comparisons per vector — acceptable for CPU.
+- **Phase 3+ (50-1,000+)**: GPU inference removes CPU constraints. Push model (Phase 4) reduces federation overhead. The true limit is determined by Kademlia routing table size, not search architecture.
+- **Phase 5 (1,000+)**: full maturity. Search, images, personalization, metrics — all working on 1,000+ nodes.
+
+---
+
+## Priorities by Impact
+
+Recommended implementation order (highest impact first):
+
+1. **Phase 1** — quick wins: caches, rate limiting, lower federation lag
+2. **Phase 1.5** ✅ — **most important phase**: index sharding without changing DB. Moving away from "everyone stores everything." From 5 to 50 nodes
+3. **Phase 2** 🔶 — search quality: custom model fine-tuned on search data. "Zucchini recipe" = long cooking description (upon first revenue)
+4. **Phase 3** — performance: GPU inference, QPS grows 10x (especially important for fine-tuned model)
+5. **Phase 4** — real-time: content in search within seconds
+6. **Phase 5** — finishing touches: images, personalization, metrics
+
+---
+
+## Risks and Caveats
+
+- **Phase 1**: Increasing `max_emb_cache` to 100,000 — with 384-dim vectors this is ~150 MB RAM for cache. Memory usage needs monitoring.
+- **Phase 1.5**: Main risk — **incorrect shard determination**:
+  - If two nodes have very similar centroids → the same vector may be considered "mine" for both → duplication
+  - If centroids are not updated in time → a new semantic cluster may not have a "home"
+  - **Assertion test needed**: send 1,000 random vectors → verify each vector landed on exactly 1 node
+  - **Fallback**: if `global_knowledge_map` is empty — index locally (safe default)
+- **Phase 2**: Fine-tuning requires GPU for training and enough clicks. Cold start: in the first weeks the model trains on a small sample → quality may be unstable. A/B test needed before full transition. Also need to maintain dimension compatibility (384-dim) to avoid rebuilding the LanceDB index.
+- **Phase 3**: GPU service — separate container, orchestration needed (Docker Compose with GPU support, or Kubernetes with GPU nodes). Model cold start — 30-60 seconds.
+- **Phase 4**: Push federation model at 1,000 nodes — centroid change gossip messages can create a storm. Debouncing needed (no more than once every 30 seconds).
+- **Phase 5**: Prometheus metrics — separate scraping interval needed. Don't add too many metrics (high cardinality).
+
+---
+
+## Path from Prototype to DuckDuckGo
+
+| Metric | Now | Phase 1 | Phase 1.5 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | DuckDuckGo |
+|--------|-----|---------|-----------|---------|---------|---------|---------|------------|
+| Search Nodes | 1 | 3-5 | 10-50 | 10-50 | 50-200 | 200-1,000 | 1,000+ | ~500 (est.) |
+| Documents | ~100K | ~1M | ~10M | ~10M | ~100M | ~1B | ~10B | ~20B |
+| QPS | ~10 | ~50 | ~50 | ~100 | ~1,000 | ~1,000+ | ~1,000+ | ~3,000 |
+| Latency p50 | ~500ms | ~200ms | ~200ms | ~100ms | ~50ms | ~20ms | ~10ms | <50ms |
+| Quality short→long | Low | Low | Low | ✅ Fine-tuned | ✅ | ✅ | ✅ | ✅ |
+| Synonyms | Partial | Partial | Partial | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Image Search | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Personalization | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | Partial |
+| Indexing Lag | ~60 min | ~10 min | ~10 min | ~10 min | ~10 min | <5 sec | <5 sec | ~seconds |
+| Index/Node | 100% | 100% | ~10% (10 nodes) | ~10% | ~2% (50 nodes) | ~0.1% (1K) | ~0.1% | N/A (centr.) |
+
+</div>
+
+<div id="uk">
+
 # Search Node — Roadmap масштабування
 
 > **Мета**: масштабувати search-node з поточних ~3-5 нод (повна реплікація індексу) до 1,000+ нод з шардованим індексом, якістю пошуку рівня DuckDuckGo, та GPU-прискореним inference.
@@ -411,3 +835,5 @@
 | Персоналізація | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | Частково |
 | Lag індексації | ~60 хв | ~10 хв | ~10 хв | ~10 хв | ~10 хв | <5 сек | <5 сек | ~секунди |
 | Індекс/ноду | 100% | 100% | ~10% (10 нод) | ~10% | ~2% (50 нод) | ~0.1% (1K) | ~0.1% | N/A (центр.) |
+
+</div>
