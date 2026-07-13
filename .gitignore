@@ -70,3 +70,8 @@ private-docs/
 # Dev env
 microservices/.env.local
 browser/feedo_wallet/
+
+# Not yet needed — excluded from repository
+microservices/social-node/
+microservices/feedo-algo/
+microservices/feedo-ingester/

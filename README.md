@@ -66,10 +66,7 @@ feedo/
 ├── microservices/
 │   ├── consensus-node/        # PBFT consensus & name resolution (Rust)
 │   ├── storage-node/          # Erasure-coded P2P storage (Rust)
-│   ├── search-node/           # Vector semantic search engine (Python)
-│   ├── feedo-ingester/        # Nostr bridge — real-time data ingestion
-│   ├── social-node/           # Social feed & profile aggregation
-│   └── feedo-algo/            # Background clustering & trending math
+│   └── search-node/           # Vector semantic search engine (Python)
 ├── contracts/                 # PporTreasury.sol (Polygon smart contract)
 └── feedo_explorer/            # Flutter cross-platform admin & search app
 ```
