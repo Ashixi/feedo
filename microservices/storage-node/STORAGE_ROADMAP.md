@@ -251,33 +251,11 @@ The external protocol (separate project) is responsible for:
 - **Metadata in response**: `Content-Type`, `Content-Length`, `X-Feedo-Class`, `X-Feedo-TTL`, `X-Feedo-Created-At`.
 - **Files**: `main.rs` — new v2 handlers.
 
-#### 4.3 SDK (separate project)
-
-> SDK is not part of the storage-node, but mentioned for completeness.
-
-```
-feedo_sdk/
-├── js/          # npm install @feedo/storage
-├── python/      # pip install feedo-storage
-├── rust/        # cargo add feedo-storage
-└── dart/        # flutter pub add feedo_storage
-```
-
-Each SDK provides a simple API:
-- `put_object(bucket, key, data, class="blob")` — upload
-- `get_object(bucket, key)` — retrieve
-- `delete_object(bucket, key)` — delete
-- `list_objects(bucket, prefix)` — list
-- `head_object(bucket, key)` — metadata
-
-**This is not S3 compatibility** — it's an own standard, simpler than S3, without unnecessary HTTP baggage (no `x-amz-*` headers, no XML serialization).
-
 ### Phase 4 Result
 
 - Storage node serves arbitrary files via a standardized API
 - Listing enables "browsing folders" — like in Google Cloud
 - Range requests enable video streaming without downloading the entire file
-- SDK libraries enable developers to integrate in 5 minutes
 - Web3 applications can use Feedo Storage as a decentralized alternative to AWS S3
 
 ---
@@ -640,33 +618,11 @@ Storage-нода відповідає тільки за **низькорівне
 - **Метадані у відповіді**: `Content-Type`, `Content-Length`, `X-Feedo-Class`, `X-Feedo-TTL`, `X-Feedo-Created-At`.
 - **Файли**: `main.rs` — нові ручки v2.
 
-#### 4.3 SDK (окремий проект)
-
-> SDK не є частиною storage-node, але згадується для повноти картини.
-
-```
-feedo_sdk/
-├── js/          # npm install @feedo/storage
-├── python/      # pip install feedo-storage
-├── rust/        # cargo add feedo-storage
-└── dart/        # flutter pub add feedo_storage
-```
-
-Кожен SDK надає простий API:
-- `put_object(bucket, key, data, class="blob")` — завантажити
-- `get_object(bucket, key)` — отримати
-- `delete_object(bucket, key)` — видалити
-- `list_objects(bucket, prefix)` — список
-- `head_object(bucket, key)` — метадані
-
-**Це не S3-сумісність** — це власний стандарт, простіший за S3, без зайвого HTTP-багажу (жодних `x-amz-*` хедерів, жодної XML-серіалізації).
-
 ### Результат фази 4
 
 - Storage-нода обслуговує довільні файли через стандартизований API
 - Listing дозволяє "переглядати папки" — як у Google Cloud
 - Range requests дозволяють стрімити відео без завантаження всього файлу
-- SDK-бібліотеки дозволяють розробникам інтегруватися за 5 хвилин
 - Web3-додатки можуть використовувати Feedo Storage як децентралізовану альтернативу AWS S3
 
 ---

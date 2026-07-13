@@ -12,7 +12,7 @@ Feedo є децентралізованим L1-протоколом та сем�
 *   **Консенсус та Стан:** PBFT (Practical Byzantine Fault Tolerance), CRDT (Conflict-free Replicated Data Types).
 *   **Semantic API (Прикладний рівень):** Python, `FastAPI`, `SentenceTransformers`, `LanceDB` (Vector DB), `SQLAlchemy` (SQLite).
 *   **Серіалізація та IPC:** Protocol Buffers (`protobuf`).
-*   **Клієнтський рівень:** SDK (Python, Rust, TS), Flutter (Web/Mobile Explorer).
+ *   **Клієнтський рівень:** Flutter (Web/Mobile Explorer).
 
 ---
 
@@ -141,7 +141,6 @@ docker-compose up --build
 ## Загальний Огляд Директорій
 
 *   `/feedo/` — Основний код протоколу (Rust P2P Core та Python Semantic API).
-*   `/feedo_sdk/` — Бібліотеки (SDK) для розробників, які створюють dApps.
 *   `/feedo_explorer/` — Веб-інтерфейс адміністратора ноди та моніторингу мережі.
 *   `/legacy_social_archive/` — Архів старого монолітного коду (соціальні функції, чати).
 
@@ -221,7 +220,7 @@ The protocol provides infrastructure for building decentralized applications (dA
 *   **Consensus and State:** PBFT (Practical Byzantine Fault Tolerance), CRDT (Conflict-free Replicated Data Types).
 *   **Semantic API (Application layer):** Python, `FastAPI`, `SentenceTransformers`, `LanceDB` (Vector DB), `SQLAlchemy` (SQLite).
 *   **Serialization and IPC:** Protocol Buffers (`protobuf`).
-*   **Client layer:** SDK (Python, Rust, TS), Flutter (Web/Mobile Explorer).
+ *   **Client layer:** Flutter (Web/Mobile Explorer).
 
 ---
 
@@ -350,7 +349,6 @@ The Feedo project consists of a low-level network core, semantic API, client SDK
 ## General Directory Overview
 
 *   `/feedo/` — Main protocol code (Rust P2P Core and Python Semantic API).
-*   `/feedo_sdk/` — Libraries (SDKs) for developers building dApps.
 *   `/feedo_explorer/` — Node admin web interface and network monitoring.
 *   `/legacy_social_archive/` — Archive of old monolithic code (social features, chats).
 

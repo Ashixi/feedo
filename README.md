@@ -71,8 +71,7 @@ feedo/
 │   ├── social-node/           # Social feed & profile aggregation
 │   └── feedo-algo/            # Background clustering & trending math
 ├── contracts/                 # PporTreasury.sol (Polygon smart contract)
-├── feedo_sdk/                 # Client SDKs (js, python, rust, dart)
-└── feedo_search_ui/           # Flutter cross-platform search app
+└── feedo_explorer/            # Flutter cross-platform admin & search app
 ```
 
 ---
