@@ -90,9 +90,21 @@ fn full_integration_test() {
     let bin_path = std::path::PathBuf::from(bin_path);
     assert!(bin_path.exists(), "Binary not found at {:?}. Build with: cargo build --bin consensus-node", bin_path);
 
-    // Clean up previous test databases
-    let _ = std::fs::remove_dir_all("test_db1");
-    let _ = std::fs::remove_dir_all("test_db2");
+    // Kill any leftover consensus-node processes from previous runs
+    // to ensure ports 3000/3001/8041/8042 are free.
+    let _ = std::process::Command::new("taskkill")
+        .args(["/f", "/im", "consensus-node.exe"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Use unique DB dirs per run to avoid stale locks from previous tests.
+    let pid = std::process::id();
+    let db_dir1 = format!("test_db1_{}", pid);
+    let db_dir2 = format!("test_db2_{}", pid);
+    let _ = std::fs::remove_dir_all(&db_dir1);
+    let _ = std::fs::remove_dir_all(&db_dir2);
 
     // Generate test wallet for signing
     let wallet = LocalWallet::new(&mut rand::thread_rng());
@@ -104,7 +116,7 @@ fn full_integration_test() {
         .env("HTTP_PORT", "3000")
         .env("GRPC_PORT", "50051")
         .env("P2P_PORT", "8041")
-        .env("DB_DIR", "test_db1")
+        .env("DB_DIR", &db_dir1)
         .env("NODE_WALLET_ADDRESS", NODE1_WALLET)
         .env("ETH_RPC_URL", "https://polygon-rpc.com")
         .stdout(std::process::Stdio::null())
@@ -144,7 +156,7 @@ fn full_integration_test() {
         .env("HTTP_PORT", "3001")
         .env("GRPC_PORT", "50052")
         .env("P2P_PORT", "8042")
-        .env("DB_DIR", "test_db2")
+        .env("DB_DIR", &db_dir2)
         .env("NODE_WALLET_ADDRESS", NODE2_WALLET)
         .env("BOOTSTRAP_NODES", &bootstrap)
         .env("ETH_RPC_URL", "https://polygon-rpc.com")

@@ -9,6 +9,9 @@ pub const TX_TYPE_SLASHING: i32 = 2;
 pub const TX_TYPE_NAME_REGISTRATION: i32 = 3;
 pub const TX_TYPE_UPDATE_CID: i32 = 4;
 pub const TX_TYPE_LEDGER: i32 = 5;
+pub const TX_TYPE_UPDATE_METADATA: i32 = 6;
+pub const TX_TYPE_GRANT_CREATE: i32 = 7;
+pub const TX_TYPE_GRANT_CLAIM: i32 = 8;
 
 /// Duration of one epoch (10 minutes).
 pub const EPOCH_DURATION_SECS: u64 = 600;
@@ -67,8 +70,6 @@ impl PporState {
     }
 
     pub fn process_message(&mut self, msg: &PbftMessage) -> Option<PbftPhase> {
-        // All nodes hear the message, but only committee members can vote.
-        // Committee membership is checked by the caller (PporManager.handle_message).
         let msg_phase = msg.phase();
         match msg_phase {
             PbftPhase::PrePrepare => {
@@ -106,6 +107,55 @@ impl PporState {
     }
 }
 
+/// Archive entry for a finalized transaction — stores minimal metadata for audit.
+#[derive(Debug, Clone)]
+pub struct FinalizedArchiveEntry {
+    pub tx_hash: String,
+    pub finalized_at: u64, // UNIX timestamp
+    pub finalized_epoch: u64, // epoch when finalized
+}
+
+// --- Grant System ---
+
+/// Тип верифікації гранту.
+/// v1 — тільки Open (будь-хто може клеймити, ліміт по кількості).
+/// Решта будуть додані в майбутніх ітераціях.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GrantVerification {
+    Open,
+}
+
+impl GrantVerification {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            GrantVerification::Open => "open",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "open" => Some(GrantVerification::Open),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GrantProgram {
+    pub grant_id: String,
+    pub title: String,
+    pub signer: String,
+    pub verification: GrantVerification,
+    pub amount_per_claim: u64,
+    pub max_claims: u64,            // 0 = без ліміту
+    pub claimed_count: u64,
+    pub claimed_total: u64,
+    pub claimed_by: HashSet<String>,
+    pub created_at: u64,
+    pub expires_at: u64,            // 0 = безстроково
+    pub active: bool,
+}
+
 pub struct PporManager {
     pub states: HashMap<String, PporState>,
     pub view: u64,
@@ -122,34 +172,25 @@ pub struct PporManager {
     pub current_epoch: u64,
     pub epoch_start: Instant,
     pub epoch_duration: Duration,
+
+    // Garbage collection: archive of finalized transactions
+    pub finalized_archive: Vec<FinalizedArchiveEntry>,
+    /// Maximum number of finalized entries to keep (prevents unbounded growth).
+    pub max_archive_size: usize,
+
+    // Grant system
+    pub grant_programs: HashMap<String, GrantProgram>,
 }
 
 impl PporManager {
     pub fn new(node_id: String) -> Self {
         let mut rep = HashMap::new();
         rep.insert(node_id.clone(), 100);
-
         let mut comm = HashSet::new();
         comm.insert(node_id.clone());
-
-        Self {
-            states: HashMap::new(),
-            view: 0,
-            node_id,
-            secret_key: None,
-            secp: secp256k1::Secp256k1::new(),
-            reputation_table: rep,
-            current_committee: comm,
-            last_finalized_hash: "genesis_hash".to_string(),
-            current_epoch: 0,
-            epoch_start: Instant::now(),
-            epoch_duration: Duration::from_secs(EPOCH_DURATION_SECS),
-        }
+        Self::build(node_id, rep, comm, Duration::from_secs(EPOCH_DURATION_SECS))
     }
 
-    /// Initialize with on-chain committee and configurable epoch duration.
-    /// If committee is empty, falls back to self-only.
-    /// NOTE: self-only will be replaced by gossip-discovered peers via reputation_table.
     pub fn new_with_committee_and_epoch(
         node_id: String,
         committee_addrs: Vec<String>,
@@ -157,7 +198,6 @@ impl PporManager {
     ) -> Self {
         let mut rep = HashMap::new();
         let mut comm = HashSet::new();
-
         if !committee_addrs.is_empty() {
             for addr in &committee_addrs {
                 rep.insert(addr.clone(), 100);
@@ -169,32 +209,35 @@ impl PporManager {
             comm.insert(node_id.clone());
             eprintln!("PporManager: no on-chain committee found, fallback to self-only committee");
         }
-
         eprintln!("PporManager: epoch duration = {:?}", epoch_duration);
-
-        Self {
-            states: HashMap::new(),
-            view: 0,
-            node_id,
-            secret_key: None,
-            secp: secp256k1::Secp256k1::new(),
-            reputation_table: rep,
-            current_committee: comm,
-            last_finalized_hash: "genesis_hash".to_string(),
-            current_epoch: 0,
-            epoch_start: Instant::now(),
-            epoch_duration,
-        }
+        Self::build(node_id, rep, comm, epoch_duration)
     }
 
-    /// Initialize with on-chain committee. If empty, falls back to self-only.
-    /// Uses default EPOCH_DURATION_SECS (10 minutes).
     pub fn new_with_committee(node_id: String, committee_addrs: Vec<String>) -> Self {
         Self::new_with_committee_and_epoch(
             node_id,
             committee_addrs,
             Duration::from_secs(EPOCH_DURATION_SECS),
         )
+    }
+
+    fn build(node_id: String, reputation_table: HashMap<String, u64>, current_committee: HashSet<String>, epoch_duration: Duration) -> Self {
+        Self {
+            states: HashMap::new(),
+            view: 0,
+            node_id,
+            secret_key: None,
+            secp: secp256k1::Secp256k1::new(),
+            reputation_table,
+            current_committee,
+            last_finalized_hash: "genesis_hash".to_string(),
+            current_epoch: 0,
+            epoch_start: Instant::now(),
+            epoch_duration,
+            finalized_archive: Vec::new(),
+            max_archive_size: 10_000,
+            grant_programs: HashMap::new(),
+        }
     }
 
     pub fn set_secret_key(&mut self, hex_key: &str) {
@@ -207,23 +250,16 @@ impl PporManager {
 
     // --- Epoch ---
 
-    /// Returns true if the current epoch has expired and a rotation is needed.
     pub fn is_epoch_expired(&self) -> bool {
         self.epoch_start.elapsed() >= self.epoch_duration
     }
 
-    /// Rotate to a new epoch: recalculate committee based on reputation + seed.
     pub fn rotate_epoch(&mut self) {
-        // Clean up timed-out transactions from the previous epoch.
         self.states.retain(|_, s| !s.is_timed_out());
-
         self.current_epoch += 1;
         self.epoch_start = Instant::now();
-
-        // Seed is last finalized hash. If genesis, use "genesis" + epoch number.
         let seed = format!("{}:{}", self.last_finalized_hash, self.current_epoch);
         self.select_committee_weighted(&seed);
-
         eprintln!(
             "[EPOCH] Rotated to epoch {} with committee size {} members",
             self.current_epoch,
@@ -231,7 +267,6 @@ impl PporManager {
         );
     }
 
-    /// Check and rotate epoch if expired. Call this periodically (e.g., on each message).
     pub fn maybe_rotate_epoch(&mut self) {
         if self.is_epoch_expired() {
             self.rotate_epoch();
@@ -240,9 +275,6 @@ impl PporManager {
 
     // --- Committee selection ---
 
-    /// Select committee using reputation-weighted deterministic algorithm.
-    /// `weighted_score = hash(seed || node_id) as u64 * reputation`
-    /// Top `max(1, min(21, total_nodes))` form the committee.
     pub fn select_committee_weighted(&mut self, seed: &str) {
         let mut scored: Vec<(String, u64)> = self
             .reputation_table
@@ -256,16 +288,12 @@ impl PporManager {
                 (node.clone(), score)
             })
             .collect();
-
-        // Sort by score descending.
         scored.sort_by(|a, b| b.1.cmp(&a.1));
-
         let size = scored.len().min(21).max(1);
         self.current_committee.clear();
         for (node, _) in scored.into_iter().take(size) {
             self.current_committee.insert(node);
         }
-
         eprintln!(
             "[COMMITTEE] Selected {} validators (seed={:.16}...)",
             self.current_committee.len(),
@@ -273,16 +301,12 @@ impl PporManager {
         );
     }
 
-    /// Old VRF-based committee selection — kept for backward compatibility, not used.
-    pub fn select_committee(&mut self, _seed_hash: &str) {
-        // Deprecated: use select_committee_weighted instead.
-        // This method is called from handle_message on Finalized — redirect to weighted.
-        self.select_committee_weighted(_seed_hash);
+    pub fn select_committee(&mut self, seed_hash: &str) {
+        self.select_committee_weighted(seed_hash);
     }
 
     // --- Validator check ---
 
-    /// Returns true if this node is a member of the current committee.
     pub fn is_validator(&self) -> bool {
         self.current_committee.contains(&self.node_id)
     }
@@ -291,7 +315,7 @@ impl PporManager {
 
     pub fn adjust_reputation(&mut self, node_id: &str, delta: i64) {
         let entry = self.reputation_table.entry(node_id.to_string()).or_insert(10);
-        let new_val = (*entry as i64 + delta).max(1); // reputation never drops below 1
+        let new_val = (*entry as i64 + delta).max(1);
         *entry = new_val as u64;
         eprintln!("[REPUTATION] {} adjusted by {} => {}", node_id, delta, entry);
     }
@@ -317,7 +341,6 @@ impl PporManager {
         }
         let state = PporState::new(self.view, sequence, tx_hash.clone(), tx_type, self.current_committee.clone());
         self.states.insert(tx_hash.clone(), state);
-
         Some(PbftMessage {
             phase: PbftPhase::PrePrepare as i32,
             view: self.view,
@@ -330,31 +353,19 @@ impl PporManager {
     }
 
     pub fn handle_message(&mut self, msg: PbftMessage) -> Option<PbftMessage> {
-        // Epoch rotation check
         self.maybe_rotate_epoch();
-
-        // Ensure sender is known
         if !self.reputation_table.contains_key(&msg.sender) {
             self.reputation_table.insert(msg.sender.clone(), 10);
         }
 
         let (new_phase, s_view, s_seq, s_tx_hash, s_tx_type) = {
             let state = self.states.entry(msg.tx_hash.clone()).or_insert_with(|| {
-                PporState::new(
-                    msg.view,
-                    msg.sequence,
-                    msg.tx_hash.clone(),
-                    msg.tx_type,
-                    self.current_committee.clone(),
-                )
+                PporState::new(msg.view, msg.sequence, msg.tx_hash.clone(), msg.tx_type, self.current_committee.clone())
             });
-
-            // Only committee members can participate in consensus
             if !self.current_committee.contains(&msg.sender) {
                 eprintln!("[PBFT] Rejected message from non-committee member {}", msg.sender);
                 return None;
             }
-
             match state.process_message(&msg) {
                 Some(p) => (Some(p), state.view, state.sequence, state.tx_hash.clone(), state.tx_type),
                 None => (None, 0, 0, String::new(), 0),
@@ -364,35 +375,20 @@ impl PporManager {
         if let Some(phase) = new_phase {
             eprintln!(
                 "[PBFT] Phase transition: tx={}, phase={:?}, sender={}, votes_prepare={}, votes_commit={}",
-                s_tx_hash,
-                phase,
-                msg.sender,
+                s_tx_hash, phase, msg.sender,
                 self.states.get(&s_tx_hash).map(|s| s.prepares.len()).unwrap_or(0),
                 self.states.get(&s_tx_hash).map(|s| s.commits.len()).unwrap_or(0),
             );
-
-            // Reputation rewards
             match phase {
-                PbftPhase::Prepare => {
-                    self.adjust_reputation(&msg.sender, REP_PREPARE_VOTE);
-                }
-                PbftPhase::Commit => {
-                    self.adjust_reputation(&msg.sender, REP_COMMIT_VOTE);
-                }
-                PbftPhase::Finalized => {
-                    self.last_finalized_hash = s_tx_hash.clone();
-                }
+                PbftPhase::Prepare => self.adjust_reputation(&msg.sender, REP_PREPARE_VOTE),
+                PbftPhase::Commit => self.adjust_reputation(&msg.sender, REP_COMMIT_VOTE),
+                PbftPhase::Finalized => { self.last_finalized_hash = s_tx_hash.clone(); }
                 _ => {}
             }
-
-            // Only reply if we are a validator ourselves
             if self.is_validator() {
                 return Some(PbftMessage {
-                    phase: phase as i32,
-                    view: s_view,
-                    sequence: s_seq,
-                    tx_hash: s_tx_hash.clone(),
-                    sender: self.node_id.clone(),
+                    phase: phase as i32, view: s_view, sequence: s_seq,
+                    tx_hash: s_tx_hash.clone(), sender: self.node_id.clone(),
                     signature: self.generate_signature(&s_tx_hash, s_seq, phase as i32),
                     tx_type: s_tx_type,
                 });
@@ -403,7 +399,6 @@ impl PporManager {
 
     pub fn mark_validated(&mut self, tx_hash: &str, tx_type: i32) -> Option<PbftMessage> {
         self.maybe_rotate_epoch();
-
         let (new_phase, s_view, s_seq, s_tx_hash, s_tx_type) = {
             let state = self.states.entry(tx_hash.to_string()).or_insert_with(|| {
                 PporState::new(self.view, 0, tx_hash.to_string(), tx_type, self.current_committee.clone())
@@ -413,21 +408,12 @@ impl PporManager {
                 None => (None, 0, 0, String::new(), 0),
             }
         };
-
         if let Some(phase) = new_phase {
-            eprintln!(
-                "[PBFT] Validated: tx={}, phase={:?}, validator={}",
-                s_tx_hash,
-                phase,
-                self.node_id
-            );
+            eprintln!("[PBFT] Validated: tx={}, phase={:?}, validator={}", s_tx_hash, phase, self.node_id);
             if self.is_validator() {
                 return Some(PbftMessage {
-                    phase: phase as i32,
-                    view: s_view,
-                    sequence: s_seq,
-                    tx_hash: s_tx_hash.clone(),
-                    sender: self.node_id.clone(),
+                    phase: phase as i32, view: s_view, sequence: s_seq,
+                    tx_hash: s_tx_hash.clone(), sender: self.node_id.clone(),
                     signature: self.generate_signature(&s_tx_hash, s_seq, phase as i32),
                     tx_type: s_tx_type,
                 });
@@ -436,14 +422,50 @@ impl PporManager {
         None
     }
 
+    // --- Garbage Collection ---
+
+    /// Move a finalized transaction from active states to the archive.
+    /// Keeps only (tx_hash, finalized_at, epoch) for audit purposes.
+    pub fn archive_finalized_state(&mut self, tx_hash: &str) {
+        if self.states.remove(tx_hash).is_some() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            self.finalized_archive.push(FinalizedArchiveEntry {
+                tx_hash: tx_hash.to_string(),
+                finalized_at: now,
+                finalized_epoch: self.current_epoch,
+            });
+            // Trim archive if it exceeds max size
+            while self.finalized_archive.len() > self.max_archive_size {
+                self.finalized_archive.remove(0);
+            }
+            eprintln!("[GC] Archived finalized tx: {} (archive size={})", tx_hash, self.finalized_archive.len());
+        }
+    }
+
+    /// Remove finalized archive entries older than `keep_epochs` epochs ago.
+    /// This is the periodic cleanup called at epoch rotation.
+    pub fn cleanup_finalized_states(&mut self, keep_epochs: u64) {
+        let cutoff_epoch = self.current_epoch.saturating_sub(keep_epochs);
+        let before = self.finalized_archive.len();
+        self.finalized_archive.retain(|entry| entry.finalized_epoch >= cutoff_epoch);
+        let removed = before - self.finalized_archive.len();
+        if removed > 0 {
+            eprintln!(
+                "[GC] Cleaned up {} finalized entries older than epoch {} (remaining: {})",
+                removed, cutoff_epoch, self.finalized_archive.len()
+            );
+        }
+    }
+
     /// Clean up timed-out states. Call periodically.
     pub fn cleanup_timed_out(&mut self) {
         let before = self.states.len();
-        // Collect reputation penalties first (to avoid double-borrow of self)
         let mut penalties: Vec<String> = Vec::new();
         self.states.retain(|hash, s| {
             if s.is_timed_out() && s.phase != PbftPhase::Finalized {
-                // Collect non-voting committee members for penalty
                 for member in &s.committee {
                     if !s.prepares.contains(member) && !s.commits.contains(member) {
                         penalties.push(member.clone());
@@ -455,12 +477,80 @@ impl PporManager {
                 true
             }
         });
-        // Apply penalties after retain
         for member in &penalties {
             self.adjust_reputation(member, REP_TIMEOUT);
         }
         if before != self.states.len() {
             eprintln!("[CLEANUP] Removed {} timed-out transactions", before - self.states.len());
         }
+    }
+
+    // --- Grant System ---
+
+    /// Створити новий грант. Викликається після перевірки прав через GrantAuthority.
+    pub fn create_grant(&mut self, grant: GrantProgram) -> Result<(), String> {
+        if self.grant_programs.contains_key(&grant.grant_id) {
+            return Err("Grant already exists".to_string());
+        }
+        if grant.amount_per_claim == 0 {
+            return Err("Amount per claim must be > 0".to_string());
+        }
+        eprintln!(
+            "[GRANT] Created: id={}, signer={}, amount={}, max_claims={}",
+            grant.grant_id, grant.signer, grant.amount_per_claim, grant.max_claims
+        );
+        self.grant_programs.insert(grant.grant_id.clone(), grant);
+        Ok(())
+    }
+
+    /// Перевірити чи DID може клеймити грант. Повертає amount якщо OK.
+    pub fn verify_grant_claim(&self, grant_id: &str, did: &str) -> Result<u64, String> {
+        let grant = self
+            .grant_programs
+            .get(grant_id)
+            .ok_or_else(|| "Grant not found".to_string())?;
+
+        if !grant.active {
+            return Err("Grant is not active".to_string());
+        }
+
+        if grant.expires_at > 0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            if now > grant.expires_at {
+                return Err("Grant expired".to_string());
+            }
+        }
+
+        if grant.claimed_by.contains(did) {
+            return Err("Already claimed".to_string());
+        }
+
+        if grant.max_claims > 0 && grant.claimed_count >= grant.max_claims {
+            return Err("Claim limit reached".to_string());
+        }
+
+        Ok(grant.amount_per_claim)
+    }
+
+    /// Виконати клейм (мутує стан). Викликати після verify_grant_claim.
+    pub fn execute_claim(&mut self, grant_id: &str, did: &str, amount: u64) -> Result<u64, String> {
+        let grant = self
+            .grant_programs
+            .get_mut(grant_id)
+            .ok_or_else(|| "Grant not found".to_string())?;
+
+        grant.claimed_by.insert(did.to_string());
+        grant.claimed_count += 1;
+        grant.claimed_total += amount;
+
+        eprintln!(
+            "[GRANT] Claim: grant={}, did={}, amount={}, count={}/{:?}",
+            grant_id, did, amount, grant.claimed_count, grant.max_claims
+        );
+
+        Ok(grant.claimed_count)
     }
 }

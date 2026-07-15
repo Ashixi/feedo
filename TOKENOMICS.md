@@ -7,7 +7,7 @@
 
 ## Overview
 
-This document describes the economic architecture of the Feedo network, pricing principles for services, and the fair revenue distribution formula among ecosystem participants. The model is based on fiat-pegged stablecoins (USDC) and microtransactions — **no volatile internal token** is used for payments.
+This document describes the economic architecture of the Feedo network, pricing principles for services, and the fair revenue distribution formula among ecosystem participants. The model is based on fiat-pegged stablecoins (USDT) and microtransactions — **no volatile internal token** is used for payments.
 
 ---
 
@@ -15,7 +15,7 @@ This document describes the economic architecture of the Feedo network, pricing 
 
 ### Treasury
 
-All user payments flow into a single **`PporTreasury.sol`** smart contract on the **Polygon** network, denominated in **USDC**.
+All user payments flow into a single **`PporTreasury.sol`** smart contract on the **Polygon** network, denominated in **USDT**.
 
 ### Virtual Accounting
 
@@ -27,7 +27,7 @@ A node operator accumulates a virtual balance inside the network. When they want
 
 1. The consensus layer generates a **cryptographic proof** of the operator's accumulated balance.
 2. The operator submits this proof to the `PporTreasury.sol` contract on Polygon.
-3. The contract verifies the proof and releases the USDC in a **single transaction**.
+3. The contract verifies the proof and releases the USDT in a **single transaction**.
 
 This minimizes gas costs — operators batch their earnings and withdraw infrequently.
 
@@ -80,7 +80,7 @@ AI-powered data parsing and semantic search is a key differentiator for Feedo:
 
 ### Understandable for Web2 Users
 
-No complex internal currency with a volatile exchange rate. People pay in familiar dollars (USDC) at **fixed, transparent prices**. A domain costs $5/year — just like traditional registrars. Storage costs $5/TB — comparable to centralized cloud providers but with the user receiving 90% of the revenue instead of a corporation.
+No complex internal currency with a volatile exchange rate. People pay in familiar dollars (USDT) at **fixed, transparent prices**. A domain costs $5/year — just like traditional registrars. Storage costs $5/TB — comparable to centralized cloud providers but with the user receiving 90% of the revenue instead of a corporation.
 
 ### High Profitability for Providers
 
@@ -88,7 +88,7 @@ The **90% provider share** makes "mining" on hard drives and GPUs in the Feedo n
 
 ### Economic Sustainability
 
-The Foundation receives a steady income stream for ongoing development (5% of all revenue). The network does not depend on token inflation — all services are backed by **real fiat inflows** (USDC). This creates a sustainable, non-speculative economic foundation.
+The Foundation receives a steady income stream for ongoing development (5% of all revenue). The network does not depend on token inflation — all services are backed by **real fiat inflows** (USDT). This creates a sustainable, non-speculative economic foundation.
 
 ### Sybil Resistance Without Staking Millions
 
@@ -100,7 +100,7 @@ The $1–$5 node operator license is a minimal but effective barrier: it costs a
 
 | Component | Role in Tokenomics |
 |-----------|-------------------|
-| **`PporTreasury.sol`** | Polygon smart contract — holds all USDC, processes cash-outs |
+| **`PporTreasury.sol`** | Polygon smart contract — holds all USDT, processes cash-outs |
 | **`eth_bridge.rs`** | Monitors Polygon events (`CreditClaimed`) and credits the virtual ledger |
 | **`accounting.rs` Ledger** | In-memory + Sled-backed virtual balance tracking — the "bank" inside Feedo |
 | **`ppor.rs` Consensus** | Generates cryptographic proofs for cash-out (validator signatures on balance snapshots) |
@@ -109,4 +109,4 @@ The $1–$5 node operator license is a minimal but effective barrier: it costs a
 
 ---
 
-> **Note for grant applications**: This tokenomics model demonstrates that Feedo has a clear path to financial sustainability without relying on speculative token dynamics. The use of USDC stablecoins and fixed pricing makes the economic model predictable, auditable, and accessible to non-crypto-native users — a significant differentiator from token-inflation-based Web3 projects.
+> **Note for grant applications**: This tokenomics model demonstrates that Feedo has a clear path to financial sustainability without relying on speculative token dynamics. The use of USDT stablecoins and fixed pricing makes the economic model predictable, auditable, and accessible to non-crypto-native users — a significant differentiator from token-inflation-based Web3 projects.

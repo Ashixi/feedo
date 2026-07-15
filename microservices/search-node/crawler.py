@@ -134,7 +134,7 @@ class SearchCrawler:
             print(f"🔄 Crawler connecting to {ws_url}...")
             
             try:
-                async with websockets.connect(ws_url) as ws:
+                async with websockets.connect(ws_url, ping_interval=None) as ws:
                     print(f"✅ Connected to PubSub WebSocket on {gateway}!")
                     
                     # Batch buffer: accumulate up to 32 events or 1 second

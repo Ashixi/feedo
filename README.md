@@ -147,9 +147,7 @@ Detailed roadmaps for each layer are available in their respective directories:
 Feedo is fully open-source and community-funded. No VCs. No tokens. Just builders.
 
 - ☕ [Buy Me a Coffee](https://buymeacoffee.com/andriishumko)
-- 💎 [Giveth](https://giveth.io/project/feedo)
-- 🌐 [Open Collective](https://opencollective.com/feedo)
-- 🔶 Gitcoin Grants — coming soon (building community first)
+
 
 ---
 

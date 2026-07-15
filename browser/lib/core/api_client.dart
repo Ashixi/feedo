@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:browser/src/rust/api/wallet.dart';
 import 'package:browser/src/rust/api/server.dart' as rust_server;
-
-import 'dart:math';
 
 class ApiClient {
   static final List<String> gateways = [
@@ -13,21 +12,19 @@ class ApiClient {
     'https://api2.feedo.ink'
   ];
 
-  late String baseUrl;
-  late String consensusUrl;
   late String searchProxyUrl;
-  late String storageNodeUrl;
+  /// Consensus URL = search-node + /consensus prefix (proxied to consensus-node:3000)
+  late String consensusUrl;
 
   final String did;
   final String address;
 
   ApiClient({required this.did, required this.address}) {
-    // Вибираємо випадкову ноду для балансування навантаження
-    baseUrl = gateways[Random().nextInt(gateways.length)];
-    consensusUrl = '$baseUrl/consensus';
-    searchProxyUrl = baseUrl;
-    storageNodeUrl = baseUrl;
+    searchProxyUrl = gateways[Random().nextInt(gateways.length)];
+    consensusUrl = '$searchProxyUrl/consensus';
   }
+
+  // ── DNS / Consensus operations (via search-node proxy → consensus-node:3000) ──
 
   Future<bool> registerDid() async {
     final response = await http.post(
@@ -43,6 +40,7 @@ class ApiClient {
   Future<bool> registerName(String name) async {
     final message = '$name$did';
     final signature = await signMessage(message: message);
+    print('[DEBUG] registerName: name=$name did=$did sig=${signature.substring(0, 20)}...');
 
     final response = await http.post(
       Uri.parse('$consensusUrl/name/register'),
@@ -55,28 +53,17 @@ class ApiClient {
       }),
     );
 
+    print('[DEBUG] registerName response: ${response.statusCode} body=${response.body}');
+
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data['success'] == true;
+      if (data['success'] == true) {
+        return true;
+      } else {
+        print('[DEBUG] registerName failed: ${data['error']}');
+      }
     }
     return false;
-  }
-
-  Future<String?> publishSite(File zipFile) async {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$searchProxyUrl/proxy/publish'),
-    );
-    request.files.add(await http.MultipartFile.fromPath('file', zipFile.path));
-
-    var streamedResponse = await request.send();
-    var response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['cid']; // The Pinata IPFS hash
-    }
-    return null;
   }
 
   Future<bool> updateCid(String name, String cid) async {
@@ -86,12 +73,21 @@ class ApiClient {
     final response = await http.post(
       Uri.parse('$consensusUrl/name/update_cid'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'name': name, 'cid': cid, 'signature': signature, 'gateways': ApiClient.gateways}),
+      body: jsonEncode({
+        'name': name,
+        'cid': cid,
+        'signature': signature,
+        'gateways': <String>[],
+      }),
     );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data['success'] == true;
+      if (data['success'] == true) {
+        return true;
+      } else {
+        print('[DEBUG] updateCid failed: ${data['error']}');
+      }
     }
     return false;
   }
@@ -115,16 +111,95 @@ class ApiClient {
     return null;
   }
 
-  Future<String?> resolveCid(String cid) async {
-    final response = await http.get(Uri.parse('$consensusUrl/resolve_cid/$cid'));
+  /// Resolve a name and return the full response (including title, description, icon_cid, etc.)
+  Future<Map<String, dynamic>?> resolveNameFull(String name) async {
+    final response = await http.get(Uri.parse('$consensusUrl/resolve/$name'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       if (data != null) {
-        return data.toString();
+        return data as Map<String, dynamic>;
       }
     }
     return null;
   }
+
+  Future<String?> resolveCid(String cid) async {
+    final response = await http.get(Uri.parse('$consensusUrl/resolve_cid/$cid'));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is String && data.isNotEmpty) {
+        return data;
+      }
+    }
+    return null;
+  }
+
+  /// Fetch all domains registered under this DID from the consensus network.
+  /// Returns list of {domain, cid, title, description, icon_cid, created_at, updated_at}
+  Future<List<Map<String, dynamic>>> fetchMyDomainsFromNetwork() async {
+    try {
+      final response = await http.get(Uri.parse('$consensusUrl/did/$did/names'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          return data.cast<Map<String, dynamic>>();
+        }
+      }
+    } catch (e) {
+      print('[DEBUG] fetchMyDomainsFromNetwork error: $e');
+    }
+    return [];
+  }
+
+  /// Get the credit balance for this DID.
+  Future<int?> getBalance() async {
+    try {
+      final response = await http.get(Uri.parse('$consensusUrl/did/$did/balance'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data != null && data['balance_credits'] != null) {
+          return data['balance_credits'] as int;
+        }
+      }
+    } catch (e) {
+      print('[DEBUG] getBalance error: $e');
+    }
+    return null;
+  }
+
+  /// Update metadata (title, description, icon_cid) for a registered name.
+  Future<bool> updateMetadata(String name, {String? title, String? description, String? iconCid}) async {
+    final message = '$name${title ?? ''}${description ?? ''}${iconCid ?? ''}';
+    final signature = await signMessage(message: message);
+
+    try {
+      final body = <String, dynamic>{
+        'name': name,
+        'public_key': address,
+        'signature': signature,
+      };
+      if (title != null) body['title'] = title;
+      if (description != null) body['description'] = description;
+      if (iconCid != null) body['icon_cid'] = iconCid;
+
+      final response = await http.post(
+        Uri.parse('$consensusUrl/name/update_metadata'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) return true;
+        print('[DEBUG] updateMetadata failed: ${data['error']}');
+      }
+    } catch (e) {
+      print('[DEBUG] updateMetadata error: $e');
+    }
+    return false;
+  }
+
+  // ── Search operations (via search-node) ──
 
   Future<Map<String, dynamic>> search(String query) async {
     try {
@@ -142,6 +217,8 @@ class ApiClient {
       return {'results': [], 'error': 'Network error: $e'};
     }
   }
+
+  // ── Publishing operations (via search-node → storage-node) ──
 
   Future<String?> publishToFeedoStorage(File zipFile) async {
     final url = '$searchProxyUrl/proxy/publish_feedo';
@@ -193,7 +270,7 @@ class ApiClient {
     return null;
   }
 
-  Future<bool> unpinSite(String cid, {bool isFeedoStorage = true}) async {
+  Future<bool> unpinSite(String cid) async {
     final url = '$searchProxyUrl/proxy/unpin_feedo/$cid';
 
     try {
@@ -203,6 +280,8 @@ class ApiClient {
       return false;
     }
   }
+
+  // ── Local domain management (SharedPreferences) ──
 
   Future<void> saveMyDomain(
     String domain,
@@ -217,8 +296,12 @@ class ApiClient {
     };
 
     domains.removeWhere((d) {
-      final map = jsonDecode(d);
-      return map['domain'] == domain;
+      try {
+        final map = jsonDecode(d);
+        return map['domain'] == domain;
+      } catch (_) {
+        return false;
+      }
     });
 
     domains.add(jsonEncode(siteInfo));
@@ -227,13 +310,11 @@ class ApiClient {
 
   Future<List<Map<String, dynamic>>> getMyDomains() async {
     try {
-      final response = await http.get(Uri.parse('$consensusUrl/did/$did/names'));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((e) => e as Map<String, dynamic>).toList();
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final List<String> domains = prefs.getStringList('my_domains') ?? [];
+      return domains.map((e) => jsonDecode(e) as Map<String, dynamic>).toList();
     } catch (e) {
-      print('Error fetching domains: $e');
+      print('Error parsing my_domains: $e');
     }
     return [];
   }
@@ -242,9 +323,24 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     final List<String> domains = prefs.getStringList('my_domains') ?? [];
     domains.removeWhere((d) {
-      final map = jsonDecode(d);
-      return map['domain'] == domain;
+      try {
+        final map = jsonDecode(d);
+        return map['domain'] == domain;
+      } catch (e) {
+        print('Error parsing domain entry during removal: $e');
+        return false;
+      }
     });
     await prefs.setStringList('my_domains', domains);
+  }
+
+  // ── Certificate sync (not yet implemented on consensus node) ──
+
+  Future<void> fetchAndSaveCertificates() async {
+    print('DEBUG: fetchAndSaveCertificates skipped — /resolve_cert endpoint not available');
+  }
+
+  Future<void> syncCertificates() async {
+    print('DEBUG: syncCertificates skipped — /state/sync endpoint not available');
   }
 }

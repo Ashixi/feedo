@@ -41,6 +41,8 @@ class DbHelper {
 
   static Future<void> addHistory(String url, String title) async {
     final db = await database;
+    // Delete existing entry for the same URL to avoid duplicates
+    await db.delete('history', where: 'url = ?', whereArgs: [url]);
     await db.insert(
       'history',
       {
@@ -48,7 +50,6 @@ class DbHelper {
         'title': title,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
@@ -59,6 +60,8 @@ class DbHelper {
 
   static Future<void> addBookmark(String url, String title) async {
     final db = await database;
+    // Delete existing entry for the same URL to avoid duplicates
+    await db.delete('bookmarks', where: 'url = ?', whereArgs: [url]);
     await db.insert(
       'bookmarks',
       {
@@ -66,7 +69,6 @@ class DbHelper {
         'title': title,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 

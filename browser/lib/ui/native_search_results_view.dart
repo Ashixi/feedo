@@ -4,7 +4,6 @@ class NativeSearchResultsView extends StatelessWidget {
   final String query;
   final List<Map<String, dynamic>> feedoResults;
   final String? feedoError;
-  final List<Map<String, String>> googleResults;
   final Function(String) onResultTap;
 
   const NativeSearchResultsView({
@@ -12,13 +11,14 @@ class NativeSearchResultsView extends StatelessWidget {
     required this.query,
     required this.feedoResults,
     this.feedoError,
-    required this.googleResults,
     required this.onResultTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (feedoResults.isEmpty && googleResults.isEmpty) {
+    final theme = Theme.of(context);
+
+    if (feedoResults.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -27,7 +27,7 @@ class NativeSearchResultsView extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               'No results found for "$query"',
-              style: const TextStyle(fontSize: 18, color: Colors.grey),
+              style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey),
             ),
           ],
         ),
@@ -41,153 +41,120 @@ class NativeSearchResultsView extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 24.0),
           child: Text(
             'Search Results for "$query"',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.onSurface,
+            ),
           ),
         ),
-
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Left Column: FeedoNet Results
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 16.0),
-                    child: Text(
-                      'FeedoNet Results',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF70757a),
-                      ),
-                    ),
-                  ),
-                  if (feedoError != null)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 16.0),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        'Search Node Error: $feedoError',
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  if (feedoResults.isEmpty && feedoError == null)
-                    const Text("No decentralized results found.")
-                  else
-                    ...feedoResults.map((result) {
-                      final metadata = result['metadata'] ?? {};
-                      final title = metadata['title'] ?? 'Untitled Site';
-                      final description =
-                          metadata['description'] ?? result['text'] ?? '';
-                      final cid = result['hash_id'] ?? '';
-                      final score = result['score'] ?? 0.0;
-
-                      final p1 = cid.length >= 32 ? cid.substring(0, 32) : cid;
-                      final p2 = cid.length > 32 ? cid.substring(32) : '';
-
-                      String feedoUrl;
-                      String displayUrl;
-                      if (metadata.containsKey('url') &&
-                          metadata['url'].toString().isNotEmpty) {
-                        final rawUrl = metadata['url'].toString();
-                        displayUrl = rawUrl.replaceAll(
-                          RegExp(r'^https?://'),
-                          '',
-                        );
-                        feedoUrl = 'feedonet://$displayUrl';
-                      } else if (metadata.containsKey('domain') &&
-                          metadata['domain'].toString().isNotEmpty) {
-                        displayUrl = metadata['domain'].toString();
-                        feedoUrl = 'feedonet://$displayUrl';
-                      } else {
-                        displayUrl = 'feedonet://$p1.$p2';
-                        feedoUrl = 'feedonet://$cid';
-                      }
-
-                      return _buildResultCard(
-                        title: title,
-                        link: displayUrl,
-                        snippet: description,
-                        metadata: metadata,
-                        badge:
-                            'Relevance: ${(score * 100).toStringAsFixed(1)}%',
-                        onTap: () => onResultTap(feedoUrl),
-                        isFeedo: true,
-                      );
-                    }),
-                ],
-              ),
+        if (feedoError != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16.0),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.withOpacity(0.3)),
             ),
-            const SizedBox(width: 48),
-            // Right Column: Google Results
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 16.0),
-                    child: Text(
-                      'Web Results (Google)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF70757a),
-                      ),
-                    ),
-                  ),
-                  if (googleResults.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.orange.withOpacity(0.3),
-                        ),
-                      ),
-                      child: const Text(
-                        'Google Web Search failed to load or returned 0 results (Scraper blocked by CAPTCHA/Limits).',
-                        style: TextStyle(color: Colors.deepOrange),
-                      ),
-                    )
-                  else
-                    ...googleResults.map((result) {
-                      return _buildResultCard(
-                        title: result['title'] ?? '',
-                        link: result['link'] ?? '',
-                        snippet: result['snippet'] ?? '',
-                        onTap: () => onResultTap(result['link'] ?? ''),
-                        isFeedo: false,
-                      );
-                    }),
-                ],
-              ),
+            child: Text(
+              'Search Node Error: $feedoError',
+              style: const TextStyle(color: Colors.red),
             ),
-          ],
-        ),
+          ),
+        if (feedoResults.isEmpty && feedoError == null)
+          const Text("No decentralized results found.")
+        else
+          ...feedoResults.map((result) {
+            final metadata =
+                result['metadata'] is Map ? Map<String, dynamic>.from(result['metadata'] as Map) : <String, dynamic>{};
+            final cid = result['hash_id']?.toString() ?? '';
+
+            // Title: prefer metadata title, then domain, then fallback
+            final domain = metadata['domain']?.toString() ?? '';
+            final title = (metadata['title']?.toString().isNotEmpty == true)
+                ? metadata['title'].toString()
+                : (domain.isNotEmpty ? domain : 'Untitled');
+
+            // Description / snippet
+            final description = (metadata['description']?.toString().isNotEmpty == true)
+                ? metadata['description'].toString()
+                : (result['text']?.toString() ?? '');
+
+            // --- Navigation URL (where tapping goes) ---
+            String feedoUrl;
+            if (domain.isNotEmpty) {
+              feedoUrl = 'feedonet://$domain';
+            } else if (cid.length >= 64) {
+              feedoUrl = 'feedonet://$cid';
+            } else {
+              feedoUrl = 'feedonet://$cid';
+            }
+
+            // --- Display URL (what the user sees) ---
+            String displayUrl;
+            if (domain.isNotEmpty) {
+              displayUrl = domain;
+            } else if (metadata.containsKey('url') &&
+                metadata['url'].toString().isNotEmpty) {
+              final rawUrl = metadata['url'].toString();
+              displayUrl = rawUrl.replaceAll(RegExp(r'^https?://'), '');
+              // remove trailing slash
+              if (displayUrl.endsWith('/')) {
+                displayUrl = displayUrl.substring(0, displayUrl.length - 1);
+              }
+            } else if (cid.length >= 64) {
+              // Shorten CID: first 8 + ... + last 8
+              displayUrl = 'feedonet://${cid.substring(0, 8)}...${cid.substring(cid.length - 8)}';
+            } else {
+              displayUrl = 'feedonet://$cid';
+            }
+
+            // Duplicates list from backend grouping
+            final duplicatesRaw = result['duplicates'];
+            final List<Map<String, dynamic>> duplicates = (duplicatesRaw is List)
+                ? duplicatesRaw.cast<Map<String, dynamic>>()
+                : [];
+
+            return _buildResultCard(
+              context: context,
+              title: title,
+              displayUrl: displayUrl,
+              snippet: description,
+              metadata: metadata,
+              duplicates: duplicates,
+              onTap: () => onResultTap(feedoUrl),
+            );
+          }),
       ],
     );
   }
 
   Widget _buildResultCard({
+    required BuildContext context,
     required String title,
-    required String link,
+    required String displayUrl,
     required String snippet,
     Map<String, dynamic>? metadata,
-    String? badge,
+    List<Map<String, dynamic>> duplicates = const [],
     required VoidCallback onTap,
-    required bool isFeedo,
   }) {
+    final theme = Theme.of(context);
+
+    // Only show user-friendly metadata tags
+    final userTags = <String, String>{};
+    if (metadata != null) {
+      for (final e in metadata.entries) {
+        final k = e.key;
+        if (k == 'title' || k == 'description' || k == 'url' ||
+            k == 'domain' || k == 'hash_id' || k == 'score' ||
+            k == 'text') {
+          continue;
+        }
+        userTags[k] = e.value.toString();
+      }
+    }
+
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxWidth: 652),
@@ -195,18 +162,17 @@ class NativeSearchResultsView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Domain / URL row
           Row(
             children: [
-              if (isFeedo) ...[
-                const Icon(Icons.public, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
+              Icon(Icons.public, size: 14, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+              const SizedBox(width: 6),
+              Flexible(
                 child: Text(
-                  link,
-                  style: const TextStyle(
-                    color: Color(0xFF202124),
-                    fontSize: 14,
+                  displayUrl,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.secondary,
+                    fontSize: 13,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -214,58 +180,57 @@ class NativeSearchResultsView extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
+          // Title (clickable, link-style)
           InkWell(
             onTap: onTap,
             hoverColor: Colors.transparent,
             child: Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
-                color: Color(0xFF1a0dab), // Google Blue
+                color: theme.colorScheme.primary,
+                decoration: TextDecoration.none,
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            snippet,
-            style: const TextStyle(
-              color: Color(0xFF4d5156),
-              fontSize: 14,
-              height: 1.4,
+          const SizedBox(height: 6),
+          // Snippet / description
+          if (snippet.isNotEmpty)
+            Text(
+              snippet,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.75),
+                fontSize: 14,
+                height: 1.45,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (isFeedo && metadata != null) ...[
+          // User-friendly metadata tags only
+          if (userTags.isNotEmpty) ...[
             const SizedBox(height: 8),
             Wrap(
               spacing: 8.0,
-              runSpacing: 8.0,
-              children: metadata.entries
-                  .where(
-                    (e) =>
-                        e.key != 'title' &&
-                        e.key != 'description' &&
-                        e.key != 'url' &&
-                        e.key != 'domain',
-                  )
+              runSpacing: 6.0,
+              children: userTags.entries
                   .map(
                     (e) => Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 4,
+                        vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
+                        color: theme.colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.grey.shade300),
+                        border: Border.all(
+                          color: theme.dividerColor.withOpacity(0.5),
+                        ),
                       ),
                       child: Text(
                         '${e.key}: ${e.value}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade700,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withOpacity(0.55),
                         ),
                       ),
                     ),
@@ -273,8 +238,157 @@ class NativeSearchResultsView extends StatelessWidget {
                   .toList(),
             ),
           ],
+          // ---- Duplicates Section ----
+          if (duplicates.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _DuplicatesSection(duplicates: duplicates, theme: theme),
+          ],
         ],
       ),
     );
+  }
+
+  String _displayUrlForDuplicate(Map<String, dynamic> dup) {
+    final domain = (dup['domain'] ?? '').toString();
+    final url = (dup['url'] ?? '').toString();
+    final cid = (dup['hash_id'] ?? '').toString();
+
+    if (domain.isNotEmpty) return domain;
+    if (url.isNotEmpty) {
+      var clean = url.replaceAll(RegExp(r'^https?://'), '');
+      if (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
+      return clean;
+    }
+    if (cid.length >= 64) {
+      return 'feedonet://${cid.substring(0, 8)}...${cid.substring(cid.length - 8)}';
+    }
+    return 'feedonet://$cid';
+  }
+}
+
+class _DuplicatesSection extends StatefulWidget {
+  final List<Map<String, dynamic>> duplicates;
+  final ThemeData theme;
+
+  const _DuplicatesSection({
+    required this.duplicates,
+    required this.theme,
+  });
+
+  @override
+  State<_DuplicatesSection> createState() => _DuplicatesSectionState();
+}
+
+class _DuplicatesSectionState extends State<_DuplicatesSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = widget.duplicates.length;
+    final label = count == 1
+        ? '1 duplicate (same content, different source)'
+        : '$count duplicates (same content, different sources)';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                  color: widget.theme.colorScheme.primary.withOpacity(0.7),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.content_copy,
+                  size: 14,
+                  color: widget.theme.colorScheme.onSurface.withOpacity(0.4),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: widget.theme.textTheme.bodySmall?.copyWith(
+                    color: widget.theme.colorScheme.onSurface.withOpacity(0.55),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: widget.theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: widget.theme.dividerColor.withOpacity(0.3),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: widget.duplicates.map((dup) {
+                final view = (widget as _DuplicatesSection).duplicates.indexOf(dup);
+                final displayUrl = _displayUrlForDuplicateStatic(dup);
+                return Padding(
+                  padding: EdgeInsets.only(
+                    top: view == 0 ? 0 : 8,
+                    bottom: view == widget.duplicates.length - 1 ? 0 : 8,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.link,
+                        size: 14,
+                        color: widget.theme.colorScheme.secondary.withOpacity(0.6),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          displayUrl,
+                          style: widget.theme.textTheme.bodySmall?.copyWith(
+                            color: widget.theme.colorScheme.secondary.withOpacity(0.7),
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  static String _displayUrlForDuplicateStatic(Map<String, dynamic> dup) {
+    final domain = (dup['domain'] ?? '').toString();
+    final url = (dup['url'] ?? '').toString();
+    final cid = (dup['hash_id'] ?? '').toString();
+
+    if (domain.isNotEmpty) return domain;
+    if (url.isNotEmpty) {
+      var clean = url.replaceAll(RegExp(r'^https?://'), '');
+      if (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
+      return clean;
+    }
+    if (cid.length >= 64) {
+      return 'feedonet://${cid.substring(0, 8)}...${cid.substring(cid.length - 8)}';
+    }
+    return 'feedonet://$cid';
   }
 }

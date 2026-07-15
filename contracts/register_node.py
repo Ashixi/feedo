@@ -6,8 +6,8 @@ from getpass import getpass
 # Конфігурація
 RPC_URL = "https://polygon.drpc.org"
 TREASURY_ADDRESS = "0x6C060F17e3BC6B8BaaE9eb638632Fdc3DfAAc51b"
-USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
-STAKE_AMOUNT = 1 * 10**6  # 1 USDC (6 decimals)
+USDT_ADDRESS = "0xc2132d05d31c914a87c6611c10748aeb04b58e8f"
+STAKE_AMOUNT = 1 * 10**6  # 1 USDT (6 decimals)
 
 # Мінімальні ABI для викликів
 ERC20_ABI = [
@@ -44,20 +44,20 @@ def main():
         print("❌ Not enough MATIC for gas fees. Please send at least 0.01 MATIC to this address.")
         return
 
-    usdc_contract = w3.eth.contract(address=w3.to_checksum_address(USDC_ADDRESS), abi=ERC20_ABI)
-    usdc_balance = usdc_contract.functions.balanceOf(wallet_address).call()
-    print(f"USDC Balance: {usdc_balance / 10**6} USDC")
+    usdt_contract = w3.eth.contract(address=w3.to_checksum_address(USDT_ADDRESS), abi=ERC20_ABI)
+    usdt_balance = usdt_contract.functions.balanceOf(wallet_address).call()
+    print(f"USDT Balance: {usdt_balance / 10**6} USDT")
 
-    if usdc_balance < STAKE_AMOUNT:
-        print(f"❌ Not enough USDC. You need exactly 1 USDC to stake. You have {usdc_balance / 10**6}.")
+    if usdt_balance < STAKE_AMOUNT:
+        print(f"❌ Not enough USDT. You need exactly 1 USDT to stake. You have {usdt_balance / 10**6}.")
         return
 
     print("\nStarting Registration Process...")
     
-    # 1. Approve USDC
-    print("1. Approving 1 USDC for Treasury contract...")
+    # 1. Approve USDT
+    print("1. Approving 1 USDT for Treasury contract...")
     nonce = w3.eth.get_transaction_count(wallet_address)
-    approve_txn = usdc_contract.functions.approve(
+    approve_txn = usdt_contract.functions.approve(
         w3.to_checksum_address(TREASURY_ADDRESS), 
         STAKE_AMOUNT
     ).build_transaction({
@@ -76,7 +76,7 @@ def main():
     print("✅ Approval successful!")
 
     # 2. Call registerNode
-    print("\n2. Registering node in Treasury (Staking 1 USDC)...")
+    print("\n2. Registering node in Treasury (Staking 1 USDT)...")
     treasury_contract = w3.eth.contract(address=w3.to_checksum_address(TREASURY_ADDRESS), abi=TREASURY_ABI)
     nonce = w3.eth.get_transaction_count(wallet_address)
     
@@ -94,7 +94,7 @@ def main():
     print("Waiting for confirmation...")
     w3.eth.wait_for_transaction_receipt(tx_hash)
     
-    print("\n🎉 SUCCESS! Your node is officially registered and staked 5 USDC.")
+    print("\n🎉 SUCCESS! Your node is officially registered and staked 5 USDT.")
     print("Now you can start your node using docker-compose, and it will begin earning reputation!")
 
 if __name__ == "__main__":

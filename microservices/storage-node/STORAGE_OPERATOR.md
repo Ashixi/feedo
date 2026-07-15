@@ -218,14 +218,14 @@ BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6y
 
 **Current Feedo network bootstrap nodes:**
 
-| Node | IP | Port | PeerId |
-|------|----|------|--------|
-| Node 1 | 95.111.245.68 | 8040 | `12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6` |
-| Node 2 | 178.18.253.94 | 8040 | `12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg` |
+| Node (domain) | IP | Port | PeerId |
+|---------------|----|------|--------|
+| api.feedo.ink (Node 1) | 95.111.245.68 | 8040 | `12D3KooWD1ErUyHizJHEP2KzSfGxbLS9wN88vVUpM7FeyLPbrp39` |
+| api2.feedo.ink (Node 2) | 178.18.253.94 | 8040 | `12D3KooWHgoEKnniktRFUuYXw6zZFJhKEvgK7ajJXYZpGYRVJwBj` |
 
 ```bash
 # Connect to the Feedo storage network:
-BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6,/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWBWEUuGg2dGQM7U1zsyXguyjWMF8ZWwZsQ5VNPxKMwyRg
+BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWD1ErUyHizJHEP2KzSfGxbLS9wN88vVUpM7FeyLPbrp39,/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWHgoEKnniktRFUuYXw6zZFJhKEvgK7ajJXYZpGYRVJwBj
 ```
 
 The node tries each in order and starts serving as soon as it connects to at least one.

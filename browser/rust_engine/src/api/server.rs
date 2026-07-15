@@ -77,12 +77,14 @@ pub fn start_local_server() -> anyhow::Result<()> {
                 .with_swarm_config(|c| c.with_idle_connection_timeout(std::time::Duration::from_secs(60)))
                 .build();
             
-            let bootstrap_nodes = vec![
-                "/dns4/api.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWNdq2dFr2mAiwbhzMZCBYG8QmtVSqjxNeSorAsjWozFoe",
-                "/dns4/api.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWKMfF1XmYDXTjwNfkEjQMmvZSPcYRhSCP3ibWKwXcnndL",
-                "/dns4/api2.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWCMJpJrVAu4eUsixc28xAWXifYeA2tf6PK3beZLru2GGx",
-                "/dns4/api2.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWRccQbYbwX3ufZowDwMBxT5LnA5625koUL4FYp7XGbYDt"
-            ];
+    let bootstrap_nodes = vec![
+        // api.feedo.ink (95.111.245.68)
+        "/dns4/api.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWD1ErUyHizJHEP2KzSfGxbLS9wN88vVUpM7FeyLPbrp39",
+        "/dns4/api.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWHKWyZDgVpw65ruHBFvHwXSJ5LHGKTHn7DYbtrwo7gFtg",
+        // api2.feedo.ink (178.18.253.94)
+        "/dns4/api2.feedo.ink/udp/8040/quic-v1/p2p/12D3KooWHgoEKnniktRFUuYXw6zZFJhKEvgK7ajJXYZpGYRVJwBj",
+        "/dns4/api2.feedo.ink/udp/8041/quic-v1/p2p/12D3KooWMJfThcTD3GiKMz4ihKkZHG3iYZKoaNTxFdTJV49kvmMh"
+    ];
             for node in bootstrap_nodes {
                 if let Ok(addr) = node.parse::<libp2p::Multiaddr>() {
                     match swarm.dial(addr.clone()) {
@@ -167,82 +169,110 @@ async fn handle_request(Host(host): Host, uri: Uri) -> impl IntoResponse {
     }
 }
 
-async fn fetch_and_cache_zip(cid: &str) -> anyhow::Result<()> {
-    let tx = SWARM_TX.get().ok_or_else(|| anyhow::anyhow!("Swarm not initialized"))?;
-    
-    let mut retry_count = 0;
-    let bytes = loop {
-        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-        tx.send(crate::api::swarm_loop::SwarmCommand::DhtFetchFile(cid.to_string(), reply_tx))
-            .map_err(|e| anyhow::anyhow!("Failed to send command to swarm: {}", e))?;
-            
-        match reply_rx.await {
-            Ok(Some(b)) => break b,
-            _ => {
-                retry_count += 1;
-                if retry_count >= 10 {
-                    return Err(anyhow::anyhow!("File not found in DHT or failed to reconstruct"));
-                }
-                println!("DHT fetch failed (maybe still bootstrapping), retrying in 2 seconds...");
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            }
-        }
-    };
-        
+fn extract_zip_to_cache(cid: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
     let reader = Cursor::new(bytes);
-    if let Ok(mut zip) = ZipArchive::new(reader) {
-        let mut raw_files = Vec::new();
-        
-        for i in 0..zip.len() {
-            if let Ok(mut file) = zip.by_index(i) {
-                if !file.is_dir() {
-                    let name = file.name().to_string();
-                    let mut buf = Vec::new();
-                    if file.read_to_end(&mut buf).is_ok() {
-                        raw_files.push((name, buf));
-                    }
+    let mut zip = ZipArchive::new(reader).map_err(|_| anyhow::anyhow!("Invalid ZIP archive"))?;
+    let mut raw_files = Vec::new();
+    
+    for i in 0..zip.len() {
+        if let Ok(mut file) = zip.by_index(i) {
+            if !file.is_dir() {
+                let name = file.name().to_string();
+                let mut buf = Vec::new();
+                if file.read_to_end(&mut buf).is_ok() {
+                    raw_files.push((name, buf));
                 }
             }
         }
-        
-        // Визначаємо спільну кореневу папку (напр. "dist/")
-        let mut common_prefix = None;
-        for (name, _) in &raw_files {
-            let parts: Vec<&str> = name.split('/').collect();
-            if parts.len() > 1 {
-                let root_dir = format!("{}/", parts[0]);
-                if let Some(ref current_prefix) = common_prefix {
-                    if current_prefix != &root_dir {
-                        common_prefix = Some(String::new()); // No common prefix
-                        break;
-                    }
-                } else {
-                    common_prefix = Some(root_dir);
-                }
-            } else {
-                common_prefix = Some(String::new()); // Top-level file exists
-                break;
-            }
-        }
-        
-        let prefix_to_strip = common_prefix.unwrap_or_default();
-        
-        let mut files = HashMap::new();
-        for (name, buf) in raw_files {
-            let clean_name = if !prefix_to_strip.is_empty() && name.starts_with(&prefix_to_strip) {
-                name.strip_prefix(&prefix_to_strip).unwrap_or(&name).to_string()
-            } else {
-                name
-            };
-            files.insert(clean_name, buf);
-        }
-        
-        let mut cache = get_cache().lock().unwrap();
-        cache.insert(cid.to_string(), files);
-        return Ok(());
     }
     
-    Err(anyhow::anyhow!("Invalid ZIP archive"))
+    // Визначаємо спільну кореневу папку (напр. "dist/")
+    let mut common_prefix = None;
+    for (name, _) in &raw_files {
+        let parts: Vec<&str> = name.split('/').collect();
+        if parts.len() > 1 {
+            let root_dir = format!("{}/", parts[0]);
+            if let Some(ref current_prefix) = common_prefix {
+                if current_prefix != &root_dir {
+                    common_prefix = Some(String::new());
+                    break;
+                }
+            } else {
+                common_prefix = Some(root_dir);
+            }
+        } else {
+            common_prefix = Some(String::new());
+            break;
+        }
+    }
+    
+    let prefix_to_strip = common_prefix.unwrap_or_default();
+    
+    let mut files = HashMap::new();
+    for (name, buf) in raw_files {
+        let clean_name = if !prefix_to_strip.is_empty() && name.starts_with(&prefix_to_strip) {
+            name.strip_prefix(&prefix_to_strip).unwrap_or(&name).to_string()
+        } else {
+            name
+        };
+        files.insert(clean_name, buf);
+    }
+    
+    let mut cache = get_cache().lock().unwrap();
+    cache.insert(cid.to_string(), files);
+    Ok(())
+}
+
+/// Try to download a ZIP from storage-node via HTTP gateways.
+async fn fetch_via_http(cid: &str) -> Option<Vec<u8>> {
+    let gateways = get_gateways().read().unwrap().clone();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+
+    for gateway in &gateways {
+        let url = format!("{}/download/{}", gateway.trim_end_matches('/'), cid);
+        println!("[LOCAL_SERVER] Trying HTTP fetch: {}", url);
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.bytes().await {
+                    Ok(b) => {
+                        println!("[LOCAL_SERVER] HTTP fetch SUCCESS from {} ({} bytes)", gateway, b.len());
+                        return Some(b.to_vec());
+                    }
+                    Err(e) => println!("[LOCAL_SERVER] HTTP read error from {}: {}", gateway, e),
+                }
+            }
+            Ok(resp) => println!("[LOCAL_SERVER] HTTP {} from {}", resp.status(), gateway),
+            Err(e) => println!("[LOCAL_SERVER] HTTP fetch error from {}: {}", gateway, e),
+        }
+    }
+    None
+}
+
+async fn fetch_and_cache_zip(cid: &str) -> anyhow::Result<()> {
+    // 1. Try DHT first
+    if let Some(tx) = SWARM_TX.get() {
+        for retry in 0..3 {
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(crate::api::swarm_loop::SwarmCommand::DhtFetchFile(cid.to_string(), reply_tx));
+            match reply_rx.await {
+                Ok(Some(b)) => return extract_zip_to_cache(cid, b),
+                Ok(None) => println!("[LOCAL_SERVER] DHT returned None for {} (retry {})", cid, retry),
+                Err(e) => println!("[LOCAL_SERVER] DHT error for {}: {}", cid, e),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    }
+    
+    // 2. HTTP fallback — fetch from storage-node gateways
+    println!("[LOCAL_SERVER] DHT failed for {}, trying HTTP gateways...", cid);
+    if let Some(bytes) = fetch_via_http(cid).await {
+        return extract_zip_to_cache(cid, bytes);
+    }
+    
+    Err(anyhow::anyhow!("File not found in DHT or HTTP gateways for CID: {}", cid))
 }
 
 

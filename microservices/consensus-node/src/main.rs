@@ -16,6 +16,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 pub mod accounting;
+pub mod authority;
 pub mod did;
 pub mod eth_bridge;
 pub mod name_db;
@@ -25,6 +26,8 @@ pub mod swarm_loop;
 pub mod replay;
 
 use swarm_loop::SwarmCommand;
+use network::{ConsensusCodec, CONSENSUS_PROTOCOL};
+use authority::GrantAuthority;
 
 pub struct MyConsensusService {
     ledger: Arc<accounting::Ledger>,
@@ -106,6 +109,8 @@ pub struct AppState {
     pub did_manager: Arc<Mutex<did::DidManager>>,
     pub swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
     pub ledger: Arc<accounting::Ledger>,
+    pub ppor_manager: Arc<Mutex<ppor::PporManager>>,
+    pub grant_authority: Arc<authority::CommitteeGrantAuthority>,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +189,40 @@ impl LedgerTx {
     }
 }
 
+/// Entry for a single name in a state snapshot.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NameSnapshotEntry {
+    pub name: String,
+    pub did: String,
+    pub cid: Option<String>,
+    pub gateways: Option<Vec<String>>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub icon_cid: Option<String>,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+}
+
+/// Full state snapshot published to DHT at each epoch rotation.
+/// Contains the minimal set of data needed for a new node to bootstrap
+/// without replaying the entire transaction history.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StateSnapshot {
+    pub epoch: u64,
+    /// Sorted list of (wallet_address, balance).
+    pub balances: Vec<(String, u64)>,
+    /// All active registered names with their metadata.
+    pub names: Vec<NameSnapshotEntry>,
+    /// Hex-encoded Merkle root of the balances (Keccak256 tree).
+    pub merkle_root: String,
+    /// UNIX timestamp when this snapshot was created.
+    pub created_at: u64,
+    /// secp256k1 signature of the validator who produced this snapshot.
+    pub signature: String,
+    /// Wallet address of the signing validator (for signature verification).
+    pub signer: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ResolveRes {
     pub did: String,
@@ -191,6 +230,28 @@ pub struct ResolveRes {
     pub gateways: Option<Vec<String>>,
     pub epoch: Option<u64>,
     pub finalized_at: Option<u64>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub icon_cid: Option<String>,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UpdateMetadataTx {
+    pub name: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub icon_cid: Option<String>,
+    pub signature: String,
+}
+impl UpdateMetadataTx {
+    pub fn tx_hash(&self) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{}{}{}{}{}", self.name, self.title.as_deref().unwrap_or(""), self.description.as_deref().unwrap_or(""), self.icon_cid.as_deref().unwrap_or(""), self.signature));
+        hex::encode(hasher.finalize())
+    }
 }
 
 async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
@@ -216,8 +277,20 @@ async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegi
     Json(DidRegisterRes { did: did_id })
 }
 
+/// Returns true if the name ends with ".feedo" and is longer than just ".feedo".
+/// Allows subdomains (e.g. "sub.test.feedo" is valid).
+fn is_valid_feedo_name(name: &str) -> bool {
+    name.ends_with(".feedo") && name.len() > ".feedo".len()
+}
+
 async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRegisterReq>) -> Json<NameRegisterRes> {
     eprintln!("[REGISTER_NAME] Received: name={}, did={}, public_key={}", payload.name, payload.did, payload.public_key);
+    
+    if !is_valid_feedo_name(&payload.name) {
+        eprintln!("[REGISTER_NAME] Invalid name (must end with .feedo): {}", payload.name);
+        return Json(NameRegisterRes { success: false, error: Some("Name must end with .feedo".into()) });
+    }
+    
     let payload_bytes = format!("{}{}", payload.name, payload.did).into_bytes();
     if !did::verify_signature(&payload.public_key, &payload_bytes, &payload.signature) {
         eprintln!("[REGISTER_NAME] Signature INVALID for name={}, sig_len={}", payload.name, payload.signature.len());
@@ -277,6 +350,11 @@ async fn register_name(State(state): State<AppState>, Json(payload): Json<NameRe
             gateways: None,
             epoch: Some(0),
             finalized_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+            title: None,
+            description: None,
+            icon_cid: None,
+            created_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64),
+            updated_at: None,
         };
         let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
         
@@ -359,6 +437,11 @@ async fn update_cid(State(state): State<AppState>, Json(payload): Json<UpdateCid
                 gateways: Some(payload.gateways.clone()),
                 epoch: Some(0),
                 finalized_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                title: None,
+                description: None,
+                icon_cid: None,
+                created_at: None,
+                updated_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64),
             };
             let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
             
@@ -414,11 +497,11 @@ async fn resolve_name_http(State(state): State<AppState>, Path(name): Path<Strin
                 (local_did, local_cid, gateways, None, None)
             };
 
-            Json(Some(ResolveRes { did, cid, gateways, epoch, finalized_at }))
+            Json(Some(ResolveRes { did, cid, gateways, epoch, finalized_at, title: dht.title, description: dht.description, icon_cid: dht.icon_cid, created_at: dht.created_at, updated_at: dht.updated_at }))
         }
         (Some((local_did, local_cid, local_gw_json)), None) => {
             let gateways = local_gw_json.and_then(|json| serde_json::from_str(&json).ok());
-            Json(Some(ResolveRes { did: local_did, cid: local_cid, gateways, epoch: None, finalized_at: None }))
+            Json(Some(ResolveRes { did: local_did, cid: local_cid, gateways, epoch: None, finalized_at: None, title: None, description: None, icon_cid: None, created_at: None, updated_at: None }))
         }
         (None, Some(dht)) => {
             // Cache DHT data locally
@@ -463,18 +546,241 @@ async fn get_did_balance(State(state): State<AppState>, Path(did): Path<String>)
     }))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateMetadataReq {
+    pub name: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub icon_cid: Option<String>,
+    pub public_key: String,
+    pub signature: String,
+}
+
+async fn update_metadata(State(state): State<AppState>, Json(payload): Json<UpdateMetadataReq>) -> Json<NameRegisterRes> {
+    let mut resolved_did_id = None;
+
+    let name_db = state.name_db.lock().await;
+    if let Ok(Some((did_id, _, _))) = name_db.resolve_name(&payload.name) {
+        resolved_did_id = Some(did_id);
+    }
+    drop(name_db);
+
+    if resolved_did_id.is_none() {
+        return Json(NameRegisterRes { success: false, error: Some("Name not found".into()) });
+    }
+
+    let did_id = resolved_did_id.unwrap();
+    let mut resolved_doc = None;
+    let did_manager = state.did_manager.lock().await;
+    if let Some(doc) = did_manager.get_document(&did_id) {
+        resolved_doc = Some(doc);
+    }
+    drop(did_manager);
+
+    if resolved_doc.is_none() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if state.swarm_tx.send(SwarmCommand::LookupDidDht(did_id.clone(), tx)).is_ok() {
+            if let Ok(Some(doc)) = rx.await {
+                let did_manager = state.did_manager.lock().await;
+                let _ = did_manager.insert_document(&doc);
+                resolved_doc = Some(doc);
+            }
+        }
+    }
+
+    if let Some(doc) = resolved_doc {
+        let pub_key = &doc.verification_method[0].public_key_multibase;
+        let payload_bytes = format!("{}{}{}{}", payload.name, payload.title.as_deref().unwrap_or(""), payload.description.as_deref().unwrap_or(""), payload.icon_cid.as_deref().unwrap_or("")).into_bytes();
+        if !did::verify_signature(pub_key, &payload_bytes, &payload.signature) {
+            return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
+        }
+
+        let tx = UpdateMetadataTx {
+            name: payload.name.clone(),
+            title: payload.title.clone(),
+            description: payload.description.clone(),
+            icon_cid: payload.icon_cid.clone(),
+            signature: payload.signature.clone(),
+        };
+
+        let _ = state.swarm_tx.send(SwarmCommand::BroadcastUpdateMetadataTx(tx));
+
+        // Write locally immediately
+        {
+            let name_db = state.name_db.lock().await;
+            let _ = name_db.update_metadata(&payload.name, &payload.title, &payload.description, &payload.icon_cid);
+            drop(name_db);
+        }
+        // Publish updated metadata to DHT
+        let res = ResolveRes {
+            did: did_id,
+            cid: None,
+            gateways: None,
+            epoch: Some(0),
+            finalized_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+            title: payload.title.clone(),
+            description: payload.description.clone(),
+            icon_cid: payload.icon_cid.clone(),
+            created_at: None,
+            updated_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64),
+        };
+        let _ = state.swarm_tx.send(SwarmCommand::PublishDht(payload.name.clone(), res));
+
+        return Json(NameRegisterRes { success: true, error: None });
+    }
+
+    Json(NameRegisterRes { success: false, error: Some("DID not found".into()) })
+}
+
 async fn get_names_by_did(State(state): State<AppState>, Path(did): Path<String>) -> Json<Vec<serde_json::Value>> {
     let name_db = state.name_db.lock().await;
     let mut results = Vec::new();
     if let Ok(records) = name_db.get_names_by_did(&did) {
-        for (name, cid) in records {
+        for record in records {
             results.push(serde_json::json!({
-                "domain": name,
-                "cid": cid
+                "domain": record.name,
+                "cid": record.cid,
+                "title": record.title,
+                "description": record.description,
+                "icon_cid": record.icon_cid,
+                "created_at": record.created_at,
+                "updated_at": record.updated_at
             }));
         }
     }
     Json(results)
+}
+
+// --- Grant System Handlers ---
+
+#[derive(Deserialize)]
+struct CreateGrantRequest {
+    grant_id: String,
+    title: String,
+    amount_per_claim: u64,
+    max_claims: u64,            // 0 = без ліміту
+    expires_at: u64,            // 0 = безстроково
+    signer: String,             // wallet-адреса валідатора
+    signature: String,          // ECDSA підпис повідомлення
+}
+
+#[derive(Serialize)]
+struct CreateGrantResponse {
+    success: bool,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ClaimGrantRequest {
+    grant_id: String,
+    did: String,
+}
+
+#[derive(Serialize)]
+struct ClaimGrantResponse {
+    success: bool,
+    amount: u64,
+    new_balance: u64,
+    error: Option<String>,
+}
+
+async fn create_grant(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateGrantRequest>,
+) -> Json<CreateGrantResponse> {
+    use std::collections::HashSet;
+
+    // 1. Побудувати повідомлення (саме те що підписав валідатор)
+    let message = format!(
+        "create_grant:{}:{}:{}:{}",
+        payload.grant_id, payload.title, payload.amount_per_claim, payload.max_claims
+    );
+
+    // 2. Перевірити права через GrantAuthority (підпис + комітет)
+    let ppor = state.ppor_manager.lock().await;
+    let authorized = state.grant_authority.can_create_grant(
+        &payload.signer,
+        &message,
+        &payload.signature,
+        &ppor.current_committee,
+    );
+    drop(ppor);
+
+    if !authorized {
+        return Json(CreateGrantResponse {
+            success: false,
+            error: Some("Unauthorized: signature invalid or not a committee member".into()),
+        });
+    }
+
+    // 3. Створити грант
+    let grant = ppor::GrantProgram {
+        grant_id: payload.grant_id.clone(),
+        title: payload.title.clone(),
+        signer: payload.signer.clone(),
+        verification: ppor::GrantVerification::Open,
+        amount_per_claim: payload.amount_per_claim,
+        max_claims: payload.max_claims,
+        claimed_count: 0,
+        claimed_total: 0,
+        claimed_by: HashSet::new(),
+        created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        expires_at: payload.expires_at,
+        active: true,
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::CreateGrant { grant, response_tx: tx });
+
+    match rx.await {
+        Ok(Ok(())) => {
+            eprintln!("[GRANT API] Created grant: {}", payload.grant_id);
+            Json(CreateGrantResponse { success: true, error: None })
+        }
+        Ok(Err(e)) => Json(CreateGrantResponse { success: false, error: Some(e) }),
+        Err(_) => Json(CreateGrantResponse { success: false, error: Some("Internal error".into()) }),
+    }
+}
+
+async fn claim_grant(
+    State(state): State<AppState>,
+    Json(payload): Json<ClaimGrantRequest>,
+) -> Json<ClaimGrantResponse> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::ClaimGrant {
+        grant_id: payload.grant_id.clone(),
+        did: payload.did.clone(),
+        response_tx: tx,
+    });
+
+    match rx.await {
+        Ok(Ok((amount, new_balance))) => Json(ClaimGrantResponse {
+            success: true, amount, new_balance, error: None,
+        }),
+        Ok(Err(e)) => Json(ClaimGrantResponse {
+            success: false, amount: 0, new_balance: 0, error: Some(e),
+        }),
+        Err(_) => Json(ClaimGrantResponse {
+            success: false, amount: 0, new_balance: 0, error: Some("Internal error".into()),
+        }),
+    }
+}
+
+async fn get_grant_info(
+    State(state): State<AppState>,
+    Path(grant_id): Path<String>,
+) -> Json<Option<swarm_loop::GrantInfoResponse>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::GetGrantInfo { grant_id, response_tx: tx });
+    Json(rx.await.ok().flatten())
+}
+
+async fn list_grants(
+    State(state): State<AppState>,
+) -> Json<Vec<swarm_loop::GrantInfoResponse>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::ListGrants { response_tx: tx });
+    Json(rx.await.unwrap_or_default())
 }
 
 fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
@@ -582,6 +888,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gossipsub_config,
             ).expect("Valid gossipsub behaviour");
 
+            // Phase 1: CONDITIONAL subscription to feedo_consensus_ppor.
+            // When CONSENSUS_DIRECT_MODE=true (default), PBFT goes via direct
+            // request-response, but we still LISTEN on gossipsub for backward
+            // compatibility with old nodes that haven't upgraded yet.
+            let direct_mode = std::env::var("CONSENSUS_DIRECT_MODE")
+                .unwrap_or_else(|_| "true".to_string()) == "true";
+
+            // Always subscribe — needed for backward-compat receive.
+            // SENDING behavior is controlled by the direct_mode flag in swarm_loop.rs.
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_consensus_ppor")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_name_registrations")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_did_updates")).unwrap();
@@ -589,6 +904,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_update_cid_txs")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_ledger_txs")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_peer_announce")).unwrap();
+            gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_update_metadata_txs")).unwrap();
+
+            if direct_mode {
+                eprintln!("[CONSENSUS] Phase 1 direct-mode: still listening on feedo_consensus_ppor for backward-compat, but will SEND via request-response");
+            }
 
             let kad_config = libp2p::kad::Config::default();
             let store = libp2p::kad::store::MemoryStore::new(local_peer_id);
@@ -602,9 +922,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mdns = libp2p::mdns::tokio::Behaviour::new(libp2p::mdns::Config::default(), local_peer_id).unwrap();
 
-            let rr_codec = network::TxCodec;
+            // Phase 1: Use ConsensusCodec (supports both TxRelay and PbftVote)
+            let rr_codec = ConsensusCodec;
             let rr_protocols = vec![
-                (network::TX_PROTOCOL.to_string(), libp2p::request_response::ProtocolSupport::Full)
+                (CONSENSUS_PROTOCOL.to_string(), libp2p::request_response::ProtocolSupport::Full)
             ];
             let rr_cfg = libp2p::request_response::Config::default();
             let rr = libp2p::request_response::Behaviour::with_codec(rr_codec, rr_protocols, rr_cfg);
@@ -655,7 +976,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         did_manager: did_manager.clone(),
         eth_bridge,
         name_db: name_db.clone(),
-        ppor_manager,
+        ppor_manager: ppor_manager.clone(),
         swarm_tx: swarm_tx.clone(),
     };
 
@@ -666,18 +987,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cors = tower_http::cors::CorsLayer::permissive();
 
+    let grant_authority = Arc::new(authority::CommitteeGrantAuthority);
+
     let app_state = AppState {
         name_db: name_db.clone(),
         did_manager: did_manager.clone(),
         swarm_tx: swarm_tx.clone(),
         ledger: ledger.clone(),
+        ppor_manager: ppor_manager.clone(),
+        grant_authority,
     };
     
     let local_name_db = name_db.lock().await;
     if let Ok(records) = local_name_db.get_all_records() {
         for (name, did, cid, gateways_json) in records {
             let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
-            let res = ResolveRes { did, cid, gateways, epoch: None, finalized_at: None };
+            let res = ResolveRes { did, cid, gateways, epoch: None, finalized_at: None, title: None, description: None, icon_cid: None, created_at: None, updated_at: None };
             let _ = swarm_tx.send(SwarmCommand::PublishDht(name, res));
         }
     }
@@ -691,6 +1016,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/did/register", post(register_did))
         .route("/name/register", post(register_name))
         .route("/name/update_cid", post(update_cid))
+        .route("/name/update_metadata", post(update_metadata))
+        .route("/grant/create", post(create_grant))
+        .route("/grant/claim", post(claim_grant))
+        .route("/grant/:grant_id", get(get_grant_info))
+        .route("/grants", get(list_grants))
         .layer(cors)
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();

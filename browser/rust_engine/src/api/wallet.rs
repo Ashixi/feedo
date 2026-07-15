@@ -77,7 +77,10 @@ pub async fn sign_message(message: String) -> Result<String, String> {
     let signature = wallet.sign_message(message.as_bytes()).await
         .map_err(|e| e.to_string())?;
         
-    Ok(signature.to_string())
+    // Serialize as 65-byte hex (r || s || v) for consensus node verification.
+    // ethers sign_message already returns v ∈ {27, 28} (Ethereum EIP-191 standard).
+    // No "0x" prefix — consensus's verify_signature adds it internally.
+    Ok(hex::encode(signature.to_vec()))
 }
 
 pub fn get_did() -> Result<String, String> {

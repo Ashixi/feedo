@@ -138,23 +138,67 @@ pub fn verify_signature(address_hex: &str, payload: &[u8], signature_hex: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{SigningKey, Signer};
-    use rand::rngs::OsRng;
+    use secp256k1::{Secp256k1, SecretKey, PublicKey, Message};
+    use ethers::utils::keccak256;
+
+    /// Допоміжна функція: генерує secp256k1 ключ, повертає
+    /// (Ethereum-адреса, підпис у форматі ethers 65-байт)
+    fn sign_ethereum(private_key_hex: &str, payload: &[u8]) -> (String, String) {
+        let sk_bytes = hex::decode(private_key_hex).unwrap();
+        let sk = SecretKey::from_slice(&sk_bytes).unwrap();
+        let secp = Secp256k1::new();
+        let pk = PublicKey::from_secret_key(&secp, &sk);
+
+        // Ethereum-адреса = останні 20 байт keccak256(uncompressed pubkey без 04)
+        let pubkey_bytes = &pk.serialize_uncompressed()[1..];
+        let address = format!("0x{}", hex::encode(&keccak256(pubkey_bytes)[12..]));
+
+        // Ethereum personal_sign (EIP-191)
+        let prefix = format!(
+            "\x19Ethereum Signed Message:\n{}",
+            payload.len()
+        );
+        let msg_hash = keccak256(
+            [prefix.as_bytes(), payload].concat().as_slice(),
+        );
+        let msg = Message::from_digest_slice(&msg_hash).unwrap();
+        let (recovery_id, sig_bytes) = secp.sign_ecdsa_recoverable(&msg, &sk).serialize_compact();
+
+        // ethers очікує формат [r(32), s(32), v(1)] = 65 байт
+        let mut full_sig = sig_bytes.to_vec();
+        full_sig.push(recovery_id.to_i32() as u8);
+        let sig_hex = format!("0x{}", hex::encode(&full_sig));
+
+        (address, sig_hex)
+    }
 
     #[test]
     fn test_verify_signature() {
-        let mut csprng = OsRng;
-        let signing_key: SigningKey = SigningKey::generate(&mut csprng);
-        let pub_key = signing_key.verifying_key();
-        
+        // Фіксований приватний ключ для детермінованого тесту
+        let sk_hex = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
         let message = b"hello feedo";
-        let signature = signing_key.sign(message);
         
-        let pub_hex = hex::encode(pub_key.as_bytes());
-        let sig_hex = hex::encode(signature.to_bytes());
+        let (address, sig_hex) = sign_ethereum(sk_hex, message);
         
-        assert!(verify_signature(&pub_hex, message, &sig_hex));
-        assert!(!verify_signature(&pub_hex, b"wrong message", &sig_hex));
+        // Тест 1: валідний підпис
+        assert!(
+            verify_signature(&address, message, &sig_hex),
+            "Valid signature should pass verification"
+        );
+        
+        // Тест 2: інше повідомлення — має провалитися
+        assert!(
+            !verify_signature(&address, b"wrong message", &sig_hex),
+            "Signature of different message should fail"
+        );
+
+        // Тест 3: інша адреса — має провалитися
+        let sk2 = "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3";
+        let (addr2, _) = sign_ethereum(sk2, b"unused");
+        assert!(
+            !verify_signature(&addr2, message, &sig_hex),
+            "Signature recovered from different address should fail"
+        );
     }
 }
 

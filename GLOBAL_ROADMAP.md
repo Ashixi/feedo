@@ -49,7 +49,7 @@ This document outlines the high-level strategic roadmap for the Feedo ecosystem.
 *Focus on self-sustainability.*
 
 **Goal:** Launch financial incentives to make the network economically self-sustaining without grants.
-- **Tokenomics (USDC-backed):** Launch the `PporTreasury.sol` smart contract on Polygon. Internal system credits are strictly pegged to USDC to prevent volatility.
+- **Tokenomics (USDT-backed):** Launch the `PporTreasury.sol` smart contract on Polygon. Internal system credits are strictly pegged to USDT to prevent volatility.
 - **Monetization:**
   - **Pay-per-byte:** Paid storage for heavy files (B2B Storage API).
   - **Vector API:** Paid access to vector search for third-party dApps (e.g., $1 per 10k queries).

@@ -171,10 +171,20 @@ fn full_25_node_epoch_test() {
     let bin_path = std::path::PathBuf::from(bin_path);
     assert!(bin_path.exists(), "Binary not found at {:?}. Build with: cargo build --bin consensus-node", bin_path);
 
-    // Clean up previous test databases
-    for i in 0..TOTAL_NODES {
-        let _ = std::fs::remove_dir_all(format!("test_db_25/{}", i));
-    }
+    // Kill any leftover consensus-node processes from previous runs.
+    let _ = std::process::Command::new("taskkill")
+        .args(["/f", "/im", "consensus-node.exe"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Use unique DB dirs per run to avoid stale locks from previous tests.
+    let pid = std::process::id();
+    let db_base = format!("test_db_25_{}", pid);
+
+    // Clean up any previous leftover from same PID (first run after crash, etc.)
+    let _ = std::fs::remove_dir_all(&db_base);
 
     // Generate test wallet for signing
     let wallet = LocalWallet::new(&mut rand::thread_rng());
@@ -188,7 +198,7 @@ fn full_25_node_epoch_test() {
         .env("HTTP_PORT", format!("{}", BASE_HTTP_PORT))
         .env("GRPC_PORT", format!("{}", BASE_GRPC_PORT))
         .env("P2P_PORT", format!("{}", BASE_P2P_PORT))
-        .env("DB_DIR", format!("test_db_25/0"))
+        .env("DB_DIR", format!("{}/0", db_base))
         .env("NODE_WALLET_ADDRESS", node_wallet(0))
         .env("EPOCH_DURATION_SECS", EPOCH_DURATION_FOR_TEST)
         .env("ETH_RPC_URL", "https://polygon-rpc.com")
@@ -236,7 +246,7 @@ fn full_25_node_epoch_test() {
         let http_port = BASE_HTTP_PORT + i as u16;
         let p2p_port = BASE_P2P_PORT + i as u16;
         let grpc_port = BASE_GRPC_PORT + i as u16;
-        let db_dir = format!("test_db_25/{}", i);
+        let db_dir = format!("{}/{}", db_base, i);
 
         let child = Command::new(&bin_path)
             .env("HTTP_PORT", format!("{}", http_port))

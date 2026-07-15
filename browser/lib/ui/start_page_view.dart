@@ -127,7 +127,7 @@ class _StartPageViewState extends State<StartPageView> {
                   autofocus: true,
                   style: TextStyle(fontSize: 18, color: Theme.of(context).colorScheme.onSurface),
                   decoration: InputDecoration(
-                    hintText: "Search FeedoNet and Web...",
+                    hintText: "Search FeedoNet...",
                     hintStyle: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade400),
                     prefixIcon: Padding(
                       padding: const EdgeInsets.only(left: 20.0, right: 12.0),

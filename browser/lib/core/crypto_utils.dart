@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'package:hex/hex.dart';
 
@@ -17,9 +18,19 @@ class CryptoUtils {
 
   static ed.KeyPair keyPairFromPrivateKeyHex(String privateKeyHex) {
     final bytes = HEX.decode(privateKeyHex.replaceFirst('0x', ''));
-    final privateKey = ed.PrivateKey(bytes);
-    final publicKey = ed.PublicKey(bytes.sublist(32));
-    return ed.KeyPair(privateKey, publicKey);
+    if (bytes.length == 64) {
+      // Full 64-byte private key (seed + public key suffix)
+      final privateKey = ed.PrivateKey(bytes);
+      final publicKey = ed.public(privateKey);
+      return ed.KeyPair(privateKey, publicKey);
+    } else if (bytes.length == 32) {
+      // 32-byte seed only — derive full key
+      final privateKey = ed.newKeyFromSeed(Uint8List.fromList(bytes));
+      final publicKey = ed.public(privateKey);
+      return ed.KeyPair(privateKey, publicKey);
+    } else {
+      throw ArgumentError('Invalid private key length: ${bytes.length} bytes (expected 32 or 64)');
+    }
   }
 
   static String signMessage(ed.PrivateKey privateKey, String message) {

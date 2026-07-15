@@ -85,7 +85,7 @@
 
 > **Location**: between Phase 1 and Phase 2. Carefully designed, implemented as a separate file/project.
 
-**Role in storage roadmap**: defines the economic pay-per-byte model via `PporTreasury.sol` (already exists). User deposits USDC on Polygon → gets quota for X GB/month. Node operators receive rewards for storage + bandwidth.
+**Role in storage roadmap**: defines the economic pay-per-byte model via `PporTreasury.sol` (already exists). User deposits USDT on Polygon → gets quota for X GB/month. Node operators receive rewards for storage + bandwidth.
 
 **Impact on storage-node**:
 - Phase 2+ uses user balance to determine `storage_class=Blob` quota
@@ -452,7 +452,7 @@ Recommended implementation order (highest impact first):
 
 > **Розташування**: між Фазою 1 та Фазою 2. Детально продумана, реалізується як окремий файл/проект.
 
-**Роль у storage roadmap**: визначає економічну модель pay-per-byte через `PporTreasury.sol` (уже існує). Користувач депонує USDC на Polygon → отримує квоту на X GB/місяць. Оператори нод отримують винагороду за зберігання + трафік.
+**Роль у storage roadmap**: визначає економічну модель pay-per-byte через `PporTreasury.sol` (уже існує). Користувач депонує USDT на Polygon → отримує квоту на X GB/місяць. Оператори нод отримують винагороду за зберігання + трафік.
 
 **Вплив на storage-node**:
 - Фаза 2+ використовує баланс користувача для визначення `storage_class=Blob` квоти

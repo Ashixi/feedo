@@ -209,12 +209,17 @@ Set `BOOTSTRAP_NODES` to the multiaddr of at least one existing node.
 Consensus Local peer id: PeerId("12D3KooW...")
 ```
 
-**Example** (connecting to a known consensus node):
-```bash
-BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWEqk8NVx5WnGPCA6ybgifRZVaNNFLRqHBrH1xGbab5tb6
-```
+**Current Feedo consensus network bootstrap nodes:**
 
-**Note**: Feedo's public consensus network is still in early stages. The nodes listed in storage-node operator guide are storage nodes (port 8040), NOT consensus nodes (port 8041). Ensure you're connecting to the correct service.
+| Node (domain) | IP | Port | PeerId |
+|---------------|----|------|--------|
+| api.feedo.ink (Node 1) | 95.111.245.68 | 8041 | `12D3KooWHKWyZDgVpw65ruHBFvHwXSJ5LHGKTHn7DYbtrwo7gFtg` |
+| api2.feedo.ink (Node 2) | 178.18.253.94 | 8041 | `12D3KooWMJfThcTD3GiKMz4ihKkZHG3iYZKoaNTxFdTJV49kvmMh` |
+
+```bash
+# Connect to the Feedo consensus network:
+BOOTSTRAP_NODES=/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWHKWyZDgVpw65ruHBFvHwXSJ5LHGKTHn7DYbtrwo7gFtg,/ip4/178.18.253.94/udp/8041/quic-v1/p2p/12D3KooWMJfThcTD3GiKMz4ihKkZHG3iYZKoaNTxFdTJV49kvmMh
+```
 
 The node tries each bootstrap address in order and starts serving as soon as it connects to at least one.
 

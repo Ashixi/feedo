@@ -87,10 +87,10 @@ impl Web3Bridge {
                                     // serviceHash - це наш targetId (ID отримувача)
                                     let target_id_hex = format!("0x{}", hex::encode(payment.service_hash));
                                     
-                                    // Конвертуємо USDC (6 decimals зазвичай) у u64
+                                    // Конвертуємо USDT (6 decimals зазвичай) у u64
                                     let amount_u64 = payment.pool_amount.as_u64(); 
                                     
-                                    eprintln!("Web3 Deposit: {} sent {} USDC (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
+                                    eprintln!("Web3 Deposit: {} sent {} USDT (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
                                     
                                     self.ledger.credit(&target_id_hex, amount_u64).await;
                                 },
@@ -129,10 +129,10 @@ impl Web3Bridge {
             // 4. Call contract.withdraw(address, amount, signatures)
             
             /*
-            let threshold = U256::from(50) * U256::exp10(6); // 50 USDC
+            let threshold = U256::from(50) * U256::exp10(6); // 50 USDT
             
             if owed > threshold {
-                eprintln!("Auto-claiming {} USDC", owed);
+                eprintln!("Auto-claiming {} USDT", owed);
                 // Implementation for collecting signatures over P2P goes here...
             }
             */

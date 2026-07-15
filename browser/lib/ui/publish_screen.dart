@@ -288,7 +288,7 @@ class _PublishScreenState extends State<PublishScreen> {
                                       ),
                                     );
                                     if (confirmed == true) {
-                                      // Call unpin endpoint
+                                      // Call unpin endpoint (Feedo Storage only, no more IPFS)
                                       final success = await widget.apiClient.unpinSite(site['cid']);
                                       if (success) {
                                         // Update consensus node so the domain no longer points to the cached CID

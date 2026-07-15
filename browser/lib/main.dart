@@ -10,12 +10,11 @@ import 'core/api_client.dart';
 import 'core/local_server.dart';
 import 'core/db_helper.dart';
 import 'core/adblock_engine.dart';
-import 'core/google_scraper.dart';
 import 'ui/browser_tab.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/search_disambiguation_view.dart';
 import 'ui/native_search_results_view.dart';
-import 'ui/publish_screen.dart';
+import 'ui/domains_screen.dart';
 import 'ui/start_page_view.dart';
 
 // Import Rust bindings
@@ -60,7 +59,6 @@ class TabModel {
   String? loadUrl;
   String? searchQuery;
   List<Map<String, dynamic>>? searchResults;
-  List<Map<String, String>>? googleSearchResults;
   String? feedoSearchError;
   String? ambiguousWeb2Url;
   String? ambiguousFeedoUrl;
@@ -74,7 +72,6 @@ class TabModel {
     this.loadUrl,
     this.searchQuery,
     this.searchResults,
-    this.googleSearchResults,
     this.feedoSearchError,
     this.ambiguousWeb2Url,
     this.ambiguousFeedoUrl,
@@ -105,6 +102,16 @@ class _MainScreenState extends State<MainScreen> {
   bool _showBookmarksPanel = false;
 
   final Map<String, TextEditingController> _urlControllers = {};
+  
+  // Navigation history per tab
+  final Map<String, _NavigationStack> _navStacks = {};
+
+  _NavigationStack _getNavStack(String tabId) {
+    if (!_navStacks.containsKey(tabId)) {
+      _navStacks[tabId] = _NavigationStack();
+    }
+    return _navStacks[tabId]!;
+  }
 
   @override
   void initState() {
@@ -118,8 +125,11 @@ class _MainScreenState extends State<MainScreen> {
 
       try {
         await widget.apiClient.registerDid();
+        
+        // Sync our locally saved DhtStateCertificates to the network for re-genesis
+        await widget.apiClient.syncCertificates();
       } catch (e) {
-        print("Failed to register DID (maybe consensus node is down): $e");
+        print("Failed to register DID or sync certs (maybe consensus node is down): $e");
       }
 
       _addTab();
@@ -174,12 +184,17 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  Future<void> _handleUrl(String inputUrl, int tabIndex, {bool isSearch = false, bool forceWeb2 = false}) async {
+  Future<void> _handleUrl(String inputUrl, int tabIndex, {bool isSearch = false, bool forceWeb2 = false, bool addToHistory = true}) async {
     final tab = _tabs[tabIndex];
     tab.displayUrl = inputUrl;
     tab.state = TabState.loading;
     _urlControllers[tab.id]!.text = inputUrl;
     setState(() {});
+    
+    // Push to navigation stack (for back/forward)
+    if (addToHistory) {
+      _getNavStack(tab.id).push(inputUrl);
+    }
     
     // Add to SQLite History
     DbHelper.addHistory(inputUrl, inputUrl);
@@ -191,12 +206,8 @@ class _MainScreenState extends State<MainScreen> {
         if (mounted) setState(() {});
         
         try {
-          final results = await Future.wait([
-            widget.apiClient.search(inputUrl),
-            GoogleScraper.search(inputUrl)
-          ]);
+          final feedoResData = await widget.apiClient.search(inputUrl);
           
-          final feedoResData = results[0] as Map<String, dynamic>;
           final feedoRes = List<Map<String, dynamic>>.from(feedoResData['results'] ?? []);
           final feedoError = feedoResData['error'] as String?;
 
@@ -221,7 +232,6 @@ class _MainScreenState extends State<MainScreen> {
           
           tab.searchResults = feedoRes;
           tab.feedoSearchError = feedoError;
-          tab.googleSearchResults = results[1] as List<Map<String, String>>;
           tab.state = TabState.nativeSearch;
         } catch (e) {
           tab.state = TabState.empty;
@@ -231,10 +241,20 @@ class _MainScreenState extends State<MainScreen> {
         final uri = Uri.parse(inputUrl);
         final cid = await widget.apiClient.resolveName(uri.host);
         
-        final p1 = cid!.substring(0, 32);
-        final p2 = cid.substring(32);
-        tab.loadUrl = 'http://$p1.$p2.localhost:${LocalFeedoServer.port}/';
-        tab.state = TabState.webview;
+        if (cid != null && cid.length >= 64) {
+          final p1 = cid.substring(0, 32);
+          final p2 = cid.substring(32);
+          tab.loadUrl = 'http://$p1.$p2.localhost:${LocalFeedoServer.port}/';
+          tab.state = TabState.webview;
+        } else {
+          tab.state = TabState.empty;
+          tab.loadUrl = null;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Domain "${uri.host}" not found on FeedoNet')),
+            );
+          }
+        }
       } 
       else if (inputUrl.startsWith('http://') || inputUrl.startsWith('https://')) {
         tab.loadUrl = inputUrl;
@@ -244,7 +264,7 @@ class _MainScreenState extends State<MainScreen> {
         // Raw domain like consensus.world
         final cid = await widget.apiClient.resolveName(inputUrl);
         
-        if (cid != null && !forceWeb2) {
+        if (cid != null && cid.length >= 64 && !forceWeb2) {
           final p1 = cid.substring(0, 32);
           final p2 = cid.substring(32);
           tab.ambiguousFeedoUrl = 'http://$p1.$p2.localhost:${LocalFeedoServer.port}/';
@@ -295,6 +315,10 @@ class _MainScreenState extends State<MainScreen> {
     } 
     else if (queryLower.contains('.') && !queryLower.contains(' ')) {
       // Treat as domain, could be ambiguous
+      if (AdblockEngine.shouldBlock('https://$queryLower')) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked tracker domain!')));
+        return;
+      }
       _handleUrl(queryLower, _activeTabIndex);
     } 
     else {
@@ -459,8 +483,28 @@ class _MainScreenState extends State<MainScreen> {
             padding: const EdgeInsets.all(8),
             child: Row(
               children: [
-                IconButton(icon: const Icon(Icons.arrow_back), onPressed: () {}),
-                IconButton(icon: const Icon(Icons.arrow_forward), onPressed: () {}),
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _getNavStack(activeTab.id).canGoBack 
+                      ? () {
+                          final prevUrl = _getNavStack(activeTab.id).goBack();
+                          if (prevUrl != null) {
+                            _handleUrl(prevUrl, _activeTabIndex, addToHistory: false);
+                          }
+                        }
+                      : null,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_forward),
+                  onPressed: _getNavStack(activeTab.id).canGoForward
+                      ? () {
+                          final nextUrl = _getNavStack(activeTab.id).goForward();
+                          if (nextUrl != null) {
+                            _handleUrl(nextUrl, _activeTabIndex, addToHistory: false);
+                          }
+                        }
+                      : null,
+                ),
                 IconButton(icon: const Icon(Icons.refresh), onPressed: () {
                    if (activeTab.displayUrl.isNotEmpty) _handleUrl(activeTab.displayUrl, _activeTabIndex);
                 }),
@@ -698,7 +742,6 @@ class _MainScreenState extends State<MainScreen> {
           query: activeTab.searchQuery ?? '',
           feedoResults: activeTab.searchResults ?? [],
           feedoError: activeTab.feedoSearchError,
-          googleResults: activeTab.googleSearchResults ?? [],
           onResultTap: (url) => _handleUrl(url, tabIndex),
         );
 
@@ -709,7 +752,6 @@ class _MainScreenState extends State<MainScreen> {
         return const Center(child: Text("Error loading URL"));
 
       case TabState.empty:
-      default:
         return _buildEmptyTabState(tabIndex);
     }
   }
@@ -722,4 +764,37 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+}
+
+class _NavigationStack {
+  final List<String> _backStack = [];
+  final List<String> _forwardStack = [];
+  
+  void push(String url) {
+    if (_backStack.isNotEmpty && _backStack.last == url) return;
+    _backStack.add(url);
+    _forwardStack.clear();
+  }
+  
+  String? goBack() {
+    if (_backStack.length <= 1) return null;
+    final current = _backStack.removeLast();
+    _forwardStack.add(current);
+    return _backStack.last;
+  }
+  
+  String? goForward() {
+    if (_forwardStack.isEmpty) return null;
+    final next = _forwardStack.removeLast();
+    _backStack.add(next);
+    return next;
+  }
+  
+  bool get canGoBack => _backStack.length > 1;
+  bool get canGoForward => _forwardStack.isNotEmpty;
+  
+  void clear() {
+    _backStack.clear();
+    _forwardStack.clear();
+  }
 }

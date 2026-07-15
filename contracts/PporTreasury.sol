@@ -9,15 +9,15 @@ interface IERC20 {
 /**
  * @title PporTreasury
  * @dev Цей смарт-контракт виступає в ролі казни (Treasury) для Feedo мережі на базі PPoR консенсусу.
- * Використовує токен USDC (або інший ERC20).
+ * Використовує токен USDT (або інший ERC20).
  * Валідатори (комітет з 21 ноди) керують казною через мультипідписи.
  */
 contract PporTreasury {
     address public owner;
-    IERC20 public usdc;
+    IERC20 public usdt;
 
     uint256 public constant PROTOCOL_FEE_PERCENTAGE = 5;
-    uint256 public constant NODE_DEPOSIT_AMOUNT = 1 * 10**6; // 1 USDC (якщо 6 decimals)
+    uint256 public constant NODE_DEPOSIT_AMOUNT = 1 * 10**6; // 1 USDT (якщо 6 decimals)
 
     // Поточний комітет валідаторів
     address[] public committee;
@@ -34,9 +34,9 @@ contract PporTreasury {
     event Withdrawn(address indexed to, uint256 amount, uint256 nonce);
     event CommitteeUpdated(address[] newCommittee, uint256 nonce);
 
-    constructor(address _usdc, address[] memory initialCommittee) {
+    constructor(address _usdt, address[] memory initialCommittee) {
         owner = msg.sender;
-        usdc = IERC20(_usdc);
+        usdt = IERC20(_usdt);
         
         require(initialCommittee.length > 0, "Empty committee");
         for (uint i = 0; i < initialCommittee.length; i++) {
@@ -98,7 +98,7 @@ contract PporTreasury {
      */
     function registerNode() external {
         require(nodeDeposits[msg.sender] == 0, "Already registered");
-        require(usdc.transferFrom(msg.sender, address(this), NODE_DEPOSIT_AMOUNT), "Transfer failed");
+        require(usdt.transferFrom(msg.sender, address(this), NODE_DEPOSIT_AMOUNT), "Transfer failed");
         
         nodeDeposits[msg.sender] = NODE_DEPOSIT_AMOUNT;
         emit NodeRegistered(msg.sender, NODE_DEPOSIT_AMOUNT);
@@ -115,12 +115,12 @@ contract PporTreasury {
         
         // Переказ комісії протоколу власнику
         if (protocolFee > 0) {
-            require(usdc.transferFrom(msg.sender, owner, protocolFee), "Fee transfer failed");
+            require(usdt.transferFrom(msg.sender, owner, protocolFee), "Fee transfer failed");
         }
         
         // Переказ пулу винагород на баланс контракту
         if (poolAmount > 0) {
-            require(usdc.transferFrom(msg.sender, address(this), poolAmount), "Pool transfer failed");
+            require(usdt.transferFrom(msg.sender, address(this), poolAmount), "Pool transfer failed");
         }
         
         emit PaymentReceived(msg.sender, serviceHash, poolAmount, protocolFee);
@@ -136,7 +136,7 @@ contract PporTreasury {
         require(verifySignatures(messageHash, signatures), "Signature verification failed");
         
         nextNonce++;
-        require(usdc.transfer(to, amount), "Transfer failed");
+        require(usdt.transfer(to, amount), "Transfer failed");
         
         emit Withdrawn(to, amount, nextNonce - 1);
     }

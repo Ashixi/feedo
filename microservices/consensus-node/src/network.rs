@@ -2,16 +2,48 @@ use libp2p::{gossipsub, identify, kad, mdns, request_response, swarm::NetworkBeh
 use serde::{Deserialize, Serialize};
 use std::io;
 
-/// Protocol name for transaction relay to validators.
-pub const TX_PROTOCOL: &str = "/feedo-tx/1.0.0";
+/// Protocol name for consensus messages (transaction relay + PBFT votes).
+pub const CONSENSUS_PROTOCOL: &str = "/feedo-consensus/1.0.0";
+
+/// Deprecated — kept for backward compatibility references.
+pub const TX_PROTOCOL: &str = CONSENSUS_PROTOCOL;
 
 use libp2p::request_response::Codec as RrCodec;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 
-/// Custom JSON-based codec for request-response.
+/// Unified codec for all consensus request-response messages.
+/// Supports both initial transaction relay and PBFT vote propagation.
 #[derive(Clone, Debug, Default)]
-pub struct TxCodec;
+pub struct ConsensusCodec;
+
+// --- Request types ---
+
+/// Unified request enum — the `#[serde(tag = "type")]` adds a "type" field
+/// so the receiver can deserialize into the correct variant.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+pub enum ConsensusRequest {
+    /// Initial transaction relay to validators (replaces gossipsub broadcast).
+    #[serde(rename = "tx")]
+    TxRelay {
+        tx_type: String,
+        tx_data_json: String,
+        from_node: String,
+        signature: String,
+    },
+    /// PBFT vote/phase message sent directly between committee validators.
+    #[serde(rename = "pbft")]
+    PbftVote {
+        /// Protobuf-encoded PbftMessage as base64 string.
+        pbft_message_b64: String,
+        phase: i32,
+        tx_hash: String,
+    },
+}
+
+// --- Old types kept for backward compatibility in swarm_loop.rs references ---
+// (will be removed after full transition)
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TxRequest {
@@ -27,11 +59,25 @@ pub struct TxResponse {
     pub reason: String,
 }
 
+// --- Response types ---
+
+/// Unified response enum.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+pub enum ConsensusResponse {
+    /// Response to a TxRelay request.
+    #[serde(rename = "tx_ack")]
+    TxAck { accepted: bool, reason: String },
+    /// Response to a PbftVote request.
+    #[serde(rename = "pbft_ack")]
+    PbftAck { received: bool },
+}
+
 #[async_trait::async_trait]
-impl RrCodec for TxCodec {
+impl RrCodec for ConsensusCodec {
     type Protocol = String;
-    type Request = TxRequest;
-    type Response = TxResponse;
+    type Request = ConsensusRequest;
+    type Response = ConsensusResponse;
 
     async fn read_request<T>(
         &mut self,
@@ -92,5 +138,5 @@ pub struct ConsensusBehaviour {
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
     pub identify: identify::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
-    pub request_response: request_response::Behaviour<TxCodec>,
+    pub request_response: request_response::Behaviour<ConsensusCodec>,
 }
