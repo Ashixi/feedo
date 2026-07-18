@@ -1,12 +1,12 @@
 # Feedo Browser
 
-Feedo Browser is a native, privacy-first web browser built specifically to seamlessly navigate the decentralized **Feedo Web3 Network**. 
+Feedo Browser is a native, privacy-first web browser built specifically to seamlessly navigate **Feedo**. 
 
 It natively understands `.feedo` domains, completely bypassing traditional DNS and centralized web hosts. It fetches content directly from the decentralized Feedo Storage Network using IPFS-inspired Content Identifiers (CIDs) and verifies ownership via the Feedo Consensus Network.
 
 ## Features
 
-- **Native Web3 Resolution**: Type `anyname.feedo` in the URL bar and the browser instantly resolves it via the Feedo Consensus Network.
+- **Native Resolution**: Type `anyname.feedo` in the URL bar and the browser instantly resolves it via the Feedo Consensus Network.
 - **Decentralized Storage Engine**: Pages and assets are fetched directly from decentralized Storage Nodes.
 - **Integrated Wallet**: Built-in Feedo Identity wallet for signing transactions, registering domains, and managing your DID.
 - **Cross-Platform**: Built with Flutter for a fast, fluid experience on Desktop and Mobile.
