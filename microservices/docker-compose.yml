@@ -135,6 +135,22 @@ services:
     networks:
       - feedo-net
 
+  web2-proxy:
+    build:
+      context: ./web2-proxy
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8000"
+    environment:
+      - CONSENSUS_NODE_URL=http://consensus-node:3000
+      - STORAGE_NODE_URL=http://storage-node:3001
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - consensus-node
+      - storage-node
+    networks:
+      - feedo-net
+
 volumes:
   lancedb_data:
   storage_db:

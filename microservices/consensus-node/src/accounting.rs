@@ -22,12 +22,26 @@ impl Hasher for Keccak256Algorithm {
 pub struct Ledger {
     db: Db,
     pub balances: Arc<Mutex<HashMap<String, u64>>>,
+    /// Відстежує час останньої активності ноди (wallet -> UNIX timestamp).
+    /// Використовується для відбору комітету — ноди без активності виключаються.
+    pub last_active: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl Ledger {
     pub fn new(db: Db) -> Self {
         let balances = Arc::new(Mutex::new(HashMap::new()));
-        Self { db, balances }
+        let last_active = Arc::new(Mutex::new(HashMap::new()));
+        Self { db, balances, last_active }
+    }
+
+    /// Записує поточний час як останню активність для гаманця.
+    pub async fn record_activity(&self, wallet: &str) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut map = self.last_active.lock().await;
+        map.insert(wallet.to_string(), now);
     }
 
     /// Додає зароблені кошти (в центах або WEI) до балансу гаманця

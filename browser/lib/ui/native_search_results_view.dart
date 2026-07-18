@@ -66,22 +66,40 @@ class NativeSearchResultsView extends StatelessWidget {
           const Text("No decentralized results found.")
         else
           ...feedoResults.map((result) {
-            final metadata =
-                result['metadata'] is Map ? Map<String, dynamic>.from(result['metadata'] as Map) : <String, dynamic>{};
+            // --- Google result: flat {title, link, snippet} ---
+            if (result.containsKey('link')) {
+              final title = result['title']?.toString() ?? '';
+              final link = result['link']?.toString() ?? '';
+              final snippet = result['snippet']?.toString() ?? '';
+              final displayUrl = link
+                  .replaceAll(RegExp(r'^https?://'), '')
+                  .replaceAll(RegExp(r'/$'), '');
+              return _buildResultCard(
+                context: context,
+                title: title,
+                displayUrl: displayUrl,
+                snippet: snippet,
+                metadata: null,
+                duplicates: [],
+                onTap: () => onResultTap(link),
+              );
+            }
+
+            // --- Feedo result: {metadata: {...}, hash_id: ...} ---
+            final metadata = result['metadata'] is Map
+                ? Map<String, dynamic>.from(result['metadata'] as Map)
+                : <String, dynamic>{};
             final cid = result['hash_id']?.toString() ?? '';
 
-            // Title: prefer metadata title, then domain, then fallback
             final domain = metadata['domain']?.toString() ?? '';
             final title = (metadata['title']?.toString().isNotEmpty == true)
                 ? metadata['title'].toString()
                 : (domain.isNotEmpty ? domain : 'Untitled');
 
-            // Description / snippet
             final description = (metadata['description']?.toString().isNotEmpty == true)
                 ? metadata['description'].toString()
                 : (result['text']?.toString() ?? '');
 
-            // --- Navigation URL (where tapping goes) ---
             String feedoUrl;
             if (domain.isNotEmpty) {
               feedoUrl = 'feedonet://$domain';
@@ -91,7 +109,6 @@ class NativeSearchResultsView extends StatelessWidget {
               feedoUrl = 'feedonet://$cid';
             }
 
-            // --- Display URL (what the user sees) ---
             String displayUrl;
             if (domain.isNotEmpty) {
               displayUrl = domain;
@@ -99,18 +116,16 @@ class NativeSearchResultsView extends StatelessWidget {
                 metadata['url'].toString().isNotEmpty) {
               final rawUrl = metadata['url'].toString();
               displayUrl = rawUrl.replaceAll(RegExp(r'^https?://'), '');
-              // remove trailing slash
               if (displayUrl.endsWith('/')) {
                 displayUrl = displayUrl.substring(0, displayUrl.length - 1);
               }
             } else if (cid.length >= 64) {
-              // Shorten CID: first 8 + ... + last 8
-              displayUrl = 'feedonet://${cid.substring(0, 8)}...${cid.substring(cid.length - 8)}';
+              displayUrl =
+                  'feedonet://${cid.substring(0, 8)}...${cid.substring(cid.length - 8)}';
             } else {
               displayUrl = 'feedonet://$cid';
             }
 
-            // Duplicates list from backend grouping
             final duplicatesRaw = result['duplicates'];
             final List<Map<String, dynamic>> duplicates = (duplicatesRaw is List)
                 ? duplicatesRaw.cast<Map<String, dynamic>>()
@@ -141,7 +156,6 @@ class NativeSearchResultsView extends StatelessWidget {
   }) {
     final theme = Theme.of(context);
 
-    // Only show user-friendly metadata tags
     final userTags = <String, String>{};
     if (metadata != null) {
       for (final e in metadata.entries) {
@@ -162,7 +176,6 @@ class NativeSearchResultsView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Domain / URL row
           Row(
             children: [
               Icon(Icons.public, size: 14, color: theme.colorScheme.onSurface.withOpacity(0.45)),
@@ -181,7 +194,6 @@ class NativeSearchResultsView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          // Title (clickable, link-style)
           InkWell(
             onTap: onTap,
             hoverColor: Colors.transparent,
@@ -195,7 +207,6 @@ class NativeSearchResultsView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          // Snippet / description
           if (snippet.isNotEmpty)
             Text(
               snippet,
@@ -207,7 +218,6 @@ class NativeSearchResultsView extends StatelessWidget {
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
-          // User-friendly metadata tags only
           if (userTags.isNotEmpty) ...[
             const SizedBox(height: 8),
             Wrap(
@@ -216,16 +226,11 @@ class NativeSearchResultsView extends StatelessWidget {
               children: userTags.entries
                   .map(
                     (e) => Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: theme.colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: theme.dividerColor.withOpacity(0.5),
-                        ),
+                        border: Border.all(color: theme.dividerColor.withOpacity(0.5)),
                       ),
                       child: Text(
                         '${e.key}: ${e.value}',
@@ -238,7 +243,6 @@ class NativeSearchResultsView extends StatelessWidget {
                   .toList(),
             ),
           ],
-          // ---- Duplicates Section ----
           if (duplicates.isNotEmpty) ...[
             const SizedBox(height: 10),
             _DuplicatesSection(duplicates: duplicates, theme: theme),
@@ -252,7 +256,6 @@ class NativeSearchResultsView extends StatelessWidget {
     final domain = (dup['domain'] ?? '').toString();
     final url = (dup['url'] ?? '').toString();
     final cid = (dup['hash_id'] ?? '').toString();
-
     if (domain.isNotEmpty) return domain;
     if (url.isNotEmpty) {
       var clean = url.replaceAll(RegExp(r'^https?://'), '');
@@ -269,12 +272,7 @@ class NativeSearchResultsView extends StatelessWidget {
 class _DuplicatesSection extends StatefulWidget {
   final List<Map<String, dynamic>> duplicates;
   final ThemeData theme;
-
-  const _DuplicatesSection({
-    required this.duplicates,
-    required this.theme,
-  });
-
+  const _DuplicatesSection({required this.duplicates, required this.theme});
   @override
   State<_DuplicatesSection> createState() => _DuplicatesSectionState();
 }
@@ -300,25 +298,11 @@ class _DuplicatesSectionState extends State<_DuplicatesSection> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  _expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                  color: widget.theme.colorScheme.primary.withOpacity(0.7),
-                ),
+                Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 18, color: widget.theme.colorScheme.primary.withOpacity(0.7)),
                 const SizedBox(width: 4),
-                Icon(
-                  Icons.content_copy,
-                  size: 14,
-                  color: widget.theme.colorScheme.onSurface.withOpacity(0.4),
-                ),
+                Icon(Icons.content_copy, size: 14, color: widget.theme.colorScheme.onSurface.withOpacity(0.4)),
                 const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: widget.theme.textTheme.bodySmall?.copyWith(
-                    color: widget.theme.colorScheme.onSurface.withOpacity(0.55),
-                    fontSize: 12,
-                  ),
-                ),
+                Text(label, style: widget.theme.textTheme.bodySmall?.copyWith(color: widget.theme.colorScheme.onSurface.withOpacity(0.55), fontSize: 12)),
               ],
             ),
           ),
@@ -330,40 +314,21 @@ class _DuplicatesSectionState extends State<_DuplicatesSection> {
             decoration: BoxDecoration(
               color: widget.theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: widget.theme.dividerColor.withOpacity(0.3),
-              ),
+              border: Border.all(color: widget.theme.dividerColor.withOpacity(0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: widget.duplicates.map((dup) {
-                final view = (widget as _DuplicatesSection).duplicates.indexOf(dup);
+                final idx = widget.duplicates.indexOf(dup);
                 final displayUrl = _displayUrlForDuplicateStatic(dup);
                 return Padding(
-                  padding: EdgeInsets.only(
-                    top: view == 0 ? 0 : 8,
-                    bottom: view == widget.duplicates.length - 1 ? 0 : 8,
-                  ),
+                  padding: EdgeInsets.only(top: idx == 0 ? 0 : 8, bottom: idx == widget.duplicates.length - 1 ? 0 : 8),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.link,
-                        size: 14,
-                        color: widget.theme.colorScheme.secondary.withOpacity(0.6),
-                      ),
+                      Icon(Icons.link, size: 14, color: widget.theme.colorScheme.secondary.withOpacity(0.6)),
                       const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          displayUrl,
-                          style: widget.theme.textTheme.bodySmall?.copyWith(
-                            color: widget.theme.colorScheme.secondary.withOpacity(0.7),
-                            fontSize: 12,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                      Expanded(child: Text(displayUrl, style: widget.theme.textTheme.bodySmall?.copyWith(color: widget.theme.colorScheme.secondary.withOpacity(0.7), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
                     ],
                   ),
                 );
@@ -379,7 +344,6 @@ class _DuplicatesSectionState extends State<_DuplicatesSection> {
     final domain = (dup['domain'] ?? '').toString();
     final url = (dup['url'] ?? '').toString();
     final cid = (dup['hash_id'] ?? '').toString();
-
     if (domain.isNotEmpty) return domain;
     if (url.isNotEmpty) {
       var clean = url.replaceAll(RegExp(r'^https?://'), '');

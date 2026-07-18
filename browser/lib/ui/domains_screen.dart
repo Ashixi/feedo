@@ -84,8 +84,9 @@ class _DomainsScreenState extends State<DomainsScreen> {
 
   Future<void> _registerDomain() async {
     final domainController = TextEditingController();
-    String? status;
-    File? selectedZipForReg;
+    // ValueNotifiers гарантують що колбеки завжди читають актуальне значення.
+    final selectedZipNotifier = ValueNotifier<File?>(null);
+    final statusNotifier = ValueNotifier<String?>(null);
 
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -148,60 +149,74 @@ class _DomainsScreenState extends State<DomainsScreen> {
                     const SizedBox(height: 16),
                     OutlinedButton.icon(
                       icon: const Icon(Icons.folder_zip),
-                      label: Text(
-                        selectedZipForReg == null
-                            ? 'Select .zip file (optional)'
-                            : selectedZipForReg!.path.split('\\').last,
+                      label: ValueListenableBuilder<File?>(
+                        valueListenable: selectedZipNotifier,
+                        builder: (_, zip, __) => Text(
+                          zip == null
+                              ? 'Select .zip file (optional)'
+                              : zip.path.split('\\').last,
+                        ),
                       ),
                       onPressed: () async {
-                        final result = await FilePicker.platform.pickFiles(
+                        final pickResult = await FilePicker.pickFiles(
                           type: FileType.custom,
                           allowedExtensions: ['zip'],
                         );
-                        if (result != null && result.files.single.path != null) {
-                          setSheetState(() {
-                            selectedZipForReg = File(result.files.single.path!);
-                          });
+                        if (pickResult != null && pickResult.files.single.path != null) {
+                          selectedZipNotifier.value = File(pickResult.files.single.path!);
+                          setSheetState(() {}); // rebuild
                         }
                       },
                     ),
                     const SizedBox(height: 24),
-                    if (status != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(
-                          status!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: status!.startsWith('Success') ? Colors.green : Colors.orange,
-                            fontSize: 13,
+                    ValueListenableBuilder<String?>(
+                      valueListenable: statusNotifier,
+                      builder: (_, status, __) {
+                        if (status == null) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Text(
+                            status,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: status.startsWith('Success') ? Colors.green : Colors.orange,
+                              fontSize: 13,
+                            ),
                           ),
-                        ),
-                      ),
-                    ElevatedButton(
-                      onPressed: status != null
-                          ? null
-                          : () async {
-                              final domain = domainController.text.trim().toLowerCase();
-                              if (domain.isEmpty) {
-                                setSheetState(() => status = 'Please enter a domain name');
-                                return;
-                              }
-                              if (!domain.contains('.')) {
-                                setSheetState(() => status = 'Please include a domain extension');
-                                return;
-                              }
+                        );
+                      },
+                    ),
+                    ValueListenableBuilder<String?>(
+                      valueListenable: statusNotifier,
+                      builder: (_, status, __) {
+                        return ElevatedButton(
+                          onPressed: status != null
+                              ? null
+                              : () async {
+                                  final domain = domainController.text.trim().toLowerCase();
+                                  if (domain.isEmpty) {
+                                    statusNotifier.value = 'Please enter a domain name';
+                                    setSheetState(() {});
+                                    return;
+                                  }
+                                  if (!domain.contains('.')) {
+                                    statusNotifier.value = 'Please include a domain extension';
+                                    setSheetState(() {});
+                                    return;
+                                  }
 
-                              setSheetState(() => status = 'Registering domain...');
+                                  statusNotifier.value = 'Registering domain...';
+                                  setSheetState(() {});
 
-                              // Upload content (ZIP or placeholder)
-                              String? cid;
-                              if (selectedZipForReg != null) {
-                                cid = await widget.apiClient.publishToFeedoStorage(selectedZipForReg!);
-                              } else {
-                                // Generate placeholder HTML
-                                final did = widget.apiClient.did;
-                                final htmlContent = '''
+                                  // Upload content (ZIP or placeholder)
+                                  String? cid;
+                                  final selectedZip = selectedZipNotifier.value;
+                                  if (selectedZip != null) {
+                                    cid = await widget.apiClient.publishToFeedoStorage(selectedZip);
+                                  } else {
+                                    // Generate placeholder HTML
+                                    final did = widget.apiClient.did;
+                                    final htmlContent = '''
 <!DOCTYPE html>
 <html>
 <head><title>$domain</title></head>
@@ -212,44 +227,51 @@ class _DomainsScreenState extends State<DomainsScreen> {
 </body>
 </html>
 ''';
-                                final archive = Archive();
-                                final fileBytes = utf8.encode(htmlContent);
-                                archive.addFile(ArchiveFile('index.html', fileBytes.length, fileBytes));
-                                final zipEncoder = ZipEncoder();
-                                final zipData = zipEncoder.encode(archive);
-                                cid = await widget.apiClient.publishToFeedoStorageBytes(zipData, 'site.zip');
-                              }
+                                    final archive = Archive();
+                                    final fileBytes = utf8.encode(htmlContent);
+                                    archive.addFile(ArchiveFile('index.html', fileBytes.length, fileBytes));
+                                    final zipEncoder = ZipEncoder();
+                                    final zipData = zipEncoder.encode(archive);
+                                    cid = await widget.apiClient.publishToFeedoStorageBytes(zipData, 'site.zip');
+                                  }
 
-                              if (cid == null) {
-                                setSheetState(() => status = 'Failed to upload to storage');
-                                return;
-                              }
+                                  if (cid == null) {
+                                    statusNotifier.value = 'Failed to upload to storage';
+                                    setSheetState(() {});
+                                    return;
+                                  }
 
-                              setSheetState(() => status = 'Uploaded! Registering name...');
+                                  statusNotifier.value = 'Uploaded! Registering name...';
+                                  setSheetState(() {});
 
-                              final registered = await widget.apiClient.registerName(domain);
-                              if (!registered) {
-                                setSheetState(() => status = 'Failed to register domain. Check credits.');
-                                return;
-                              }
+                                  final registered = await widget.apiClient.registerName(domain);
+                                  if (!registered) {
+                                    statusNotifier.value = 'Failed to register domain. Check credits.';
+                                    setSheetState(() {});
+                                    return;
+                                  }
 
-                              await Future.delayed(const Duration(seconds: 2));
-                              final updated = await widget.apiClient.updateCid(domain, cid);
-                              if (updated) {
-                                await widget.apiClient.saveMyDomain(domain, cid);
-                                setSheetState(() => status = 'Success! Domain $domain is now yours.');
-                                await Future.delayed(const Duration(seconds: 1));
-                                if (ctx.mounted) Navigator.pop(ctx, domain);
-                              } else {
-                                setSheetState(() => status = 'Failed to link CID to domain');
-                              }
-                            },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Theme.of(ctx).colorScheme.primary,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('Register Domain', style: TextStyle(fontSize: 16)),
+                                  await Future.delayed(const Duration(seconds: 2));
+                                  final updated = await widget.apiClient.updateCid(domain, cid);
+                                  if (updated) {
+                                    await widget.apiClient.saveMyDomain(domain, cid);
+                                    statusNotifier.value = 'Success! Domain $domain is now yours.';
+                                    setSheetState(() {});
+                                    await Future.delayed(const Duration(seconds: 1));
+                                    if (ctx.mounted) Navigator.pop(ctx, domain);
+                                  } else {
+                                    statusNotifier.value = 'Failed to link CID to domain';
+                                    setSheetState(() {});
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: Theme.of(ctx).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Register Domain', style: TextStyle(fontSize: 16)),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -269,7 +291,7 @@ class _DomainsScreenState extends State<DomainsScreen> {
     final domain = site['domain']?.toString() ?? '';
     if (domain.isEmpty) return;
 
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['zip'],
     );

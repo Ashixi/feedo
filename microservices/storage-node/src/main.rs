@@ -444,8 +444,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http_server = axum::serve(listener, app);
 
     tokio::select! {
-        _ = grpc_server => println!("gRPC server exited"),
-        _ = http_server => println!("HTTP server exited"),
+        res = grpc_server => println!("gRPC server exited with {:?}", res),
+        res = http_server.into_future() => println!("HTTP server exited with {:?}", res),
     }
 
     Ok(())

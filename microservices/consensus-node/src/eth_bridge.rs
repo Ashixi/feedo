@@ -35,25 +35,9 @@ impl Web3Bridge {
         })
     }
 
-    /// Читає поточний комітет валідаторів зі смартконтракту
-    /// Повертає список адрес у нижньому регістрі (0x...)
-    pub async fn fetch_committee(&self) -> Vec<String> {
-        let contract = PporTreasury::new(self.contract_address, Arc::new(self.provider.clone()));
-        match contract.committee().call().await {
-            Ok(members) => {
-                let addrs: Vec<String> = members.iter()
-                    .map(|a| format!("{:?}", a).to_lowercase())
-                    .collect();
-                eprintln!("Fetched on-chain committee ({} members): {:?}", addrs.len(), addrs);
-                addrs
-            }
-            Err(e) => {
-                eprintln!("Failed to fetch committee from contract: {:?}", e);
-                vec![]
-            }
-        }
-    }
-
+    // fetch_committee() ВИДАЛЕНО — комітет тепер обирається нативно в Rust (ppor.rs)
+    // на основі репутації та останньої активності, без залежності від смарт-контракту.
+    // Залишено порожній слот для уникнення breaking changes у викликаючому коді.
     /// Starts a background worker that periodically checks for new payments
     pub async fn start_event_listener(self: Arc<Self>) {
         eprintln!("Started listening for Polygon Web3 Events on contract: {}", FEEDO_CONTRACT_ADDRESS);

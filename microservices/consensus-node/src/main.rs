@@ -854,16 +854,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .to_lowercase();
     eprintln!("Node Wallet Address (committee identity): {}", node_wallet_address);
 
-    let on_chain_committee = eth_bridge.fetch_committee().await;
-
     let epoch_secs: u64 = std::env::var("EPOCH_DURATION_SECS")
         .unwrap_or_else(|_| "600".to_string())
         .parse()
         .unwrap_or(600);
 
+    // Комітет більше не береться зі смарт-контракту.
+    // Починаємо з self-only — select_committee_weighted() у ppor.rs
+    // самостійно сформує комітет при першій ротації епохи на основі
+    // репутації та активності відомих нод.
     let ppor_manager = Arc::new(Mutex::new(ppor::PporManager::new_with_committee_and_epoch(
         node_wallet_address.clone(),
-        on_chain_committee,
+        vec![node_wallet_address.clone()],
         Duration::from_secs(epoch_secs),
     )));
 
