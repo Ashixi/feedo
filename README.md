@@ -142,6 +142,14 @@ Detailed roadmaps for each layer are available in their respective directories:
 
 ---
 
+## 🌐 Community
+
+Join our Discord server to ask questions, meet the team, or apply for the technical co-founder role! 
+
+👉 **[Join the Feedo Discord](https://discord.gg/9sktH22ZN)**
+
+---
+
 ## 🤝 Support the Project
 
 Feedo is fully open-source and community-funded. No VCs. No tokens. Just builders.

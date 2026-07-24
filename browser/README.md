@@ -11,7 +11,6 @@ It natively understands `.feedo` domains, completely bypassing traditional DNS a
 - **Integrated Wallet**: Built-in Feedo Identity wallet for signing transactions, registering domains, and managing your DID.
 - **Cross-Platform**: Built with Flutter for a fast, fluid experience on Desktop and Mobile.
 - **Rust Core**: Cryptography and peer-to-peer networking logic are powered by a high-performance Rust core via `flutter_rust_bridge`.
-
 ## Architecture
 
 - **Frontend UI**: Flutter (Dart)
@@ -38,6 +37,12 @@ It natively understands `.feedo` domains, completely bypassing traditional DNS a
    ```bash
    flutter run
    ```
+
+## 🌐 Community
+
+Join our Discord server to ask questions, meet the team, or apply for the technical co-founder role! 
+
+👉 **[Join the Feedo Discord](https://discord.gg/9sktH22ZN)**
 
 ## License
 MIT
