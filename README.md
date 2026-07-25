@@ -179,4 +179,4 @@ Feedo is fully open-source and community-funded. No VCs. No tokens. Just builder
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Apache 2.0 License — see [LICENSE](LICENSE) for details.
