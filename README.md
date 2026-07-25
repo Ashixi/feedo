@@ -14,7 +14,7 @@
 Feedo is proud to be the official **Decentralized Hosting Partner** for global developer communities.
 
 ### ⚡ CodeStorm 2026
-We are currently powering the infrastructure for [CodeStorm 2026](https://codestorm-week2-2026.devfolio.co/overview) and the FutureForge sprint. Over a thousand developers are building the future of the web on our nodes.
+We are currently powering the infrastructure for [CodeStorm 2026](https://codestorm-week2-2026.devfolio.co/overview). Over a thousand developers are building the future of the web on our nodes.
 
 ### 🚀 How to publish your hackathon project (Quick Guide)
 Are you participating in a hackathon and want to deploy your project to the Feedo network? It takes less than 3 seconds!
