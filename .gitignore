@@ -76,3 +76,6 @@ browser/feedo_wallet/
 microservices/social-node/
 microservices/feedo-algo/
 microservices/feedo-ingester/
+
+# Ignored website dir
+website/
