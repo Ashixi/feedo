@@ -961,8 +961,8 @@ scrape_configs:
 ```
 
 Key log patterns to alert on:
-- `⚠️ Federated search timed out` → peer unreachable or slow
-- `⚠️ WebSocket connection lost` → storage-node PubSub feed down
+- `⚠ Federated search timed out` → peer unreachable or slow
+- `⚠ WebSocket connection lost` → storage-node PubSub feed down
 - `❌ WebSocket connection lost` → all gateways unreachable
 - `🔄 Centroid drift detected` → normal operation, but high frequency may indicate shard instability
 

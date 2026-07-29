@@ -1,4 +1,4 @@
-# Feedo Protocol 🚀
+# Feedo Protocol
 
 > **We're building what everyone else only dreamed about.**
 >
@@ -9,25 +9,25 @@
 
 ---
 
-## 🏆 Hackathon Partners
+## Hackathon Partners
 
 Feedo is proud to be the official **Decentralized Hosting Partner** for global developer communities.
 
-### ⚡ CodeStorm 2026
+### CodeStorm 2026
 We are currently powering the infrastructure for [CodeStorm 2026](https://codestorm-week2-2026.devfolio.co/overview). Over a thousand developers are building the future of the web on our nodes.
 
-### 🚀 How to publish your hackathon project (Quick Guide)
+### How to publish your hackathon project (Quick Guide)
 Are you participating in a hackathon and want to deploy your project to the Feedo network? It takes less than 3 seconds!
 
 1. Install the Feedo Developer CLI.
 2. Initialize your project (`feedo init`).
 3. Deploy your site to the decentralized network (`feedo deploy`).
 
-👉 For the full setup and deployment guide, please visit our **[Feedo SDK Repository (Developer CLI)](https://github.com/Ashixi/feedo-sdk)**.
+For the full setup and deployment guide, please visit our **[Feedo SDK Repository (Developer CLI)](https://github.com/Ashixi/feedo-sdk)**.
 
 ---
 
-## 🌍 The Problem
+## The Problem
 
 Today, the internet is controlled by three or four massive corporations.
 They decide what you see, what you don't see, and who gets to exist online.
@@ -52,21 +52,21 @@ We're bringing it back.
 
 ---
 
-## 🏗️ How It Works
+## How It Works
 
 Feedo is built on three independent layers that work together as a single search engine — without a single central server.
 
-### 🔗 Consensus Layer (Rust)
+### Consensus Layer (Rust)
 A P2P network of nodes that agree on who owns what. Names, content hashes, and identity records are validated through a PBFT consensus protocol with a reputation-based rotating committee. No single node controls the truth.
 
 **Key features**: PBFT consensus, DID identity system, DNS-like name resolution, on-chain treasury via `PporTreasury.sol` on Polygon, 25-node testnet verified.
 
-### 💾 Storage Layer (Rust)
+### Storage Layer (Rust)
 All content — websites, social posts, profiles, and arbitrary files — is stored using Reed-Solomon erasure coding. Every file is split into data shards + parity shards and distributed across the Kademlia DHT. If nodes go offline, the network self-heals and rebuilds lost shards automatically.
 
 **Key features**: Erasure coding (30+15), Kademlia DHT storage, proactive self-healing, TTL-based garbage collection, censorship-resistant by design.
 
-### 🔍 Search Layer (Python)
+### Search Layer (Python)
 Content is converted into dense vector embeddings using machine learning models. These vectors are stored locally and indexed for semantic search — meaning you find what you *mean*, not just what you *type*. Multiple search nodes form a federated network: each node knows which semantic clusters live where, and queries are routed intelligently without a central coordinator.
 
 **Key features**: Vector semantic search (384-dim embeddings), CLIP image embeddings, federated P2P search via KMeans centroids, LanceDB for local vector storage, real-time indexing via WebSocket pub/sub.
@@ -77,7 +77,7 @@ Content is converted into dense vector embeddings using machine learning models.
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```
 feedo/
@@ -91,11 +91,11 @@ feedo/
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 Each microservice has a documentation suite covering technical architecture, node operations, and production deployment.
 
-### 🔗 Consensus Node (Rust)
+### Consensus Node (Rust)
 
 | Document | Audience | Description |
 |----------|----------|-------------|
@@ -104,7 +104,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 | [Deployment Guide](microservices/consensus-node/CONSENSUS_DEPLOY.md) | DevOps | Docker, K8s, Terraform, CI/CD, monitoring stack, hardening |
 | [Roadmap](microservices/consensus-node/CONSENSUS_ROADMAP.md) | Everyone | Scaling plan from 25 to 10,000+ nodes |
 
-### 💾 Storage Node (Rust)
+### Storage Node (Rust)
 
 | Document | Audience | Description |
 |----------|----------|-------------|
@@ -113,7 +113,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 | [Deployment Guide](microservices/storage-node/STORAGE_DEPLOY.md) | DevOps | Docker Compose, K8s StatefulSet, Terraform, Ansible, CI/CD |
 | [Roadmap](microservices/storage-node/STORAGE_ROADMAP.md) | Everyone | 5-phase scaling plan (Phase 1 ✅ done) |
 
-### 🔍 Search Node (Python)
+### Search Node (Python)
 
 | Document | Audience | Description |
 |----------|----------|-------------|
@@ -124,7 +124,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 
 ---
 
-## 🧪 Tests
+## Tests
 
 All three core nodes have integration tests covering real P2P scenarios.
 
@@ -150,7 +150,7 @@ python tests/full_cycle_test.py
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 Detailed roadmaps for each layer are available in their respective directories:
 
@@ -160,23 +160,23 @@ Detailed roadmaps for each layer are available in their respective directories:
 
 ---
 
-## 🌐 Community
+## Community
 
 Join our Discord server to ask questions, meet the team, or apply for the technical co-founder role! 
 
-👉 **[Join the Feedo Discord](https://discord.gg/9sktH22ZN)**
+**[Join the Feedo Discord](https://discord.gg/9sktH22ZN)**
 
 ---
 
-## 🤝 Support the Project
+## Support the Project
 
 Feedo is fully open-source and community-funded. No VCs. No tokens. Just builders.
 
-- ☕ [Buy Me a Coffee](https://buymeacoffee.com/andriishumko)
+- [Buy Me a Coffee](https://buymeacoffee.com/andriishumko)
 
 
 ---
 
-## 📄 License
+## License
 
 Apache 2.0 License — see [LICENSE](LICENSE) for details.
