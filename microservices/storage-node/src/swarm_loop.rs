@@ -141,8 +141,20 @@ pub async fn run_swarm(
     let mut query_to_fetch: HashMap<libp2p::kad::QueryId, (String, usize)> = HashMap::new();
     let mut req_resp_to_fetch: HashMap<request_response::OutboundRequestId, (String, usize)> = HashMap::new();
 
+    let mut bootstrap_interval = tokio::time::interval(std::time::Duration::from_secs(300));
+    // Initial bootstrap is good to have shortly after startup
+    let mut initial_bootstrap = true;
+
     loop {
         tokio::select! {
+            _ = bootstrap_interval.tick() => {
+                if initial_bootstrap {
+                    initial_bootstrap = false;
+                } else {
+                    println!("Triggering periodic Kademlia bootstrap...");
+                    let _ = swarm.behaviour_mut().kademlia.bootstrap();
+                }
+            }
             event = swarm.select_next_some() => {
                 match event {
                     SwarmEvent::NewListenAddr { address, .. } => {
@@ -153,41 +165,55 @@ pub async fn run_swarm(
                         peer_cache.add_or_update(&peer_id.to_string(), vec![], true);
                     }
                     SwarmEvent::Behaviour(crate::network::StorageBehaviourEvent::Kademlia(libp2p::kad::Event::OutboundQueryProgressed { id, result, .. })) => {
-                        if let libp2p::kad::QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(record))) = result {
-                            if let Some(hash) = manifest_queries.remove(&id) {
-                                if let Ok(manifest) = serde_json::from_slice::<Manifest>(&record.record.value) {
-                                    println!("Manifest received from DHT for {}. Starting parallel shard download...", hash);
-                                    if let Some(state) = active_fetches.get_mut(&hash) {
-                                        state.manifest = Some(manifest.clone());
-                                    }
-                                    for (index, peer_id_str) in manifest.shards {
-                                        if let Ok(peer_id) = PeerId::from_str(&peer_id_str) {
-                                            let chunk_key = format!("{}_chunk_{}", hash, index);
-                                            let req_id = swarm.behaviour_mut().req_resp.send_request(
-                                                &peer_id,
-                                                DirectRequest::FetchShard { chunk_key }
-                                            );
-                                            req_resp_to_fetch.insert(req_id, (hash.clone(), index));
+                        match result {
+                            libp2p::kad::QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(record))) => {
+                                if let Some(hash) = manifest_queries.remove(&id) {
+                                    if let Ok(manifest) = serde_json::from_slice::<Manifest>(&record.record.value) {
+                                        println!("Manifest received from DHT for {}. Starting parallel shard download...", hash);
+                                        if let Some(state) = active_fetches.get_mut(&hash) {
+                                            state.manifest = Some(manifest.clone());
+                                        }
+                                        for (index, peer_id_str) in manifest.shards {
+                                            if let Ok(peer_id) = PeerId::from_str(&peer_id_str) {
+                                                let chunk_key = format!("{}_chunk_{}", hash, index);
+                                                let req_id = swarm.behaviour_mut().req_resp.send_request(
+                                                    &peer_id,
+                                                    DirectRequest::FetchShard { chunk_key }
+                                                );
+                                                req_resp_to_fetch.insert(req_id, (hash.clone(), index));
+                                            }
                                         }
                                     }
-                                }
-                            } else if let Some((hash, index)) = query_to_fetch.remove(&id) {
-                                if let Some(state) = active_fetches.get_mut(&hash) {
-                                    if state.shards[index].is_none() {
-                                        state.shards[index] = Some(record.record.value);
-                                        state.received += 1;
-                                        if state.received >= DATA_SHARDS {
-                                            println!("Collected {}/45 shards for {} via DHT. Restoring...", DATA_SHARDS, hash);
-                                            if let Ok(decoded) = decode_data(state.shards.clone(), state.original_size) {
-                                                if let Some(sender) = state.sender.take() {
-                                                    let _ = sender.send(Some(decoded));
+                                } else if let Some((hash, index)) = query_to_fetch.remove(&id) {
+                                    if let Some(state) = active_fetches.get_mut(&hash) {
+                                        if state.shards[index].is_none() {
+                                            state.shards[index] = Some(record.record.value);
+                                            state.received += 1;
+                                            if state.received >= DATA_SHARDS {
+                                                println!("Collected {}/{} shards for {} via DHT. Restoring...", DATA_SHARDS, TOTAL_SHARDS, hash);
+                                                if let Ok(decoded) = decode_data(state.shards.clone(), state.original_size) {
+                                                    if let Some(sender) = state.sender.take() {
+                                                        let _ = sender.send(Some(decoded));
+                                                    }
                                                 }
+                                                active_fetches.remove(&hash);
                                             }
-                                            active_fetches.remove(&hash);
                                         }
                                     }
                                 }
                             }
+                            libp2p::kad::QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. })) |
+                            libp2p::kad::QueryResult::GetRecord(Err(_)) => {
+                                if let Some(hash) = manifest_queries.remove(&id) {
+                                    println!("DHT search failed or finished without finding manifest for {}", hash);
+                                    if let Some(mut state) = active_fetches.remove(&hash) {
+                                        if let Some(sender) = state.sender.take() {
+                                            let _ = sender.send(None);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     SwarmEvent::Behaviour(crate::network::StorageBehaviourEvent::Kademlia(libp2p::kad::Event::RoutingUpdated { peer, is_new_peer, addresses, .. })) => {
