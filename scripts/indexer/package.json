@@ -1,0 +1,20 @@
+{
+  "name": "feedo-indexer",
+  "version": "1.0.0",
+  "description": "Scrapes Web3 sites and deploys them to Feedo network",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "p-limit": "^5.0.0",
+    "puppeteer": "^25.4.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "single-file-cli": "^2.0.83",
+    "website-scraper": "^6.0.0",
+    "website-scraper-puppeteer": "^2.0.1"
+  }
+}

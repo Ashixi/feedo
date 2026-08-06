@@ -13,6 +13,7 @@ import httpx
 import json
 from collections import defaultdict
 
+from auth import verify_feedo_auth
 from vector_service import VectorBrain
 from p2p import P2PNetwork
 from crawler import SearchCrawler
@@ -93,7 +94,13 @@ _rate_limiter = TokenBucketRateLimiter()
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Apply rate limiting to API endpoints."""
+    """Apply rate limiting and DID authentication to API endpoints."""
+    # 1. Check DID Authentication
+    auth_error_response = await verify_feedo_auth(request)
+    if auth_error_response:
+        return auth_error_response
+
+    # 2. Rate Limiting
     path = request.url.path
     
     # Only rate-limit specific endpoints
@@ -221,10 +228,10 @@ async def client_query(text: str, limit: int = 50, federated: bool = True, item_
         try:
             federated_results = await asyncio.wait_for(
                 p2p_net.federated_search(query_vector, text, ttl=3, top_k=5),
-                timeout=2.0
+                timeout=5.0
             )
         except asyncio.TimeoutError:
-            print(f"⚠️ Federated search timed out after 2s for query: {text[:80]}")
+            print(f"⚠️ Federated search timed out after 5s for query: {text[:80]}")
         except Exception as e:
             print(f"⚠️ Federated search error: {e}")
     
@@ -552,7 +559,7 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
 
 @app.post("/p2p/search")
 async def p2p_search(payload: SearchPayload):
-    result = await client_query(payload.query, limit=10, federated=payload.ttl > 1)
+    result = await client_query(payload.query, limit=10, federated=False)
     return {"query": payload.query, "results": result["results"]}
 
 @app.post("/p2p/index_vector")

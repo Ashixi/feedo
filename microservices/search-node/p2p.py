@@ -13,7 +13,7 @@ class P2PNetwork:
         
         base_url = os.environ.get("PUBLIC_API_URL")
         if base_url:
-            self.my_url = f"{base_url.rstrip('/')}/search"
+            self.my_url = base_url.rstrip('/')
         else:
             self.my_url = f"http://{host}:{port}"
         
@@ -42,6 +42,8 @@ class P2PNetwork:
         Uses average max cosine similarity between old/new centroid sets.
         Returns True if centroids have changed significantly enough to warrant broadcast.
         """
+        if not self._last_broadcasted_centroids and not new_centroids:
+            return False # Both empty, no change
         if not self._last_broadcasted_centroids or not new_centroids:
             return True  # first broadcast or empty data — always send
 
@@ -70,9 +72,6 @@ class P2PNetwork:
 
     async def _do_broadcast(self, centroids: list[list[float]], reason: str = "periodic"):
         """Send centroids to all known peers and update local tracking."""
-        if not centroids:
-            return
-
         cluster_ids = [f"cluster_{i}" for i in range(len(centroids))]
         payload = {
             "peer_id": self.my_url,
@@ -116,7 +115,7 @@ class P2PNetwork:
                         # Centroid cache was invalidated (threshold hit in add_vector_by_emb)
                         # — centroids may have changed. Use _get_my_centroids() to repopulate cache.
                         new_centroids = self.vector_brain._get_my_centroids(n_clusters=20)
-                        if new_centroids and self._centroids_changed_significantly(new_centroids):
+                        if new_centroids is not None and self._centroids_changed_significantly(new_centroids):
                             await self._do_broadcast(new_centroids, reason="event-driven")
 
                 await asyncio.sleep(check_interval)
@@ -124,7 +123,7 @@ class P2PNetwork:
 
             # Periodic broadcast
             centroids = self.vector_brain.compute_centroids(n_clusters=20)
-            if centroids:
+            if centroids is not None:
                 await self._do_broadcast(centroids, reason="periodic")
 
     async def federated_search(self, query_vector: list[float], query_text: str, ttl: int, top_k: int = 10) -> list[dict]:

@@ -6,8 +6,10 @@ edition = "2024"
 [dependencies]
 axum = { version = "0.7", features = ["multipart", "ws"] }
 base64 = "0.22.1"
+ethers = "2.0"
 futures = "0.3.32"
 hex = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
 libp2p = { version = "0.53", features = ["macros", "tokio", "quic", "request-response", "cbor", "identify", "gossipsub", "kad", "mdns", "tcp", "noise", "yamux"] }
 prost = "0.13"
 reed-solomon-erasure = "6.0"

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+venv/
+*.whl
+*.tar.gz
+.DS_Store
+.npmrc

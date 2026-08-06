@@ -18,6 +18,7 @@ mod network;
 mod swarm_loop;
 mod peer_cache;
 mod quota;
+mod auth;
 
 use network::{StorageBehaviour, HybridStore, DirectRequest, DirectResponse};
 use swarm_loop::{SwarmCommand, run_swarm};
@@ -85,6 +86,7 @@ fn extract_storage_class_from_header(headers: &axum::http::HeaderMap) -> Storage
 }
 
 async fn handle_upload(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     mut multipart: Multipart,
@@ -134,6 +136,7 @@ pub struct IngestPayload {
 }
 
 async fn handle_json_ingest(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<IngestPayload>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
@@ -162,6 +165,7 @@ async fn handle_json_ingest(
 }
 
 async fn handle_batch_json_ingest(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     axum::Json(payloads): axum::Json<Vec<IngestPayload>>,
 ) -> Result<axum::Json<Vec<String>>, (axum::http::StatusCode, String)> {
@@ -193,12 +197,14 @@ async fn handle_batch_json_ingest(
 }
 
 async fn handle_quota(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
 ) -> axum::Json<serde_json::Value> {
     axum::Json(state.quota_manager.usage_all())
 }
 
 async fn handle_recent_files(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
 ) -> axum::Json<serde_json::Value> {
     let hashes = state.recent_hashes.lock().unwrap().clone();
@@ -206,6 +212,7 @@ async fn handle_recent_files(
 }
 
 async fn handle_download(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     Path(hash): Path<String>,
 ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
@@ -218,6 +225,7 @@ async fn handle_download(
 }
 
 async fn handle_delete(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     Path(hash): Path<String>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
@@ -233,6 +241,7 @@ pub struct PublishPayload {
 }
 
 async fn handle_publish(
+    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<PublishPayload>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
@@ -247,6 +256,7 @@ async fn handle_publish(
 }
 
 async fn handle_subscribe(
+    _auth: auth::FeedoAuth,
     ws: WebSocketUpgrade,
     Path(topic): Path<String>,
     State(state): State<AppState>,
