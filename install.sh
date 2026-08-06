@@ -107,17 +107,17 @@ if [ "$NODE_TYPE" = "storage" ]; then
   chmod 777 /var/lib/feedo/storage
   
   echo "Building Storage Node..."
-  cd $INSTALL_DIR/microservices/storage-node
+  cd $INSTALL_DIR/microservices
   source $HOME/.cargo/env
-  cargo build --release
-  EXEC_PATH="$INSTALL_DIR/microservices/storage-node/target/release/storage-node"
+  cargo build --release -p storage-node
+  EXEC_PATH="$INSTALL_DIR/microservices/target/release/storage-node"
 
 elif [ "$NODE_TYPE" = "consensus" ]; then
   echo "Building Consensus Node..."
-  cd $INSTALL_DIR/microservices/consensus-node
+  cd $INSTALL_DIR/microservices
   source $HOME/.cargo/env
-  cargo build --release
-  EXEC_PATH="$INSTALL_DIR/microservices/consensus-node/target/release/consensus-node"
+  cargo build --release -p consensus-node
+  EXEC_PATH="$INSTALL_DIR/microservices/target/release/consensus-node"
 
 elif [ "$NODE_TYPE" = "search" ]; then
   echo "Setting up Search Node (Python)..."
