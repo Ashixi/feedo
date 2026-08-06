@@ -95,14 +95,20 @@ echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
 echo "BOOTSTRAP_PEERS=$BOOTSTRAP_PEERS" >> $ENV_FILE
 
 if [ "$NODE_TYPE" = "storage" ]; then
-  read -p "Quota for Manifests (GB) [Default: 10]: " QUOTA_MAN < /dev/tty
-  QUOTA_MAN=${QUOTA_MAN:-10}
-  read -p "Quota for Files/Data (GB) [Default: 100]: " QUOTA_DATA < /dev/tty
-  QUOTA_DATA=${QUOTA_DATA:-100}
-  
+  read -p "Quota for Sites (GB) [Default: 100]: " QUOTA_SITES < /dev/tty
+  QUOTA_SITES=${QUOTA_SITES:-100}
+  read -p "Quota for Blobs/Files (GB) [Default: 1000]: " QUOTA_BLOBS < /dev/tty
+  QUOTA_BLOBS=${QUOTA_BLOBS:-1000}
+  read -p "Quota for Social data (MB) [Default: 500]: " QUOTA_SOCIAL < /dev/tty
+  QUOTA_SOCIAL=${QUOTA_SOCIAL:-500}
+  read -p "Quota for Profiles (MB) [Default: 100]: " QUOTA_PROFILES < /dev/tty
+  QUOTA_PROFILES=${QUOTA_PROFILES:-100}
+
   echo "STORAGE_PATH=/var/lib/feedo/storage" >> $ENV_FILE
-  echo "QUOTA_MANIFESTS_GB=$QUOTA_MAN" >> $ENV_FILE
-  echo "QUOTA_DATA_GB=$QUOTA_DATA" >> $ENV_FILE
+  echo "QUOTA_SITES_GB=$QUOTA_SITES" >> $ENV_FILE
+  echo "QUOTA_BLOBS_GB=$QUOTA_BLOBS" >> $ENV_FILE
+  echo "QUOTA_SOCIAL_MB=$QUOTA_SOCIAL" >> $ENV_FILE
+  echo "QUOTA_PROFILES_MB=$QUOTA_PROFILES" >> $ENV_FILE
   mkdir -p /var/lib/feedo/storage
   chmod 777 /var/lib/feedo/storage
   
