@@ -51,8 +51,7 @@ This document outlines the high-level strategic roadmap for the Feedo ecosystem.
 - **Tokenomics (USDC/USDT-backed):** Launch the `PporTreasury.sol` smart contract on Polygon/Ethereum. Internal system credits are strictly pegged to stablecoins (likely USDC or USDT) to prevent pricing volatility for B2B clients.
 - **Monetization (Pay-as-you-go):**
   - **Vector API:** Paid access to semantic search for third-party dApps and AI agents (e.g., $X per 10k queries).
-  - **Pay-per-byte:** Enterprise-grade storage APIs with decentralized redundancy.
-  - **Premium Namespaces:** Smart contracts for transparent auctions of premium `.feedo` domains and routing identifiers.
+  - **Storage Fees:** Paid decentralized storage space for AI memory and dApp datasets.
 - **Technology:** Implement Spillover mechanics for semantic shards to resolve cluster imbalances during data floods.
 
 ---
