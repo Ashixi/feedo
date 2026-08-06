@@ -203,6 +203,22 @@ async fn handle_quota(
     axum::Json(state.quota_manager.usage_all())
 }
 
+#[derive(serde::Serialize)]
+struct PeersResponse {
+    storage_nodes: Vec<String>,
+}
+
+async fn handle_peers() -> axum::Json<PeersResponse> {
+    let peer_cache = crate::peer_cache::PeerCache::load("peer_cache.json");
+    let mut storage_nodes = Vec::new();
+    for entry in peer_cache.peers.values() {
+        if let Some(url) = &entry.api_url {
+            storage_nodes.push(url.clone());
+        }
+    }
+    axum::Json(PeersResponse { storage_nodes })
+}
+
 async fn handle_recent_files(
     _auth: auth::FeedoAuth,
     State(state): State<AppState>,
@@ -445,6 +461,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/download/:hash", get(handle_download))
         .route("/delete/:hash", delete(handle_delete))
         .route("/api/v1/quota", get(handle_quota))
+        .route("/api/v1/peers", get(handle_peers))
         .with_state(app_state)
         .layer(cors)
         .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024));

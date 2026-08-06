@@ -12,6 +12,8 @@ import aiohttp
 import httpx
 import json
 from collections import defaultdict
+import random
+from peer_discovery import init_discovery, get_storage_nodes
 
 from auth import verify_feedo_auth
 from vector_service import VectorBrain
@@ -119,7 +121,7 @@ async def fetch_missing_text_from_dht(results: list):
     async def fetch_text(r):
         if not r.get("text"):
             async with aiohttp.ClientSession() as session:
-                for gateway in GATEWAYS:
+                for gateway in (get_storage_nodes() or GATEWAYS):
                     try:
                         async with session.get(f"{gateway}/download/{r['hash_id']}", timeout=3.0) as resp:
                             if resp.status == 200:
@@ -176,6 +178,8 @@ async def startup_event():
     adapters = [FeedoStorageAdapter(), IPFSStorageAdapter()]
     crawler = SearchCrawler(brain, adapters, http_client=_http_client)
     asyncio.create_task(crawler.crawl_loop())
+    
+    init_discovery(GATEWAYS)
 
 @app.post("/p2p/handshake")
 async def p2p_handshake(payload: HandshakePayload):
@@ -467,7 +471,8 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
     import requests
     from bs4 import BeautifulSoup
     
-    storage_node_url = os.getenv("STORAGE_NODE_URL", "http://storage-node:3001")
+    storage_nodes = get_storage_nodes()
+    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")
     
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "site.zip")
@@ -613,7 +618,8 @@ async def proxy_unpin(cid: str):
 @app.delete("/proxy/unpin_feedo/{cid}")
 async def proxy_unpin_feedo(cid: str):
     import requests
-    storage_node_url = os.getenv("STORAGE_NODE_URL", "http://storage-node:3001")
+    storage_nodes = get_storage_nodes()
+    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")
     url = f"{storage_node_url}/delete/{cid}"
     
     try:

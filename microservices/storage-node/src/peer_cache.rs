@@ -10,6 +10,7 @@ pub struct PeerCacheEntry {
     pub success_count: u32,
     pub fail_count: u32,
     pub score: f64,
+    pub api_url: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone)]
@@ -38,11 +39,13 @@ impl PeerCache {
         let entry = self.peers.entry(peer_id.to_string()).or_insert(PeerCacheEntry {
             peer_id: peer_id.to_string(),
             multiaddrs: vec![],
-            last_seen_unix: now,
+            last_seen_unix: 0,
             success_count: 0,
             fail_count: 0,
-            score: 1.0,
+            score: 0.0,
+            api_url: None,
         });
+        entry.last_seen_unix = now;
         for a in addrs.into_iter() {
             if !entry.multiaddrs.contains(&a) {
                 entry.multiaddrs.push(a);
@@ -55,6 +58,23 @@ impl PeerCache {
         } else {
             entry.fail_count = entry.fail_count.saturating_add(1);
             entry.score = (entry.score * 0.9) - 0.1 * (entry.fail_count as f64 + 1.0);
+        }
+    }
+
+    pub fn update_api_url(&mut self, peer_id: &str, api_url: String) {
+        if let Some(entry) = self.peers.get_mut(peer_id) {
+            entry.api_url = Some(api_url);
+        } else {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            self.peers.insert(peer_id.to_string(), PeerCacheEntry {
+                peer_id: peer_id.to_string(),
+                multiaddrs: vec![],
+                last_seen_unix: now,
+                success_count: 0,
+                fail_count: 0,
+                score: 0.0,
+                api_url: Some(api_url),
+            });
         }
     }
 

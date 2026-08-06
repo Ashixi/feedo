@@ -145,6 +145,31 @@ pub async fn run_swarm(
     // Initial bootstrap is good to have shortly after startup
     let mut initial_bootstrap = true;
 
+    // Publish our HTTP URL to Kademlia
+    let http_port: u16 = std::env::var("HTTP_PORT").unwrap_or_else(|_| "3001".to_string()).parse().unwrap_or(3001);
+    let public_ip = match std::env::var("PUBLIC_IP") {
+        Ok(ip) => ip,
+        Err(_) => {
+            match reqwest::get("https://api.ipify.org").await {
+                Ok(resp) => resp.text().await.unwrap_or_else(|_| "127.0.0.1".to_string()),
+                Err(_) => "127.0.0.1".to_string(),
+            }
+        }
+    };
+    let http_url = format!("http://{}:{}", public_ip, http_port);
+    let key = libp2p::kad::RecordKey::new(&format!("/feedo/storage/http/{}", swarm.local_peer_id()));
+    let record = libp2p::kad::Record {
+        key,
+        value: http_url.clone().into_bytes(),
+        publisher: None,
+        expires: None,
+    };
+    if let Err(e) = swarm.behaviour_mut().kademlia.put_record(record, libp2p::kad::Quorum::One) {
+        println!("Failed to publish HTTP URL to Kademlia: {:?}", e);
+    } else {
+        println!("Published HTTP URL to Kademlia: {}", http_url);
+    }
+
     loop {
         tokio::select! {
             _ = bootstrap_interval.tick() => {
@@ -233,6 +258,10 @@ pub async fn run_swarm(
                                 if announce.timestamp > now + 60 || now.saturating_sub(announce.timestamp) > 60 * 60 {
                                     println!("Ignoring stale/future announce from {}", announce.peer_id);
                                 } else {
+                                    peer_cache.add_or_update(&announce.peer_id, announce.listen_addrs.clone(), true);
+                                    if let Some(url) = announce.api_url {
+                                        peer_cache.update_api_url(&announce.peer_id, url);
+                                    }
                                     if let Some(src) = message.source {
                                         if src.to_string() != announce.peer_id {
                                             println!("Announce peer_id {} does not match message source {}. Ignored.", announce.peer_id, src);
@@ -536,7 +565,7 @@ pub async fn run_swarm(
                                 storage_status: Some(storage_status),
                                 quota_status: Some(quota_snapshot),
                                 is_supernode: Some(false),
-                                api_url: None,
+                                api_url: Some(http_url.clone()),
                             };
 
                             if let Ok(payload) = serde_json::to_vec(&announce) {
