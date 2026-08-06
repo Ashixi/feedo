@@ -78,9 +78,22 @@ NODE_ADDR=$(jq -r '.address' /etc/feedo/keys.json)
 # 4. Independent Registry (Zero Config Discovery)
 echo "[4/6] Connecting to global registry..."
 BOOTSTRAP_PEERS=""
-if curl -s -f $REGISTRY_URL > /tmp/seed_nodes.json; then
-  # Parse JSON if valid
-  BOOTSTRAP_PEERS=$(jq -r '.peers | join(",")' /tmp/seed_nodes.json || echo "")
+CONSENSUS_NODE_URL=""
+STORAGE_NODE_URL=""
+SEARCH_NODE_URL=""
+
+if curl -s -f $REGISTRY_URL > /tmp/seed_nodes.json 2>/dev/null; then
+  # Extract P2P addresses for bootstrap
+  BOOTSTRAP_PEERS=$(jq -r '[.nodes[].p2p_addr] | join(",")' /tmp/seed_nodes.json 2>/dev/null || echo "")
+
+  # Extract HTTP URLs by node type — fully automatic service discovery
+  CONSENSUS_NODE_URL=$(jq -r '[.nodes[] | select(.type=="consensus") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
+  STORAGE_NODE_URL=$(jq -r '[.nodes[] | select(.type=="storage") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
+  SEARCH_NODE_URL=$(jq -r '[.nodes[] | select(.type=="search") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
+
+  echo "  Consensus: ${CONSENSUS_NODE_URL:-not found in registry}"
+  echo "  Storage:   ${STORAGE_NODE_URL:-not found in registry}"
+  echo "  Search:    ${SEARCH_NODE_URL:-not found in registry}"
 else
   echo "Warning: Could not fetch registry from $REGISTRY_URL. Node will start as a Genesis Node."
 fi
@@ -93,6 +106,9 @@ mkdir -p "$INSTALL_DIR/microservices/$NODE_TYPE-node"
 echo "NODE_DID=$NODE_DID" > $ENV_FILE
 echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
 echo "BOOTSTRAP_PEERS=$BOOTSTRAP_PEERS" >> $ENV_FILE
+echo "CONSENSUS_NODE_URL=$CONSENSUS_NODE_URL" >> $ENV_FILE
+echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
+echo "SEARCH_NODE_URL=$SEARCH_NODE_URL" >> $ENV_FILE
 
 if [ "$NODE_TYPE" = "storage" ]; then
   read -p "Quota for Sites (GB) [Default: 100]: " QUOTA_SITES < /dev/tty
@@ -131,7 +147,7 @@ elif [ "$NODE_TYPE" = "search" ]; then
   python3 -m venv venv
   source venv/bin/activate
   pip install -r requirements.txt
-  EXEC_PATH="$INSTALL_DIR/microservices/search-node/venv/bin/python $INSTALL_DIR/microservices/search-node/src/main.py"
+  EXEC_PATH="$INSTALL_DIR/microservices/search-node/venv/bin/python $INSTALL_DIR/microservices/search-node/main.py"
 fi
 
 # 6. Systemd Registration
