@@ -36,7 +36,7 @@ REGISTRY_URL="https://raw.githubusercontent.com/Ashixi/feedo/main/seed_nodes.jso
 # 1. Install System Dependencies
 echo "[1/6] Installing system dependencies..."
 apt-get update -yq
-apt-get install -yq curl git build-essential python3 python3-pip python3-venv jq
+apt-get install -yq curl git build-essential python3 python3-pip python3-venv jq pkg-config libssl-dev
 
 if [ "$NODE_TYPE" = "consensus" ] || [ "$NODE_TYPE" = "storage" ]; then
   if ! command -v cargo &> /dev/null; then
