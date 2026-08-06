@@ -57,37 +57,16 @@ else
   cd $INSTALL_DIR
 fi
 
-# 3. Generate Keys
+# 3. Generate Keys (via Rust keygen binary)
 echo "[3/6] Generating Node Identity (Keys & DID)..."
 mkdir -p /etc/feedo
 if [ ! -f "/etc/feedo/keys.json" ]; then
-  # We use python to quickly generate an ed25519 key
-  # pip install pynacl is needed
-  rm -rf /opt/feedo/keygen-env
-  python3 -m venv /opt/feedo/keygen-env
-  /opt/feedo/keygen-env/bin/pip install --no-cache-dir pynacl eth_keys eth_utils "eth-hash[pycryptodome]"
-  
-  # Run our script if we have it, or a small inline script
-  cat << 'EOF' > /tmp/feedo_keygen.py
-import json
-import secrets
-from eth_keys import keys
-from eth_utils import decode_hex
-
-priv = keys.PrivateKey(secrets.token_bytes(32))
-pub = priv.public_key
-address = pub.to_checksum_address().lower()
-
-data = {
-    "private_key": priv.to_hex(),
-    "public_key": pub.to_hex(),
-    "address": address,
-    "did": f"did:feedo:{address}"
-}
-with open("/etc/feedo/keys.json", "w") as f:
-    json.dump(data, f, indent=4)
-EOF
-  /opt/feedo/keygen-env/bin/python /tmp/feedo_keygen.py
+  echo "Compiling feedo-keygen..."
+  source $HOME/.cargo/env
+  cd $INSTALL_DIR/microservices
+  cargo build --release -p feedo-keygen
+  KEYGEN_BIN="$INSTALL_DIR/microservices/target/release/feedo-keygen"
+  $KEYGEN_BIN > /etc/feedo/keys.json
   echo "Keys generated successfully!"
 else
   echo "Keys already exist at /etc/feedo/keys.json"

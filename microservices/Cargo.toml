@@ -3,5 +3,6 @@ resolver = "2"
 members = [
     "consensus-node",
     "storage-node",
-    "shared-proto"
+    "shared-proto",
+    "feedo-keygen"
 ]
