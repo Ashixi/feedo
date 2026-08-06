@@ -63,6 +63,7 @@ mkdir -p /etc/feedo
 if [ ! -f "/etc/feedo/keys.json" ]; then
   # We use python to quickly generate an ed25519 key
   # pip install pynacl is needed
+  rm -rf /opt/feedo/keygen-env
   python3 -m venv /opt/feedo/keygen-env
   /opt/feedo/keygen-env/bin/pip install --no-cache-dir pynacl eth_keys eth_utils "eth-hash[pycryptodome]"
   
