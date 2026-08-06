@@ -1,6 +1,6 @@
 # Feedo Ecosystem: Global Product Roadmap
 
-This document outlines the high-level strategic roadmap for the Feedo ecosystem. Our primary focus is on solving immediate B2B and developer needs, particularly in decentralized semantic search, vector databases, and scalable P2P storage for AI agents and Web3 applications.
+This document outlines the high-level strategic roadmap for the Feedo ecosystem. Our primary focus is on solving immediate B2B and developer needs, particularly in decentralized semantic search, vector databases, and scalable P2P storage for Web3 applications and data engineers.
 
 ---
 
@@ -16,10 +16,10 @@ This document outlines the high-level strategic roadmap for the Feedo ecosystem.
 ---
 
 ## Phase 1: "Product-Market Fit & API Adoption" (Months 1-3)
-*Focus on B2B clients, AI startups, and Web3 developers.*
+*Focus on B2B clients and Web3 developers.*
 
-**Goal:** Secure the first 10-20 active integrations from companies/developers using Feedo as a memory layer or decentralized backend.
-- **Go-to-Market:** Direct sales and developer relations (DevRel) targeting AI agent builders, data engineers, and decentralized apps (dApps). 
+**Goal:** Secure the first 10-20 active integrations from companies/developers using Feedo as a decentralized backend.
+- **Go-to-Market:** Direct sales and developer relations (DevRel) targeting data engineers and decentralized apps (dApps). 
 - **Product (Developer Experience):**
   - Expand and document the **Feedo SDK** (Python/TypeScript) for seamless integration of Vector API and Storage capabilities.
   - Provide a highly available managed Gateway for early adopters to query the network effortlessly.
@@ -50,14 +50,14 @@ This document outlines the high-level strategic roadmap for the Feedo ecosystem.
 **Goal:** Launch the mainnet financial incentives to make the network economically self-sustaining.
 - **Tokenomics (USDC/USDT-backed):** Launch the `PporTreasury.sol` smart contract on Polygon/Ethereum. Internal system credits are strictly pegged to stablecoins (likely USDC or USDT) to prevent pricing volatility for B2B clients.
 - **Monetization (Pay-as-you-go):**
-  - **Vector API:** Paid access to semantic search for third-party dApps and AI agents (e.g., $X per 10k queries).
-  - **Storage Fees:** Paid decentralized storage space for AI memory and dApp datasets.
+  - **Vector API:** Paid access to semantic search for third-party dApps and Web3 projects (e.g., $X per 10k queries).
+  - **Storage Fees:** Paid decentralized storage space for developers, dApps, and users.
 - **Technology:** Implement Spillover mechanics for semantic shards to resolve cluster imbalances during data floods.
 
 ---
 
 ## Phase 4: "The Global Knowledge Graph" (Mainnet Scale)
-*Focus on setting the global standard for decentralized search and AI memory.*
+*Focus on setting the global standard for decentralized search and storage.*
 
 **Goal:** Scale the network to 2000+ nodes and become the default decentralized vector database layer.
 - **Product:**
