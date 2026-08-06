@@ -17,7 +17,7 @@ echo "Which Feedo node would you like to install?"
 echo "1) Consensus Node (Rust)"
 echo "2) Storage Node (Rust)"
 echo "3) Search Node (Python, ML)"
-read -p "Select (1-3): " NODE_CHOICE
+read -p "Select (1-3): " NODE_CHOICE < /dev/tty
 
 case $NODE_CHOICE in
   1) NODE_TYPE="consensus" ;;
@@ -115,9 +115,9 @@ echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
 echo "BOOTSTRAP_PEERS=$BOOTSTRAP_PEERS" >> $ENV_FILE
 
 if [ "$NODE_TYPE" = "storage" ]; then
-  read -p "Quota for Manifests (GB) [Default: 10]: " QUOTA_MAN
+  read -p "Quota for Manifests (GB) [Default: 10]: " QUOTA_MAN < /dev/tty
   QUOTA_MAN=${QUOTA_MAN:-10}
-  read -p "Quota for Files/Data (GB) [Default: 100]: " QUOTA_DATA
+  read -p "Quota for Files/Data (GB) [Default: 100]: " QUOTA_DATA < /dev/tty
   QUOTA_DATA=${QUOTA_DATA:-100}
   
   echo "STORAGE_PATH=/var/lib/feedo/storage" >> $ENV_FILE
