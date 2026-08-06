@@ -11,7 +11,7 @@ This document outlines the high-level strategic roadmap for the Feedo ecosystem.
 - **Technology:** Core logic for all three microservices implemented (Storage with Reed-Solomon, Consensus with PBFT & Cryptographic Sortition, Search with Semantic Sharding).
 - **Product:** SDKs (Python, TypeScript) with decentralized DID-based token-gating and authentication mechanisms.
 - **Security:** Audited conceptual risks and secure local validation.
-- **Status:** Architecture validated, ready for Y Combinator and aggressive B2B outreach.
+- **Status:** Architecture validated, preparing for early B2B pilots and initial developer onboarding.
 
 ---
 
