@@ -114,6 +114,7 @@ echo "BOOTSTRAP_PEERS=$BOOTSTRAP_PEERS" >> $ENV_FILE
 echo "CONSENSUS_NODE_URL=$CONSENSUS_NODE_URL" >> $ENV_FILE
 echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
 echo "SEARCH_NODE_URL=$SEARCH_NODE_URL" >> $ENV_FILE
+echo "ETH_RPC_URL=https://polygon.llamarpc.com" >> $ENV_FILE
 
 if [ "$NODE_TYPE" = "storage" ]; then
   read -p "Total Storage Quota (GB) [Default: 70]: " QUOTA_TOTAL < /dev/tty
