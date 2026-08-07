@@ -9,6 +9,11 @@
       "type": "storage",
       "http_url": "http://95.111.245.68:3001",
       "p2p_addr": "/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWLsiaNCqc7JDqCYhQ9VZHPWjxp98xh2ycPU15ZChkr9Bo"
+    },
+    {
+      "type": "search",
+      "http_url": "http://95.111.245.68:8000",
+      "p2p_addr": ""
     }
   ]
 }
