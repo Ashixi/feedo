@@ -48,12 +48,18 @@ client = FeedoClient(
 
 The Search module handles semantic queries and document vectorization.
 
-### `query(query_text: str, limit: int = 10, item_type: str = "all")`
-Perform a semantic search across the network, optionally filtering by item type.
+### `query(query_text: str, limit: int = 10, item_type: str = "all", app_id: str = None)`
+Perform a semantic search across the network, optionally filtering by item type or application ID.
 ```python
-# Example: Search only within 'post' items
-response = await client.search.query("DeFi protocols", limit=5, item_type="post")
+# Example: Search only within 'post' items created by 'SocialApp1'
+response = await client.search.query("DeFi protocols", limit=5, item_type="post", app_id="SocialApp1")
 print(response.get("results", []))
+```
+
+### `get_documents(limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = None)`
+Fetch a feed of the latest indexed documents without semantic search, with optional filtering.
+```python
+feed = await client.search.get_documents(item_type="post", app_id="SocialApp1")
 ```
 
 ### `index_document(content: str, metadata: dict = None)`
@@ -149,6 +155,34 @@ Get a list of recently uploaded files.
 ```python
 recent = await client.storage.get_recent_files()
 ```
+
+---
+
+## E2EE Private Files (End-to-End Encryption)
+
+The SDK provides built-in End-to-End Encryption using AES-GCM and ECIES. You can seamlessly encrypt files, store them on the decentralized network, and manage access via the Consensus Node.
+
+### `upload_private_file(file_path: str, grantee_public_key_hex: str = None, index_for_search: bool = True)`
+Uploads a file securely. The file is AES-encrypted locally, and the symmetric key is ECIES-encrypted for the grantee.
+```python
+# Upload a private file for yourself and index it in the Search Node for private querying
+hash_id = await client.upload_private_file("./secret_diary.txt")
+print("Encrypted File Hash:", hash_id)
+```
+
+### `download_private_file(hash_id: str)`
+Downloads and automatically decrypts a private file (if your DID has access granted by the Consensus Node).
+```python
+decrypted_bytes = await client.download_private_file("Qm...")
+with open("decrypted_diary.txt", "wb") as f:
+    f.write(decrypted_bytes)
+```
+
+#### How it works under the hood:
+1. **Client-Side Encryption:** The SDK locally encrypts your file using AES-GCM. 
+2. **Secure Storage:** The encrypted gibberish is uploaded to the **Storage Node** (which has no idea what the file contains).
+3. **Access Management:** The AES symmetric key is asymmetrically encrypted (ECIES) using the receiver's public key and stored safely on the **Consensus Node**.
+4. **Private Vectorization:** If `index_for_search` is True, the plaintext is temporarily sent to the **Search Node**, which generates a vector embedding and *immediately deletes the plaintext*. This allows you to semantically search your private files without exposing the data.
 
 ## Error Handling
 

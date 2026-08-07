@@ -41,8 +41,32 @@ class SearchModule:
                 response.raise_for_status()
                 return response.json()
 
-    async def query(self, query_text: str, limit: int = 10, item_type: str = "all"):
-        return await self._request("GET", "/query", params={"text": query_text, "limit": limit, "item_type": item_type})
+    async def search(self, query: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0):
+        params = {
+            "text": query,
+            "limit": limit,
+            "federated": "true" if federated else "false",
+            "item_type": item_type,
+            "offset": offset
+        }
+        return await self._request("GET", "/query", params=params)
+
+    async def index_private_document(self, hash_id: str, plaintext: str, metadata: dict = None):
+        if not self.private_key:
+            raise ValueError("Private key required to index private documents")
+            
+        from eth_account import Account
+        my_account = Account.from_key(self.private_key)
+        my_did = f"did:feedo:{my_account.address}"
+        
+        payload = {
+            "hash_id": hash_id,
+            "text": plaintext,
+            "item_type": "private_post",
+            "author": my_did,
+            "metadata": metadata or {}
+        }
+        return await self._request("POST", "/index_document", json=payload)
 
     async def index_document(self, content: str, metadata: Optional[Dict] = None):
         import random, string
@@ -50,6 +74,18 @@ class SearchModule:
         hash_id = 'doc_' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
         item_type = metadata.get("type", "document")
         return await self._request("POST", "/index_document", json={"text": content, "metadata": metadata, "hash_id": hash_id, "item_type": item_type})
+
+    async def query(self, query_text: str, limit: int = 10, item_type: str = "all", app_id: str = None):
+        params = {"text": query_text, "limit": limit, "item_type": item_type}
+        if app_id:
+            params["app_id"] = app_id
+        return await self._request("GET", "/query", params=params)
+
+    async def get_documents(self, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = None):
+        params = {"limit": limit, "offset": offset, "item_type": item_type}
+        if app_id:
+            params["app_id"] = app_id
+        return await self._request("GET", "/documents", params=params)
 
     async def deploy_proxy(self, directory_path: str, domain: str):
         return await self._request("POST", "/proxy/publish_feedo", json={"source_dir": directory_path, "domain": domain})

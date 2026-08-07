@@ -2,7 +2,7 @@ import axios from 'axios';
 import { NodeRouter } from '../router';
 
 export class ConsensusModule {
-    constructor(private router: NodeRouter) {}
+    constructor(private router: NodeRouter, private privateKey?: string) {}
 
     private async request(method: string, path: string, data?: any) {
         let baseUrl = await this.router.getConsensusNode();
@@ -33,8 +33,21 @@ export class ConsensusModule {
         return this.request('GET', `/did/${encodeURIComponent(did)}/balance`);
     }
 
-    async registerDid(pubkeyHex: string, signatureHex: string) {
-        return this.request('POST', '/did/register', { pubkey_hex: pubkeyHex, signature_hex: signatureHex });
+    async registerDid(publicKeyHex: string, signature: string) {
+        const { ethers } = require('ethers');
+        let address = "";
+        try {
+            // Ethers v6: computeAddress from public key
+            address = ethers.computeAddress(publicKeyHex);
+        } catch (e) {
+            address = publicKeyHex; // fallback
+        }
+        const did = `did:feedo:${address}`;
+
+        return this.request('POST', '/did/register', {
+            did: did,
+            public_key: publicKeyHex,
+        });
     }
 
     async registerName(name: string, did: string, cid: string, signatureHex: string) {
@@ -47,5 +60,19 @@ export class ConsensusModule {
 
     async listGrants() {
         return this.request('GET', '/grants');
+    }
+
+    async grantFileAccess(fileHash: string, granteeDid: string, encryptedSymmetricKey: string, publicKey: string, signatureHex: string) {
+        return this.request('POST', '/grant/access', {
+            file_hash: fileHash,
+            grantee_did: granteeDid,
+            encrypted_symmetric_key: encryptedSymmetricKey,
+            public_key: publicKey,
+            signature: signatureHex
+        });
+    }
+
+    async getFileAccess(fileHash: string, granteeDid: string) {
+        return this.request('GET', `/grant/access/${encodeURIComponent(fileHash)}/${encodeURIComponent(granteeDid)}`);
     }
 }

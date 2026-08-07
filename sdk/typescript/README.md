@@ -45,12 +45,18 @@ const feedo = new FeedoClient({
 
 The Search module handles semantic queries, document vectorization, and Web2/Web3 gateways.
 
-### `query(queryText: string, limit?: number, itemType?: string)`
-Perform a semantic search across the network, optionally filtering by item type.
+### `search(queryText: string, limit?: number, federated?: boolean, itemType?: string, offset?: number, appId?: string)`
+Perform a semantic search across the network, optionally filtering by item type or application ID.
 ```typescript
-// Example: Search only within 'post' items
-const response = await feedo.search.query("DeFi protocols", 5, "post");
+// Example: Search only within 'post' items created by 'SocialApp1'
+const response = await feedo.search.search("DeFi protocols", 5, true, "post", 0, "SocialApp1");
 console.log(response.results);
+```
+
+### `getDocuments(limit?: number, offset?: number, itemType?: string, appId?: string)`
+Fetch a feed of the latest indexed documents without semantic search, with optional filtering.
+```typescript
+const feed = await feedo.search.getDocuments(50, 0, "post", "SocialApp1");
 ```
 
 ### `indexDocument(content: string, metadata?: Record<string, any>)`
@@ -145,6 +151,34 @@ Get a list of recently uploaded public files.
 ```typescript
 const recent = await feedo.storage.getRecentFiles();
 ```
+
+---
+
+## E2EE Private Files (End-to-End Encryption)
+
+The SDK provides built-in End-to-End Encryption using AES-GCM and ECIES. You can seamlessly encrypt files, store them on the decentralized network, and manage access via the Consensus Node.
+
+### `uploadPrivateFile(fileBuffer: Buffer, granteePublicKeyHex?: string, indexForSearch?: boolean)`
+Uploads a file securely. The file is AES-encrypted on the client, and the symmetric key is ECIES-encrypted for the grantee.
+```typescript
+// Upload a private file for yourself and index it in the Search Node for private querying
+const fileBuffer = Buffer.from("My secret diary entry");
+const hashId = await feedo.uploadPrivateFile(fileBuffer);
+console.log("Encrypted File Hash:", hashId);
+```
+
+### `downloadPrivateFile(hashId: string)`
+Downloads and automatically decrypts a private file (if your DID has access granted by the Consensus Node).
+```typescript
+const decryptedBuffer = await feedo.downloadPrivateFile("Qm...");
+console.log(decryptedBuffer.toString('utf-8'));
+```
+
+#### How it works under the hood:
+1. **Client-Side Encryption:** The SDK locally encrypts your file using AES-GCM. 
+2. **Secure Storage:** The encrypted gibberish is uploaded to the **Storage Node** (which has no idea what the file contains).
+3. **Access Management:** The AES symmetric key is asymmetrically encrypted (ECIES) using the receiver's public key and stored safely on the **Consensus Node**.
+4. **Private Vectorization:** If `indexForSearch` is true, the plaintext is temporarily sent to the **Search Node**, which generates a vector embedding and *immediately deletes the plaintext*. This allows you to semantically search your private files without exposing the data.
 
 ## Error Handling
 

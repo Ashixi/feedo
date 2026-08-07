@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "eciesjs": "^0.5.0",
     "ethers": "^6.9.0"
   },
   "devDependencies": {

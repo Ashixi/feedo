@@ -92,7 +92,7 @@ where
             .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
         
         let client = reqwest::Client::new();
-        let correct_did_id = format!("did:feedo:{}", clean_addr);
+        let correct_did_id = format!("did:feedo:0x{}", clean_addr);
         let check_url = format!("{}/did/{}/balance", consensus_url, correct_did_id);
         
         let res = client.get(&check_url).send().await.map_err(|e| {

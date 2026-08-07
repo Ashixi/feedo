@@ -13,6 +13,8 @@ try:
 except ImportError:
     pass
 
+from peer_discovery import get_storage_nodes
+
 class SearchCrawler:
     def __init__(self, vector_brain: VectorBrain, adapters: list = None, consensus_url: str = "localhost:50051", http_client: httpx.AsyncClient = None):
         self.vector_brain = vector_brain
@@ -24,19 +26,32 @@ class SearchCrawler:
         if gateways_env:
             self.gateways = [g.strip().replace("http://", "").replace("https://", "") for g in gateways_env.split(",") if g.strip()]
         else:
-            self.gateways = [os.getenv("STORAGE_NODE_URL", "127.0.0.1:8040").replace("http://", "").replace("https://", "")]
+            self.gateways = [os.getenv("STORAGE_NODE_URL", "127.0.0.1:3001").replace("http://", "").replace("https://", "")]
 
     async def verify_domain_rights(self, did: str, file_hash: str) -> bool:
         """Calls consensus-node via gRPC to verify rights and reputation"""
-        try:
-            channel = grpc.aio.insecure_channel(self.consensus_url)
-            stub = feedo_pb2_grpc.ConsensusServiceStub(channel)
-            req = feedo_pb2.VerifyUploadRequest(user_did=did, file_hash=file_hash)
-            resp = await stub.VerifyUploadRights(req)
-            return resp.is_allowed
-        except Exception as e:
-            print(f"⚠️ Consensus verification failed for {file_hash}: {e}")
-            return False
+        from peer_discovery import get_consensus_grpc
+        consensus_nodes = get_consensus_grpc()
+        if not consensus_nodes:
+            # Fallback to env configured URL
+            consensus_nodes = [self.consensus_url]
+        else:
+            # Shuffle so we load balance slightly
+            random.shuffle(consensus_nodes)
+
+        for url in consensus_nodes:
+            try:
+                # Remove http:// or https:// if it slipped in
+                clean_url = url.replace("http://", "").replace("https://", "")
+                channel = grpc.aio.insecure_channel(clean_url)
+                stub = feedo_pb2_grpc.ConsensusServiceStub(channel)
+                req = feedo_pb2.VerifyUploadRequest(user_did=did, file_hash=file_hash)
+                resp = await stub.VerifyUploadRights(req)
+                return resp.is_allowed
+            except Exception as e:
+                print(f"⚠️ Consensus verification failed on {url} for {file_hash}: {e}")
+        
+        return False
 
     async def _forward_vector_to_peer(self, target_url: str, event: dict, vector: list[float]) -> bool:
         """Forward a single vector to a remote search node via /p2p/index_vector."""
@@ -124,14 +139,23 @@ class SearchCrawler:
                 print(f"⚠️ Error processing batch vector for {event.get('hash_id')}: {e}")
 
     async def crawl_loop(self):
-        print(f"🚀 Starting Event-Driven Crawler with batch processing. Configured gateways: {self.gateways}")
+        print(f"Starting Event-Driven Crawler with batch processing. Configured gateways: {self.gateways}")
         
         current_gateway_idx = 0
         
         while True:
+            # Refresh gateways dynamically from peer discovery
+            discovered_gateways = get_storage_nodes()
+            if discovered_gateways:
+                # Merge and keep only unique gateways, preserving order
+                for gw in discovered_gateways:
+                    gw_host = gw.replace("http://", "").replace("https://", "")
+                    if gw_host not in self.gateways:
+                        self.gateways.append(gw_host)
+            
             gateway = self.gateways[current_gateway_idx]
             ws_url = f"ws://{gateway}/api/v1/pubsub/subscribe/feedo_new_events"
-            print(f"🔄 Crawler connecting to {ws_url}...")
+            print(f"Crawler connecting to {ws_url}...")
             
             try:
                 async with websockets.connect(ws_url, ping_interval=None) as ws:

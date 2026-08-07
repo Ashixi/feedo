@@ -42,7 +42,13 @@ gateways_env = os.getenv("GATEWAYS", "")
 if gateways_env:
     GATEWAYS = [g.strip() for g in gateways_env.split(",") if g.strip()]
 else:
-    GATEWAYS = [os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")]
+    GATEWAYS = [os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:3001")]
+
+consensus_env = os.getenv("CONSENSUS_NODES", "")
+if consensus_env:
+    CONSENSUS_NODES = [g.strip() for g in consensus_env.split(",") if g.strip()]
+else:
+    CONSENSUS_NODES = [os.getenv("CONSENSUS_URL", "http://127.0.0.1:3002")]
 
 
 # --- In-memory Token Bucket Rate Limiter ---
@@ -179,7 +185,7 @@ async def startup_event():
     crawler = SearchCrawler(brain, adapters, http_client=_http_client)
     asyncio.create_task(crawler.crawl_loop())
     
-    init_discovery(GATEWAYS)
+    init_discovery(GATEWAYS, CONSENSUS_NODES)
 
 @app.post("/p2p/handshake")
 async def p2p_handshake(payload: HandshakePayload):
@@ -193,16 +199,37 @@ async def p2p_handshake(payload: HandshakePayload):
     return {"status": "ok", "peers": other_peers}
 
 @app.get("/query")
-async def client_query(text: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0):
+async def client_query(request: Request, text: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: str = ""):
+    x_feedo_did = request.headers.get("X-Feedo-DID")
     query_vector = await brain.get_embedding_async(text, is_query=True)
     local_results = []
     
     try:
         fetch_limit = (limit + offset) * 5
         def search_lance_vector(qv, flimit):
-            if item_type != "all":
-                return brain.table.search(qv, vector_column_name="vector").where(f"item_type = '{item_type}'").limit(flimit).to_list()
-            return brain.table.search(qv, vector_column_name="vector").limit(flimit).to_list()
+            q = brain.table.search(qv, vector_column_name="vector")
+            conditions = []
+            
+            if item_type == "all":
+                if x_feedo_did:
+                    conditions.append(f"(item_type != 'private_post' OR author = '{x_feedo_did}')")
+                else:
+                    conditions.append("item_type != 'private_post'")
+            elif item_type == "private_post":
+                if x_feedo_did:
+                    conditions.append(f"item_type = 'private_post'")
+                    conditions.append(f"author = '{x_feedo_did}'")
+                else:
+                    return [] # Unauthorized
+            else:
+                conditions.append(f"item_type = '{item_type}'")
+                
+            if app_id:
+                conditions.append(f"metadata LIKE '%{app_id}%'")
+                
+            if conditions:
+                return q.where(" AND ".join(conditions)).limit(flimit).to_list()
+            return q.limit(flimit).to_list()
             
         records = await asyncio.to_thread(search_lance_vector, query_vector, fetch_limit)
         
@@ -307,11 +334,33 @@ async def client_query(text: str, limit: int = 50, federated: bool = True, item_
     return {"results": final_results}
 
 @app.get("/documents")
-async def get_documents(limit: int = 50, offset: int = 0, item_type: str = "all"):
+async def get_documents(request: Request, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = ""):
     """Generic endpoint to fetch latest indexed documents."""
+    x_feedo_did = request.headers.get("X-Feedo-DID")
     try:
         def search_recent():
-            return brain.table.search().limit(1000).to_list()
+            q = brain.table.search()
+            conditions = []
+            if item_type == "all":
+                if x_feedo_did:
+                    conditions.append(f"(item_type != 'private_post' OR author = '{x_feedo_did}')")
+                else:
+                    conditions.append("item_type != 'private_post'")
+            elif item_type == "private_post":
+                if x_feedo_did:
+                    conditions.append(f"item_type = 'private_post'")
+                    conditions.append(f"author = '{x_feedo_did}'")
+                else:
+                    return []
+            else:
+                conditions.append(f"item_type = '{item_type}'")
+                
+            if app_id:
+                conditions.append(f"metadata LIKE '%{app_id}%'")
+                
+            if conditions:
+                return q.where(" AND ".join(conditions)).limit(1000).to_list()
+            return q.limit(1000).to_list()
             
         records = await asyncio.to_thread(search_recent)
         
@@ -345,17 +394,43 @@ async def get_documents(limit: int = 50, offset: int = 0, item_type: str = "all"
         return {"results": []}
 
 @app.post("/index_document")
-async def index_document(payload: IndexDocumentPayload):
+async def index_document(payload: IndexDocumentPayload, request: Request):
     """Manually push a document or website metadata to be indexed."""
     try:
-        await brain.add_vector_async(
-            post_id=int(time.time()), 
-            hash_id=payload.hash_id, 
-            text=payload.text,
-            item_type=payload.item_type,
-            author=payload.author,
-            metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
-        )
+        x_feedo_did = request.headers.get("X-Feedo-DID")
+        author = payload.author
+        
+        if payload.item_type == "private_post":
+            if not x_feedo_did:
+                return JSONResponse(status_code=401, content={"detail": "Authentication required for private posts"})
+            author = x_feedo_did
+            
+        text_for_vector = payload.text
+        text_to_store = payload.text
+        
+        if payload.item_type == "private_post":
+            # 1. Compute embedding with the plaintext
+            vector = await brain.get_embedding_async(text_for_vector)
+            # 2. Do not store plaintext in the database!
+            brain.add_vector_by_emb(
+                post_id=int(time.time()),
+                hash_id=payload.hash_id,
+                vector=vector,
+                source_type="api",
+                item_type="private_post",
+                author=author,
+                text="", # Erased!
+                metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+            )
+        else:
+            await brain.add_vector_async(
+                post_id=int(time.time()), 
+                hash_id=payload.hash_id, 
+                text=text_to_store,
+                item_type=payload.item_type,
+                author=author,
+                metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+            )
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -472,7 +547,7 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
     from bs4 import BeautifulSoup
     
     storage_nodes = get_storage_nodes()
-    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")
+    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:3001")
     
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "site.zip")
@@ -563,8 +638,10 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=f"Storage node error: {resp.text}")
 
 @app.post("/p2p/search")
-async def p2p_search(payload: SearchPayload):
-    result = await client_query(payload.query, limit=10, federated=False)
+async def p2p_search(request: Request, payload: SearchPayload):
+    # For now, p2p federated search uses a mock request without auth headers to fetch public items only.
+    mock_request = Request(scope={"type": "http", "headers": []})
+    result = await client_query(mock_request, payload.query, limit=10, federated=False)
     return {"query": payload.query, "results": result["results"]}
 
 @app.post("/p2p/index_vector")
@@ -619,7 +696,7 @@ async def proxy_unpin(cid: str):
 async def proxy_unpin_feedo(cid: str):
     import requests
     storage_nodes = get_storage_nodes()
-    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:8040")
+    storage_node_url = random.choice(storage_nodes) if storage_nodes else os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:3001")
     url = f"{storage_node_url}/delete/{cid}"
     
     try:

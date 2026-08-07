@@ -98,9 +98,8 @@ class P2PNetwork:
         self._last_broadcast_time = time.time()
 
     async def broadcast_centroids_loop(self):
-        """Periodically runs clustering and broadcasts centroids to peers.
-        Phase 1.5: Also checks for event-driven updates between timer ticks."""
-        print("🌐 Starting P2P Gossip Loop with event-driven centroid detection...")
+        """Continuously broadcast centroids to the P2P network, only when they change."""
+        print("Starting P2P Gossip Loop with event-driven centroid detection...")
         cycle_interval = 60 * 10  # 10 minutes base cycle
         check_interval = 10  # Check every 10 seconds for event-driven updates
 

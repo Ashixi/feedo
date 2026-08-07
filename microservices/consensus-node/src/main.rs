@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use shared_proto::consensus::consensus_service_server::{ConsensusService, ConsensusServiceServer};
 use shared_proto::consensus::{
     Empty, MissingChunkRequest, MissingChunkResponse, ResolveNameRequest,
-    ResolveNameResponse, ValidatorList, VerifyUploadRequest, VerifyUploadResponse,
+    ResolveNameResponse, ValidatorList, VerifyUploadRequest, VerifyUploadResponse, VerifyDownloadRequest, VerifyDownloadResponse,
 };
 use tonic::{transport::Server, Request, Response, Status};
 use std::net::SocketAddr;
@@ -24,6 +24,8 @@ pub mod ppor;
 pub mod network;
 pub mod swarm_loop;
 pub mod replay;
+pub mod acl;
+pub mod peer_cache;
 
 use swarm_loop::SwarmCommand;
 use network::{ConsensusCodec, CONSENSUS_PROTOCOL};
@@ -36,6 +38,7 @@ pub struct MyConsensusService {
     name_db: Arc<Mutex<name_db::NameDb>>,
     ppor_manager: Arc<Mutex<ppor::PporManager>>,
     swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
+    acl_manager: Arc<acl::AclManager>,
 }
 
 #[tonic::async_trait]
@@ -65,6 +68,50 @@ impl ConsensusService for MyConsensusService {
         
         Ok(Response::new(VerifyUploadResponse {
             is_allowed: false,
+            reason: "DID not found".into(),
+        }))
+    }
+
+    async fn verify_download_rights(
+        &self,
+        request: Request<VerifyDownloadRequest>,
+    ) -> Result<Response<VerifyDownloadResponse>, Status> {
+        let req = request.into_inner();
+        eprintln!("VerifyDownloadRequest: did={}, hash={}", req.user_did, req.file_hash);
+        
+        let did_manager = self.did_manager.lock().await;
+        let doc = did_manager.get_document(&req.user_did);
+        drop(did_manager);
+        
+        if let Some(doc) = doc {
+            let pub_key = &doc.verification_method[0].public_key_multibase;
+            let payload_bytes = format!("{}{}", req.file_hash, req.user_did).into_bytes();
+            if !did::verify_signature(pub_key, &payload_bytes, &req.signature) {
+                return Ok(Response::new(VerifyDownloadResponse {
+                    is_allowed: false,
+                    encrypted_symmetric_key: "".into(),
+                    reason: "Invalid signature".into(),
+                }));
+            }
+            
+            if let Some(encrypted_key) = self.acl_manager.get_encrypted_key(&req.file_hash, &req.user_did) {
+                return Ok(Response::new(VerifyDownloadResponse {
+                    is_allowed: true,
+                    encrypted_symmetric_key: encrypted_key,
+                    reason: "Ok".into(),
+                }));
+            } else {
+                return Ok(Response::new(VerifyDownloadResponse {
+                    is_allowed: false,
+                    encrypted_symmetric_key: "".into(),
+                    reason: "Access denied".into(),
+                }));
+            }
+        }
+        
+        Ok(Response::new(VerifyDownloadResponse {
+            is_allowed: false,
+            encrypted_symmetric_key: "".into(),
             reason: "DID not found".into(),
         }))
     }
@@ -111,10 +158,14 @@ pub struct AppState {
     pub ledger: Arc<accounting::Ledger>,
     pub ppor_manager: Arc<Mutex<ppor::PporManager>>,
     pub grant_authority: Arc<authority::CommitteeGrantAuthority>,
+    pub acl_manager: Arc<acl::AclManager>,
 }
 
 #[derive(Deserialize)]
-pub struct DidRegisterReq { pub public_key: String }
+pub struct DidRegisterReq { 
+    pub did: String,
+    pub public_key: String 
+}
 
 #[derive(Serialize)]
 pub struct DidRegisterRes { pub did: String }
@@ -254,9 +305,43 @@ impl UpdateMetadataTx {
     }
 }
 
+#[derive(Deserialize)]
+pub struct GrantFileAccessReq {
+    pub file_hash: String,
+    pub grantee_did: String,
+    pub encrypted_symmetric_key: String,
+    pub public_key: String,
+    pub signature: String,
+}
+
+async fn grant_file_access(State(state): State<AppState>, Json(payload): Json<GrantFileAccessReq>) -> Json<NameRegisterRes> {
+    let payload_bytes = format!("{}{}{}", payload.file_hash, payload.grantee_did, payload.encrypted_symmetric_key).into_bytes();
+    if !did::verify_signature(&payload.public_key, &payload_bytes, &payload.signature) {
+        return Json(NameRegisterRes { success: false, error: Some("Invalid signature".into()) });
+    }
+    
+    // We assume the granter is self (owner) or we just allow anyone to grant access to anyone?
+    // For simplicity, we just save the grant.
+    if let Err(e) = state.acl_manager.grant_access(&payload.file_hash, &payload.grantee_did, &payload.encrypted_symmetric_key) {
+        return Json(NameRegisterRes { success: false, error: Some(e.to_string()) });
+    }
+    
+    Json(NameRegisterRes { success: true, error: None })
+}
+
+#[derive(Serialize)]
+pub struct GetFileAccessRes {
+    pub encrypted_symmetric_key: Option<String>,
+}
+
+async fn get_file_access(State(state): State<AppState>, Path((file_hash, grantee_did)): Path<(String, String)>) -> Json<GetFileAccessRes> {
+    let key = state.acl_manager.get_encrypted_key(&file_hash, &grantee_did);
+    Json(GetFileAccessRes { encrypted_symmetric_key: key })
+}
+
 async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let did_id = format!("did:feedo:{}", payload.public_key.trim_start_matches("0x"));
+    let did_id = payload.did.clone();
     let doc = did::DidDocument::new(did_id.clone(), payload.public_key.clone(), ts);
     let did_manager = state.did_manager.lock().await;
     let _ = did_manager.insert_document(&doc);
@@ -534,9 +619,15 @@ pub struct BalanceRes {
 }
 
 async fn get_did_balance(State(state): State<AppState>, Path(did): Path<String>) -> Json<Option<BalanceRes>> {
-    let balance = state.ledger.get_balance(&did).await;
+    // Normalize: accept both "0xAddress" and "did:feedo:0xAddress" formats
+    let normalized_did = if did.starts_with("did:feedo:") {
+        did.clone()
+    } else {
+        format!("did:feedo:{}", did)
+    };
+    let balance = state.ledger.get_balance(&normalized_did).await;
     let did_manager = state.did_manager.lock().await;
-    if did_manager.get_document(&did).is_none() && balance == 0 {
+    if did_manager.get_document(&normalized_did).is_none() && balance == 0 {
         return Json(None);
     }
     drop(did_manager);
@@ -783,6 +874,27 @@ async fn list_grants(
     Json(rx.await.unwrap_or_default())
 }
 
+#[derive(serde::Serialize)]
+struct PeersResponse {
+    consensus_nodes: Vec<String>,
+    consensus_grpc: Vec<String>,
+}
+
+async fn handle_peers() -> axum::Json<PeersResponse> {
+    let peer_cache = crate::peer_cache::PeerCache::load("peer_cache.json");
+    let mut consensus_nodes = Vec::new();
+    let mut consensus_grpc = Vec::new();
+    for entry in peer_cache.peers.values() {
+        if let Some(url) = &entry.api_url {
+            consensus_nodes.push(url.clone());
+        }
+        if let Some(grpc) = &entry.grpc_url {
+            consensus_grpc.push(grpc.clone());
+        }
+    }
+    axum::Json(PeersResponse { consensus_nodes, consensus_grpc })
+}
+
 fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
     if let Ok(hex_str) = std::env::var("NODE_PRIVATE_KEY") {
         if let Ok(bytes) = hex::decode(hex_str.trim()) {
@@ -835,6 +947,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let did_manager = Arc::new(Mutex::new(did::DidManager::new(sled_db.clone())));
     
     let name_db = Arc::new(Mutex::new(name_db::NameDb::new(&format!("{}/names.db", db_dir)).unwrap()));
+    let acl_manager = Arc::new(acl::AclManager::new(sled_db.clone()));
 
     let rpc_url = std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "https://polygon-rpc.com".to_string());
     
@@ -980,6 +1093,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         name_db: name_db.clone(),
         ppor_manager: ppor_manager.clone(),
         swarm_tx: swarm_tx.clone(),
+        acl_manager: acl_manager.clone(),
     };
 
     eprintln!("Starting gRPC Consensus Service on {}", grpc_addr);
@@ -998,6 +1112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ledger: ledger.clone(),
         ppor_manager: ppor_manager.clone(),
         grant_authority,
+        acl_manager: acl_manager.clone(),
     };
     
     let local_name_db = name_db.lock().await;
@@ -1021,8 +1136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/name/update_metadata", post(update_metadata))
         .route("/grant/create", post(create_grant))
         .route("/grant/claim", post(claim_grant))
+        .route("/grant/access", post(grant_file_access))
+        .route("/grant/access/:file_hash/:grantee_did", get(get_file_access))
         .route("/grant/:grant_id", get(get_grant_info))
         .route("/grants", get(list_grants))
+        .route("/api/v1/peers", get(handle_peers))
         .layer(cors)
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();

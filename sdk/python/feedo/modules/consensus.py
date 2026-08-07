@@ -44,3 +44,16 @@ class ConsensusModule:
 
     async def list_grants(self):
         return await self._request("GET", "/grants")
+
+    async def grant_file_access(self, file_hash: str, grantee_did: str, encrypted_symmetric_key: str, public_key: str, signature_hex: str):
+        payload = {
+            "file_hash": file_hash,
+            "grantee_did": grantee_did,
+            "encrypted_symmetric_key": encrypted_symmetric_key,
+            "public_key": public_key,
+            "signature": signature_hex
+        }
+        return await self._request("POST", "/grant/access", json=payload)
+
+    async def get_file_access(self, file_hash: str, grantee_did: str):
+        return await self._request("GET", f"/grant/access/{file_hash}/{grantee_did}")

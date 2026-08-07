@@ -14,6 +14,9 @@ service ConsensusService {
 
     // Зробити мапінг домену у хеш файлу
     rpc ResolveName(ResolveNameRequest) returns (ResolveNameResponse);
+
+    // Перевірка чи має користувач право завантажити приватний файл
+    rpc VerifyDownloadRights(VerifyDownloadRequest) returns (VerifyDownloadResponse);
 }
 
 message VerifyUploadRequest {
@@ -54,4 +57,16 @@ message ResolveNameRequest {
 message ResolveNameResponse {
     string file_hash = 1;
     bool found = 2;
+}
+
+message VerifyDownloadRequest {
+    string user_did = 1;
+    string file_hash = 2;
+    string signature = 3;
+}
+
+message VerifyDownloadResponse {
+    bool is_allowed = 1;
+    string encrypted_symmetric_key = 2;
+    string reason = 3;
 }

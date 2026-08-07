@@ -20,6 +20,8 @@ pub struct PeerAnnounce {
     pub wallet_address: String,
     pub reputation: u64,
     pub version: String,
+    pub api_url: Option<String>,
+    pub grpc_url: Option<String>,
 }
 
 /// Reputation record stored in DHT under "/reputation/{wallet_address}"
@@ -365,6 +367,22 @@ pub async fn run_swarm(
     // Maps PeerId -> wallet_address (for reverse lookup)
     let mut peer_to_wallet: HashMap<libp2p::PeerId, String> = HashMap::new();
 
+    let mut peer_cache = crate::peer_cache::PeerCache::load("peer_cache.json");
+
+    let http_port: u16 = std::env::var("HTTP_PORT").unwrap_or_else(|_| "3000".to_string()).parse().unwrap_or(3000);
+    let public_ip = match std::env::var("PUBLIC_IP") {
+        Ok(ip) => ip,
+        Err(_) => {
+            match reqwest::get("https://api.ipify.org").await {
+                Ok(resp) => resp.text().await.unwrap_or_else(|_| "127.0.0.1".to_string()),
+                Err(_) => "127.0.0.1".to_string(),
+            }
+        }
+    };
+    let http_url = format!("http://{}:{}", public_ip, http_port);
+    let grpc_port: u16 = std::env::var("GRPC_PORT").unwrap_or_else(|_| "50051".to_string()).parse().unwrap_or(50051);
+    let grpc_url = format!("{}:{}", public_ip, grpc_port);
+
     // --- Publish our own announcement on startup ---
     {
         let manager = ppor_manager.lock().await;
@@ -381,6 +399,8 @@ pub async fn run_swarm(
             wallet_address: my_wallet.clone(),
             reputation: my_reputation,
             version: "1.0.0".to_string(),
+            api_url: Some(http_url.clone()),
+            grpc_url: Some(grpc_url.clone()),
         };
         eprintln!(
             "[BOOTSTRAP] Published self-announce: wallet={}, peer={}",
@@ -685,6 +705,13 @@ pub async fn run_swarm(
                                     peer_to_wallet
                                         .insert(peer_id, announce.wallet_address.clone());
                                 }
+                                
+                                peer_cache.add_or_update(&announce.peer_id, vec![], true);
+                                if let Some(api_url) = announce.api_url {
+                                    peer_cache.update_api_url(&announce.peer_id, api_url, announce.grpc_url);
+                                }
+                                peer_cache.save("peer_cache.json");
+
                                 let mut manager = ppor_manager.lock().await;
                                 if !manager
                                     .reputation_table

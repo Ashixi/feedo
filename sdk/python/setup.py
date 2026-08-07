@@ -16,6 +16,8 @@ setup(
         'httpx>=0.27.0',
         'pydantic>=2.0.0',
         'eth-account>=0.11.0',
+        'cryptography>=41.0.0',
+        'eciespy>=0.4.0',
     ],
     python_requires=">=3.8",
 )

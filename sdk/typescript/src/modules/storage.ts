@@ -10,9 +10,6 @@ export class StorageModule {
         let url = `${baseUrl}${path}`;
         
         const headers: any = {};
-        if (isMultipart) {
-            headers['Content-Type'] = 'multipart/form-data';
-        }
 
         if (this.privateKey) {
             const wallet = new ethers.Wallet(this.privateKey);
@@ -42,7 +39,36 @@ export class StorageModule {
     async uploadFile(fileBlobOrBuffer: any, filename: string = 'file') {
         const formData = new FormData();
         formData.append('file', fileBlobOrBuffer, filename);
-        return this.request('POST', '/upload', formData, true);
+        
+        let baseUrl = await this.router.getStorageNode();
+        let url = `${baseUrl}/upload`;
+        
+        const headers: any = {};
+        if (this.privateKey) {
+            const wallet = new ethers.Wallet(this.privateKey);
+            const did = `did:feedo:${wallet.address}`;
+            const timestamp = Date.now().toString();
+            const payload = `FeedoAction:POST:/upload:${timestamp}`;
+            const signature = await wallet.signMessage(payload);
+            
+            headers['X-Feedo-DID'] = did;
+            headers['X-Feedo-Timestamp'] = timestamp;
+            headers['X-Feedo-Signature'] = signature;
+        }
+
+        try {
+            const response = await fetch(url, { method: 'POST', headers, body: formData as any });
+            if (!response.ok) throw new Error(await response.text());
+            return await response.text();
+        } catch (error: any) {
+            console.warn(`Storage request failed on ${baseUrl}, trying to find a new node...`);
+            this.router.invalidateStorageNode();
+            baseUrl = await this.router.getStorageNode();
+            url = `${baseUrl}/upload`;
+            const retryResponse = await fetch(url, { method: 'POST', headers, body: formData as any });
+            if (!retryResponse.ok) throw new Error(await retryResponse.text());
+            return await retryResponse.text();
+        }
     }
 
     async downloadFile(hash: string) {

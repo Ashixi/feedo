@@ -14,7 +14,8 @@ export class SearchModule {
             const wallet = new ethers.Wallet(this.privateKey);
             const did = `did:feedo:${wallet.address}`;
             const timestamp = Date.now().toString();
-            const payload = `FeedoAction:${method}:${path}:${timestamp}`;
+            const basePath = path.split('?')[0]; // server reconstructs payload using path WITHOUT query string
+            const payload = `FeedoAction:${method}:${basePath}:${timestamp}`;
             const signature = await wallet.signMessage(payload);
             
             headers['X-Feedo-DID'] = did;
@@ -36,8 +37,32 @@ export class SearchModule {
         }
     }
 
-    async query(queryText: string, limit: number = 10, itemType: string = "all") {
-        return this.request('GET', `/query?text=${encodeURIComponent(queryText)}&limit=${limit}&item_type=${itemType}`);
+    async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string) {
+        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}`;
+        if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
+        return this.request('GET', `/query?${qs}`);
+    }
+
+    async getDocuments(limit: number = 50, offset: number = 0, itemType: string = "all", appId?: string) {
+        let qs = `limit=${limit}&offset=${offset}&item_type=${itemType}`;
+        if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
+        return this.request('GET', `/documents?${qs}`);
+    }
+
+    async indexPrivateDocument(hashId: string, plaintext: string, metadata: Record<string, any> = {}) {
+        if (!this.privateKey) {
+            throw new Error("Private key required to index private documents");
+        }
+        const wallet = new ethers.Wallet(this.privateKey);
+        const myDid = `did:feedo:${wallet.address}`;
+        
+        return this.request('POST', '/index_document', {
+            hash_id: hashId,
+            text: plaintext,
+            item_type: "private_post",
+            author: myDid,
+            metadata: metadata
+        });
     }
 
     async indexDocument(content: string, metadata: Record<string, any> = {}) {
