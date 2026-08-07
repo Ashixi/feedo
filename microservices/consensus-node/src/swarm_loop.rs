@@ -436,6 +436,7 @@ pub async fn run_swarm(
     // Proactive epoch tick — checks epoch rotation every 5 seconds independently
     // of PBFT traffic. This ensures epoch progresses even when there are no transactions.
     let mut epoch_tick = tokio::time::interval(Duration::from_secs(5));
+    let mut announce_tick = tokio::time::interval(Duration::from_secs(60));
 
     loop {
         tokio::select! {
@@ -1489,6 +1490,29 @@ pub async fn run_swarm(
                     }
                 } else {
                     drop(manager);
+                }
+            }
+            _ = announce_tick.tick() => {
+                let manager = ppor_manager.lock().await;
+                let my_peer_id = swarm.local_peer_id().to_string();
+                let my_wallet = manager.node_id.clone();
+                let my_reputation = manager
+                    .reputation_table
+                    .get(&my_wallet)
+                    .copied()
+                    .unwrap_or(10);
+                drop(manager);
+                let announce = PeerAnnounce {
+                    peer_id: my_peer_id.clone(),
+                    wallet_address: my_wallet.clone(),
+                    reputation: my_reputation,
+                    version: "1.0.0".to_string(),
+                    api_url: Some(http_url.clone()),
+                    grpc_url: Some(grpc_url.clone()),
+                };
+                if let Ok(data) = serde_json::to_vec(&announce) {
+                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_peer_announce");
+                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
                 }
             }
         }
