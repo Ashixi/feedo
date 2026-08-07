@@ -4,6 +4,11 @@
       "type": "consensus",
       "http_url": "http://95.111.245.68:3000",
       "p2p_addr": "/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWFEjLzDt1UboxThYA86pevUmDSairKyRGuzY8RbZW5Wi2"
+    },
+    {
+      "type": "storage",
+      "http_url": "http://95.111.245.68:3001",
+      "p2p_addr": "/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWLsiaNCqc7JDqCYhQ9VZHPWjxp98xh2ycPU15ZChkr9Bo"
     }
   ]
 }
