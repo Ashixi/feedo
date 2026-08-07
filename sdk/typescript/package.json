@@ -1,6 +1,6 @@
 {
   "name": "feedo-protocol-sdk",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "The official Developer SDK for Feedo Protocol",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

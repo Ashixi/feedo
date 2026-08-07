@@ -9,6 +9,8 @@ Feedo is a decentralized network consisting of Search, Consensus, and Storage no
 - **Dynamic Node Routing:** The SDK automatically pings seed nodes and routes your requests to the fastest available node. If a node goes offline, the router instantly falls back to another healthy node.
 - **TypeScript Native:** Fully typed API for excellent developer experience and autocomplete.
 - **Modular Design:** Divided into `search`, `consensus`, and `storage` modules for clean architecture.
+- **End-to-End Encryption:** Built-in E2EE using AES-256-GCM and ECIES for private file storage.
+- **DID Authentication:** Every request is signed with your Ethereum wallet, verified by the Consensus and Storage nodes.
 
 ## Installation
 
@@ -27,16 +29,69 @@ You do not need to specify URLs for the nodes. The SDK comes with pre-configured
 ```typescript
 import { FeedoClient } from 'feedo-protocol-sdk';
 
+// Without authentication (read-only operations)
 const feedo = new FeedoClient();
 ```
 
-*(Optional) You can provide your own seed nodes if you are running a private cluster:*
+To perform authenticated operations (upload, index, search private files), provide your wallet's private key:
+
+```typescript
+import { FeedoClient } from 'feedo-protocol-sdk';
+import { ethers } from 'ethers';
+
+const wallet = ethers.Wallet.createRandom();
+
+const feedo = new FeedoClient({
+    privateKey: wallet.privateKey,
+    storageSeeds: ['https://storage.feedo.network'],
+    consensusSeeds: ['https://consensus.feedo.network'],
+    searchSeeds: ['https://search.feedo.network'],
+});
+```
+
+*(Optional) You can provide your own seed nodes if you are running a private/local cluster:*
 ```typescript
 const feedo = new FeedoClient({
-    searchSeeds: ['https://my-search.node'],
-    consensusSeeds: ['https://my-consensus.node'],
-    storageSeeds: ['https://my-storage.node']
+    searchSeeds: ['http://localhost:8013'],
+    consensusSeeds: ['http://localhost:3012'],
+    storageSeeds: ['http://localhost:3011'],
+    privateKey: '0x...'
 });
+```
+
+---
+
+## Quick Start — Full E2EE Flow
+
+```typescript
+import { FeedoClient } from 'feedo-protocol-sdk';
+import { ethers } from 'ethers';
+
+const wallet = ethers.Wallet.createRandom();
+
+const feedo = new FeedoClient({
+    privateKey: wallet.privateKey,
+    storageSeeds: ['http://localhost:3011'],
+    consensusSeeds: ['http://localhost:3012'],
+    searchSeeds: ['http://localhost:8013'],
+});
+
+// 1. Register your DID on the network
+const sig = await wallet.signMessage('register');
+await feedo.consensus.registerDid(wallet.signingKey.publicKey, sig);
+
+// 2. Upload an encrypted private file and index it for search
+const text = "My secret post content";
+const hashId = await feedo.uploadPrivateFile(
+    Buffer.from(text, 'utf-8'),
+    undefined,   // grantee (undefined = self)
+    true,        // index for search
+    { app_id: 'com.myapp', type: 'post' }
+);
+
+// 3. Search your private files
+const results = await feedo.search.search('secret', 10, true, 'all', 0, 'com.myapp');
+console.log(results);
 ```
 
 ---
@@ -45,36 +100,29 @@ const feedo = new FeedoClient({
 
 The Search module handles semantic queries, document vectorization, and Web2/Web3 gateways.
 
-### `search(queryText: string, limit?: number, federated?: boolean, itemType?: string, offset?: number, appId?: string)`
+### `search(queryText, limit?, federated?, itemType?, offset?, appId?)`
 Perform a semantic search across the network, optionally filtering by item type or application ID.
 ```typescript
-// Example: Search only within 'post' items created by 'SocialApp1'
 const response = await feedo.search.search("DeFi protocols", 5, true, "post", 0, "SocialApp1");
 console.log(response.results);
 ```
 
-### `getDocuments(limit?: number, offset?: number, itemType?: string, appId?: string)`
-Fetch a feed of the latest indexed documents without semantic search, with optional filtering.
+### `getDocuments(limit?, offset?, itemType?, appId?)`
+Fetch a feed of the latest indexed documents without semantic search.
 ```typescript
 const feed = await feedo.search.getDocuments(50, 0, "post", "SocialApp1");
 ```
 
-### `indexDocument(content: string, metadata?: Record<string, any>)`
-Index a raw document into the vector database. The `metadata.type` property automatically maps to the backend `item_type` for filtering.
+### `indexDocument(content, metadata?)`
+Index a public document into the vector database.
 ```typescript
-await feedo.search.indexDocument("Bitcoin is a decentralized cryptocurrency.", { type: "post", source: "wiki" });
+await feedo.search.indexDocument("Bitcoin is a decentralized cryptocurrency.", { type: "post" });
 ```
 
-### `deployProxy(directoryPath: string, domain: string)`
-Publish a local directory to the network under a specific domain.
+### `indexPrivateDocument(hashId, plaintext, metadata?)`
+Index a **private** document (requires `privateKey` to sign the request).
 ```typescript
-await feedo.search.deployProxy("./build", "my-app.feedo");
-```
-
-### `unpin(cid: string)`
-Remove a pinned deployment from the proxy.
-```typescript
-await feedo.search.unpin("Qm...");
+await feedo.search.indexPrivateDocument(hashId, "My private content", { app_id: "com.myapp" });
 ```
 
 ### `getStats()`
@@ -89,35 +137,37 @@ const stats = await feedo.search.getStats();
 
 The Consensus module interacts with the Rust-based blockchain layer to manage identity (DIDs), naming (.feedo domains), and grants.
 
-### `resolveName(name: string)`
-Resolve a `.feedo` domain to its underlying CID (IPFS hash) and owner.
+### `registerDid(publicKeyHex, signatureHex)`
+Register a new Decentralized Identifier on the network. Uses `wallet.signingKey.publicKey` (ethers v6).
+```typescript
+const sig = await wallet.signMessage('register');
+await feedo.consensus.registerDid(wallet.signingKey.publicKey, sig);
+```
+
+### `resolveName(name)`
+Resolve a `.feedo` domain to its underlying CID and owner.
 ```typescript
 const info = await feedo.consensus.resolveName("my-app.feedo");
 console.log(info.cid);
 ```
 
-### `registerDid(pubkeyHex: string, signatureHex: string)`
-Register a new Decentralized Identifier on the network.
-```typescript
-await feedo.consensus.registerDid("0xabc...", "0xdef...");
-```
-
-### `getDidBalance(did: string)`
-Check the token balance of a specific DID.
+### `getDidBalance(did)`
+Check the credit balance of a specific DID.
 ```typescript
 const balance = await feedo.consensus.getDidBalance("did:feedo:0xabc...");
+console.log(balance.balance_credits);
 ```
 
-### `registerName(name: string, did: string, cid: string, signatureHex: string)`
+### `registerName(name, did, cid, signatureHex)`
 Register a new `.feedo` domain and link it to a CID.
 ```typescript
 await feedo.consensus.registerName("my-app", "did:feedo:...", "Qm...", "0x...");
 ```
 
-### `updateNameCid(name: string, newCid: string, signatureHex: string)`
-Update the CID of an existing name.
+### `grantFileAccess(fileHash, granteeDid, encryptedSymKey, publicKey, signature)`
+Grant access to an encrypted file for another DID.
 ```typescript
-await feedo.consensus.updateNameCid("my-app", "QmNew...", "0x...");
+await feedo.consensus.grantFileAccess(hashId, targetDid, encSymKey, myPubKey, sig);
 ```
 
 ---
@@ -126,24 +176,18 @@ await feedo.consensus.updateNameCid("my-app", "QmNew...", "0x...");
 
 The Storage module acts as an IPFS-like decentralized file system.
 
-### `uploadFile(file: any, filename?: string)`
-Upload a file buffer or Blob to the network.
+### `uploadFile(file, filename?)`
+Upload a file buffer or Blob to the network. Returns the file hash ID.
 ```typescript
 const fileBuffer = fs.readFileSync('./image.png');
-const response = await feedo.storage.uploadFile(fileBuffer, 'image.png');
-console.log("File Hash:", response.hash);
+const hashId = await feedo.storage.uploadFile(fileBuffer, 'image.png');
+console.log("File Hash:", hashId);
 ```
 
-### `downloadFile(hash: string)`
+### `downloadFile(hash)`
 Download a file from the network by its hash.
 ```typescript
-const buffer = await feedo.storage.downloadFile("Qm...");
-```
-
-### `ingestJson(payload: any)`
-Ingest structured JSON data directly into the storage layer.
-```typescript
-await feedo.storage.ingestJson({ user: "alice", action: "post", content: "Hello Feedo!" });
+const buffer = await feedo.storage.downloadFile("abc123...");
 ```
 
 ### `getRecentFiles()`
@@ -156,58 +200,66 @@ const recent = await feedo.storage.getRecentFiles();
 
 ## E2EE Private Files (End-to-End Encryption)
 
-The SDK provides built-in End-to-End Encryption using AES-GCM and ECIES. You can seamlessly encrypt files, store them on the decentralized network, and manage access via the Consensus Node.
+The SDK provides built-in End-to-End Encryption using AES-256-GCM and ECIES. You need to provide a `privateKey` in the client config to use these features.
 
-### `uploadPrivateFile(fileBuffer: Buffer, granteePublicKeyHex?: string, indexForSearch?: boolean)`
+### `uploadPrivateFile(fileBuffer, granteePublicKeyHex?, indexForSearch?, metadata?)`
 Uploads a file securely. The file is AES-encrypted on the client, and the symmetric key is ECIES-encrypted for the grantee.
 ```typescript
-// Upload a private file for yourself and index it in the Search Node for private querying
 const fileBuffer = Buffer.from("My secret diary entry");
-const hashId = await feedo.uploadPrivateFile(fileBuffer);
+const hashId = await feedo.uploadPrivateFile(
+    fileBuffer,
+    undefined,  // grantee (undefined = grant to self)
+    true,       // index for search
+    { app_id: "com.myapp", type: "note" }
+);
 console.log("Encrypted File Hash:", hashId);
 ```
 
-### `downloadPrivateFile(hashId: string)`
-Downloads and automatically decrypts a private file (if your DID has access granted by the Consensus Node).
+### `downloadPrivateFile(hashId)`
+Downloads and automatically decrypts a private file (if your DID has access).
 ```typescript
-const decryptedBuffer = await feedo.downloadPrivateFile("Qm...");
+const decryptedBuffer = await feedo.downloadPrivateFile("abc123...");
 console.log(decryptedBuffer.toString('utf-8'));
 ```
 
 #### How it works under the hood:
-1. **Client-Side Encryption:** The SDK locally encrypts your file using AES-GCM. 
-2. **Secure Storage:** The encrypted gibberish is uploaded to the **Storage Node** (which has no idea what the file contains).
-3. **Access Management:** The AES symmetric key is asymmetrically encrypted (ECIES) using the receiver's public key and stored safely on the **Consensus Node**.
-4. **Private Vectorization:** If `indexForSearch` is true, the plaintext is temporarily sent to the **Search Node**, which generates a vector embedding and *immediately deletes the plaintext*. This allows you to semantically search your private files without exposing the data.
+1. **Client-Side Encryption:** Your file is encrypted locally using AES-256-GCM with a random symmetric key.
+2. **Secure Storage:** The encrypted blob is uploaded to the **Storage Node** (which cannot read the content).
+3. **Access Management:** The symmetric key is ECIES-encrypted using the grantee's public key and stored on the **Consensus Node**.
+4. **Private Vectorization:** If `indexForSearch` is true, the plaintext is sent to the **Search Node** for vectorization. The plaintext is immediately discarded after embedding.
+
+---
+
+## DID Authentication
+
+All write operations require a signed `X-Feedo-*` header set. The SDK handles this automatically when you provide a `privateKey`:
+
+```
+X-Feedo-DID:       did:feedo:0xYourAddress
+X-Feedo-Timestamp: 1722345678901
+X-Feedo-Signature: 0x<ECDSA signature of "FeedoAction:METHOD:PATH:TIMESTAMP">
+```
+
+---
 
 ## Error Handling
 
-The SDK handles node failover automatically via the `NodeRouter`. However, if all seed nodes are unreachable, or if a specific network validation error occurs, the SDK will throw an exception. It is highly recommended to wrap network calls in `try/catch` blocks:
+The SDK handles node failover automatically via the `NodeRouter`. Wrap network calls in `try/catch`:
 
 ```typescript
 try {
-    const results = await feedo.search.query("DeFi protocols");
+    const results = await feedo.search.search("DeFi protocols");
 } catch (error: any) {
     console.error("Feedo Protocol Error:", error.message);
 }
 ```
 
-## Response Structures
-
-The SDK is designed to return clean, typed objects. For example, resolving a `.feedo` name returns an object containing the CID and the owner's DID:
-
-```typescript
-interface NameResolution {
-    cid: string;
-    owner: string;
-    isActive: boolean;
-}
-```
+---
 
 ## Contributing
 
-We welcome contributions to the Feedo Protocol SDK! 
-GitHub Repository: [https://github.com/Ashixi/feedo-sdk](https://github.com/Ashixi/feedo-sdk)
+We welcome contributions to the Feedo Protocol SDK!  
+GitHub Repository: [https://github.com/Ashixi/feedo](https://github.com/Ashixi/feedo)
 
 1. Fork the repository.
 2. Create your feature branch (`git checkout -b feature/amazing-feature`).
