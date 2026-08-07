@@ -61,21 +61,22 @@ fi
 # 3. Generate Keys (via Rust keygen binary)
 echo "[3/6] Generating Node Identity (Keys & DID)..."
 mkdir -p /etc/feedo
-if [ ! -f "/etc/feedo/keys.json" ]; then
+KEYS_FILE="/etc/feedo/${NODE_TYPE}_keys.json"
+if [ ! -f "$KEYS_FILE" ]; then
   echo "Compiling feedo-keygen..."
   source $HOME/.cargo/env
   cd $INSTALL_DIR/microservices
   cargo build --release -p feedo-keygen
   KEYGEN_BIN="$INSTALL_DIR/microservices/target/release/feedo-keygen"
-  $KEYGEN_BIN > /etc/feedo/keys.json
+  $KEYGEN_BIN > "$KEYS_FILE"
   echo "Keys generated successfully!"
 else
-  echo "Keys already exist at /etc/feedo/keys.json"
+  echo "Keys already exist at $KEYS_FILE"
 fi
 
-NODE_DID=$(jq -r '.did' /etc/feedo/keys.json)
-NODE_ADDR=$(jq -r '.address' /etc/feedo/keys.json)
-NODE_PRIV_KEY=$(jq -r '.private_key' /etc/feedo/keys.json)
+NODE_DID=$(jq -r '.did' "$KEYS_FILE")
+NODE_ADDR=$(jq -r '.address' "$KEYS_FILE")
+NODE_PRIV_KEY=$(jq -r '.private_key' "$KEYS_FILE")
 
 # 4. Independent Registry (Zero Config Discovery)
 echo "[4/6] Connecting to global registry..."
