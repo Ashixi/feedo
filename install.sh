@@ -29,7 +29,7 @@ esac
 echo "Starting installation for $NODE_TYPE node..."
 
 # Variables
-INSTALL_DIR="/opt/feedo"
+INSTALL_DIR="/opt/feedo-$NODE_TYPE"
 REPO_URL="https://github.com/Ashixi/feedo.git"
 REGISTRY_URL="https://raw.githubusercontent.com/Ashixi/feedo/main/seed_nodes.json"
 
@@ -51,6 +51,7 @@ echo "[2/6] Fetching latest Feedo source..."
 if [ -d "$INSTALL_DIR" ]; then
   echo "Directory exists, pulling latest changes..."
   cd $INSTALL_DIR
+  git checkout -- .
   git pull origin main
 else
   git clone $REPO_URL $INSTALL_DIR
@@ -74,6 +75,7 @@ fi
 
 NODE_DID=$(jq -r '.did' /etc/feedo/keys.json)
 NODE_ADDR=$(jq -r '.address' /etc/feedo/keys.json)
+NODE_PRIV_KEY=$(jq -r '.private_key' /etc/feedo/keys.json)
 
 # 4. Independent Registry (Zero Config Discovery)
 echo "[4/6] Connecting to global registry..."
@@ -105,6 +107,8 @@ mkdir -p "$INSTALL_DIR/microservices/$NODE_TYPE-node"
 
 echo "NODE_DID=$NODE_DID" > $ENV_FILE
 echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
+echo "NODE_WALLET_ADDRESS=$NODE_ADDR" >> $ENV_FILE
+echo "NODE_PRIVATE_KEY=$NODE_PRIV_KEY" >> $ENV_FILE
 echo "BOOTSTRAP_PEERS=$BOOTSTRAP_PEERS" >> $ENV_FILE
 echo "CONSENSUS_NODE_URL=$CONSENSUS_NODE_URL" >> $ENV_FILE
 echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
