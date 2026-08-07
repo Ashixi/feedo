@@ -115,20 +115,11 @@ echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
 echo "SEARCH_NODE_URL=$SEARCH_NODE_URL" >> $ENV_FILE
 
 if [ "$NODE_TYPE" = "storage" ]; then
-  read -p "Quota for Sites (GB) [Default: 100]: " QUOTA_SITES < /dev/tty
-  QUOTA_SITES=${QUOTA_SITES:-100}
-  read -p "Quota for Blobs/Files (GB) [Default: 1000]: " QUOTA_BLOBS < /dev/tty
-  QUOTA_BLOBS=${QUOTA_BLOBS:-1000}
-  read -p "Quota for Social data (MB) [Default: 500]: " QUOTA_SOCIAL < /dev/tty
-  QUOTA_SOCIAL=${QUOTA_SOCIAL:-500}
-  read -p "Quota for Profiles (MB) [Default: 100]: " QUOTA_PROFILES < /dev/tty
-  QUOTA_PROFILES=${QUOTA_PROFILES:-100}
+  read -p "Total Storage Quota (GB) [Default: 70]: " QUOTA_TOTAL < /dev/tty
+  QUOTA_TOTAL=${QUOTA_TOTAL:-70}
 
   echo "STORAGE_PATH=/var/lib/feedo/storage" >> $ENV_FILE
-  echo "QUOTA_SITES_GB=$QUOTA_SITES" >> $ENV_FILE
-  echo "QUOTA_BLOBS_GB=$QUOTA_BLOBS" >> $ENV_FILE
-  echo "QUOTA_SOCIAL_MB=$QUOTA_SOCIAL" >> $ENV_FILE
-  echo "QUOTA_PROFILES_MB=$QUOTA_PROFILES" >> $ENV_FILE
+  echo "QUOTA_TOTAL_GB=$QUOTA_TOTAL" >> $ENV_FILE
   mkdir -p /var/lib/feedo/storage
   chmod 777 /var/lib/feedo/storage
   
