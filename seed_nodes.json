@@ -1,11 +1,6 @@
 {
   "nodes": [
     {
-      "type": "storage",
-      "http_url": "http://95.111.245.68:3001",
-      "p2p_addr": "/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWA7gdeLBfEHgcPHV5uCjN8CsTFdZ13m48ohW4AWH1ncnB"
-    },
-    {
       "type": "consensus",
       "http_url": "http://95.111.245.68:3000",
       "p2p_addr": "/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWA7gdeLBfEHgcPHV5uCjN8CsTFdZ13m48ohW4AWH1ncnB"
