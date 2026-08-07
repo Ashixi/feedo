@@ -51,8 +51,8 @@ echo "[2/6] Fetching latest Feedo source..."
 if [ -d "$INSTALL_DIR" ]; then
   echo "Directory exists, pulling latest changes..."
   cd $INSTALL_DIR
-  git checkout -- .
-  git pull origin main
+  git fetch origin main
+  git reset --hard origin/main
 else
   git clone $REPO_URL $INSTALL_DIR
   cd $INSTALL_DIR
