@@ -1,10 +1,14 @@
 import httpx
 from typing import Dict, Any, Optional
 from ..router import NodeRouter
+import time
+from eth_account.messages import encode_defunct
+from eth_account import Account
 
 class ConsensusModule:
-    def __init__(self, router: NodeRouter):
+    def __init__(self, router: NodeRouter, private_key: Optional[str] = None):
         self.router = router
+        self.private_key = private_key
 
     async def _request(self, method: str, path: str, json: Optional[Dict] = None) -> Any:
         base_url = await self.router.get_consensus_node()
@@ -33,8 +37,19 @@ class ConsensusModule:
     async def get_did_balance(self, did: str):
         return await self._request("GET", f"/did/{did}/balance")
 
-    async def register_did(self, pubkey_hex: str, signature_hex: str):
-        return await self._request("POST", "/did/register", json={"pubkey_hex": pubkey_hex, "signature_hex": signature_hex})
+    async def register_did(self, private_key_hex: str):
+        """
+        Register a DID on the Feedo Consensus Network.
+        Derives the Ethereum address from the private key, builds did:feedo:0xAddress,
+        and registers it with the public key.
+        """
+        account = Account.from_key(private_key_hex)
+        did = f"did:feedo:{account.address}"
+        public_key_hex = account._key_obj.public_key.to_hex()
+        return await self._request("POST", "/did/register", json={
+            "did": did,
+            "public_key": public_key_hex,
+        })
 
     async def register_name(self, name: str, did: str, cid: str, signature_hex: str):
         return await self._request("POST", "/name/register", json={"name": name, "did": did, "cid": cid, "signature_hex": signature_hex})

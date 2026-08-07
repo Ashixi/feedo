@@ -19,7 +19,9 @@ class SearchModule:
             account = Account.from_key(self.private_key)
             did = f"did:feedo:{account.address}"
             timestamp = str(int(time.time() * 1000))
-            payload_str = f"FeedoAction:{method}:{path}:{timestamp}"
+            # Sign only the base path (without query string) to match server-side auth
+            base_path = path.split('?')[0]
+            payload_str = f"FeedoAction:{method}:{base_path}:{timestamp}"
             message = encode_defunct(text=payload_str)
             signed_message = Account.sign_message(message, private_key=self.private_key)
             
@@ -41,7 +43,7 @@ class SearchModule:
                 response.raise_for_status()
                 return response.json()
 
-    async def search(self, query: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0):
+    async def search(self, query: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: Optional[str] = None):
         params = {
             "text": query,
             "limit": limit,
@@ -49,13 +51,18 @@ class SearchModule:
             "item_type": item_type,
             "offset": offset
         }
+        if app_id:
+            params["app_id"] = app_id
         return await self._request("GET", "/query", params=params)
+
+    async def query(self, query_text: str, limit: int = 10, item_type: str = "all", app_id: Optional[str] = None):
+        """Alias for search() for backwards compatibility."""
+        return await self.search(query_text, limit=limit, item_type=item_type, app_id=app_id)
 
     async def index_private_document(self, hash_id: str, plaintext: str, metadata: dict = None):
         if not self.private_key:
             raise ValueError("Private key required to index private documents")
             
-        from eth_account import Account
         my_account = Account.from_key(self.private_key)
         my_did = f"did:feedo:{my_account.address}"
         
@@ -75,13 +82,7 @@ class SearchModule:
         item_type = metadata.get("type", "document")
         return await self._request("POST", "/index_document", json={"text": content, "metadata": metadata, "hash_id": hash_id, "item_type": item_type})
 
-    async def query(self, query_text: str, limit: int = 10, item_type: str = "all", app_id: str = None):
-        params = {"text": query_text, "limit": limit, "item_type": item_type}
-        if app_id:
-            params["app_id"] = app_id
-        return await self._request("GET", "/query", params=params)
-
-    async def get_documents(self, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = None):
+    async def get_documents(self, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: Optional[str] = None):
         params = {"limit": limit, "offset": offset, "item_type": item_type}
         if app_id:
             params["app_id"] = app_id
