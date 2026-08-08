@@ -229,7 +229,6 @@ async fn handle_recent_files(
 }
 
 async fn handle_download(
-    _auth: auth::FeedoAuth,
     State(state): State<AppState>,
     Path(hash): Path<String>,
 ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
