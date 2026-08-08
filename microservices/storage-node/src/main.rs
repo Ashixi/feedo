@@ -18,6 +18,7 @@ mod network;
 mod swarm_loop;
 mod peer_cache;
 mod quota;
+mod telemetry;
 mod auth;
 
 use network::{StorageBehaviour, HybridStore, DirectRequest, DirectResponse};
@@ -366,6 +367,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let storage_topic = gossipsub::IdentTopic::new("storage_announcements");
             gossipsub.subscribe(&storage_topic).unwrap();
+            let telemetry_topic = gossipsub::IdentTopic::new("feedo_telemetry");
+            gossipsub.subscribe(&telemetry_topic).unwrap();
 
             let mut kad_config = libp2p::kad::Config::default();
             kad_config.set_query_timeout(Duration::from_secs(10));

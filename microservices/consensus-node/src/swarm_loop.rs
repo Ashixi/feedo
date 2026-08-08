@@ -333,6 +333,7 @@ pub async fn run_swarm(
     name_db: Arc<Mutex<crate::name_db::NameDb>>,
     _did_manager: Arc<Mutex<crate::did::DidManager>>,
     ledger: Arc<crate::accounting::Ledger>,
+    telemetry_cache: Arc<Mutex<crate::telemetry::TelemetryCache>>,
 ) {
     // Check if direct consensus mode is enabled (Phase 1).
     // When true, PBFT messages go via direct request-response instead of gossipsub.
@@ -437,6 +438,7 @@ pub async fn run_swarm(
     // of PBFT traffic. This ensures epoch progresses even when there are no transactions.
     let mut epoch_tick = tokio::time::interval(Duration::from_secs(5));
     let mut announce_tick = tokio::time::interval(Duration::from_secs(60));
+    let mut telemetry_tick = tokio::time::interval(Duration::from_secs(300));
 
     loop {
         tokio::select! {
@@ -777,6 +779,12 @@ pub async fn run_swarm(
                                     manager.last_finalized_hash, manager.current_epoch
                                 );
                                 manager.select_committee_weighted(&seed);
+                            }
+                        } else if topic == "feedo_telemetry" {
+                            if let Ok(report) = serde_json::from_slice::<crate::telemetry::TelemetryReport>(&message.data) {
+                                let mut cache = telemetry_cache.lock().await;
+                                cache.add_report(report);
+                                cache.save();
                             }
                         } else if topic == "feedo_consensus_ppor" {
                             // Backward-compat: receive PBFT messages via gossipsub from old nodes.
@@ -1535,6 +1543,27 @@ pub async fn run_swarm(
                     }
                 } else {
                     drop(manager);
+                }
+            }
+            _ = telemetry_tick.tick() => {
+                let node_id = swarm.local_peer_id().to_string();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let stats = crate::telemetry::TelemetryStats {
+                    storage_used_bytes: 0,
+                    total_requests: 0,
+                    vectors_processed: 0,
+                    pbft_votes_processed: 0, // In future, extract from ppor_manager
+                    blocks_finalized: 0,     // In future, extract from ppor_manager
+                };
+                let report = crate::telemetry::TelemetryReport {
+                    node_id,
+                    node_type: "consensus".to_string(),
+                    timestamp: now,
+                    stats,
+                };
+                if let Ok(data) = serde_json::to_vec(&report) {
+                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_telemetry");
+                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
                 }
             }
             _ = announce_tick.tick() => {

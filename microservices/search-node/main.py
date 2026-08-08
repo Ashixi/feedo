@@ -169,6 +169,47 @@ class IndexVectorPayload(BaseModel):
     author: str = ""
     metadata: str = ""
 
+async def telemetry_loop():
+    import uuid
+    import random
+    public_url = os.environ.get("PUBLIC_API_URL", f"http://{os.getenv('HOST', '127.0.0.1')}:{os.getenv('PORT', '8000')}")
+    
+    while True:
+        try:
+            stats = {
+                "storage_used_bytes": 0,
+                "total_requests": 0,
+                "vectors_processed": 0,
+                "pbft_votes_processed": 0,
+                "blocks_finalized": 0
+            }
+            try:
+                table = brain.db.open_table("vectors")
+                stats["vectors_processed"] = len(table)
+            except:
+                pass
+
+            report = {
+                "node_id": public_url,
+                "node_type": "search",
+                "timestamp": int(time.time()),
+                "stats": stats
+            }
+            
+            payload = {
+                "topic": "feedo_telemetry",
+                "data": report
+            }
+            
+            if GATEWAYS:
+                gateway = random.choice(GATEWAYS)
+                async with httpx.AsyncClient() as client:
+                    await client.post(f"{gateway}/api/v1/pubsub/publish", json=payload, timeout=5.0)
+        except Exception as e:
+            print(f"⚠️ Error publishing telemetry: {e}")
+            
+        await asyncio.sleep(300)
+
 @app.on_event("startup")
 async def startup_event():
     global p2p_net, crawler
@@ -177,6 +218,7 @@ async def startup_event():
     
     p2p_net = P2PNetwork(brain, host, port)
     asyncio.create_task(p2p_net.broadcast_centroids_loop())
+    asyncio.create_task(telemetry_loop())
 
     # Create shared HTTP client for shard vector forwarding
     _http_client = httpx.AsyncClient(timeout=float(os.getenv("SHARD_FORWARD_TIMEOUT", "5.0")))

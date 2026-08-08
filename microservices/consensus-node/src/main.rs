@@ -26,6 +26,7 @@ pub mod swarm_loop;
 pub mod replay;
 pub mod acl;
 pub mod peer_cache;
+pub mod telemetry;
 
 use swarm_loop::SwarmCommand;
 use network::{ConsensusCodec, CONSENSUS_PROTOCOL};
@@ -159,6 +160,7 @@ pub struct AppState {
     pub ppor_manager: Arc<Mutex<ppor::PporManager>>,
     pub grant_authority: Arc<authority::CommitteeGrantAuthority>,
     pub acl_manager: Arc<acl::AclManager>,
+    pub telemetry_cache: Arc<Mutex<telemetry::TelemetryCache>>,
 }
 
 #[derive(Deserialize)]
@@ -895,6 +897,13 @@ async fn handle_peers() -> axum::Json<PeersResponse> {
     axum::Json(PeersResponse { consensus_nodes, consensus_grpc })
 }
 
+async fn handle_stats(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> axum::Json<crate::telemetry::AggregatedStats> {
+    let cache = state.telemetry_cache.lock().await;
+    axum::Json(cache.aggregate())
+}
+
 fn load_keypair_from_env_or_file(keypair_path: &str) -> libp2p::identity::Keypair {
     if let Ok(hex_str) = std::env::var("NODE_PRIVATE_KEY") {
         if let Ok(bytes) = hex::decode(hex_str.trim()) {
@@ -1020,6 +1029,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_ledger_txs")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_peer_announce")).unwrap();
             gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_update_metadata_txs")).unwrap();
+            gossipsub.subscribe(&gossipsub::IdentTopic::new("feedo_telemetry")).unwrap();
 
             if direct_mode {
                 eprintln!("[CONSENSUS] Phase 1 direct-mode: still listening on feedo_consensus_ppor for backward-compat, but will SEND via request-response");
@@ -1082,8 +1092,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let did_manager_clone = did_manager.clone();
     let ledger_clone = ledger.clone();
     
+    let telemetry_cache = Arc::new(Mutex::new(telemetry::TelemetryCache::new("telemetry_cache.json")));
+    let telemetry_clone = telemetry_cache.clone();
+
     tokio::spawn(async move {
-        crate::swarm_loop::run_swarm(swarm, swarm_rx, ppor_clone, name_db_clone, did_manager_clone, ledger_clone).await;
+        crate::swarm_loop::run_swarm(swarm, swarm_rx, ppor_clone, name_db_clone, did_manager_clone, ledger_clone, telemetry_clone).await;
     });
 
     let consensus_service = MyConsensusService {
@@ -1105,6 +1118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let grant_authority = Arc::new(authority::CommitteeGrantAuthority);
 
+
     let app_state = AppState {
         name_db: name_db.clone(),
         did_manager: did_manager.clone(),
@@ -1113,6 +1127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ppor_manager: ppor_manager.clone(),
         grant_authority,
         acl_manager: acl_manager.clone(),
+        telemetry_cache: telemetry_cache.clone(),
     };
     
     let local_name_db = name_db.lock().await;
@@ -1141,6 +1156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/grant/:grant_id", get(get_grant_info))
         .route("/grants", get(list_grants))
         .route("/api/v1/peers", get(handle_peers))
+        .route("/api/v1/stats", get(handle_stats))
         .layer(cors)
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(http_addr).await.unwrap();

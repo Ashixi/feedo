@@ -142,6 +142,7 @@ pub async fn run_swarm(
     let mut req_resp_to_fetch: HashMap<request_response::OutboundRequestId, (String, usize)> = HashMap::new();
 
     let mut bootstrap_interval = tokio::time::interval(std::time::Duration::from_secs(300));
+    let mut telemetry_tick = tokio::time::interval(std::time::Duration::from_secs(300));
     // Initial bootstrap is good to have shortly after startup
     let mut initial_bootstrap = true;
 
@@ -178,6 +179,28 @@ pub async fn run_swarm(
                 } else {
                     println!("Triggering periodic Kademlia bootstrap...");
                     let _ = swarm.behaviour_mut().kademlia.bootstrap();
+                }
+            }
+            _ = telemetry_tick.tick() => {
+                let node_id = swarm.local_peer_id().to_string();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let (used_bytes, _) = quota_manager.usage();
+                let stats = crate::telemetry::TelemetryStats {
+                    storage_used_bytes: used_bytes,
+                    total_requests: 0, // Implement later if needed
+                    vectors_processed: 0,
+                    pbft_votes_processed: 0,
+                    blocks_finalized: 0,
+                };
+                let report = crate::telemetry::TelemetryReport {
+                    node_id,
+                    node_type: "storage".to_string(),
+                    timestamp: now,
+                    stats,
+                };
+                if let Ok(data) = serde_json::to_vec(&report) {
+                    let topic = libp2p::gossipsub::IdentTopic::new("feedo_telemetry");
+                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
                 }
             }
             event = swarm.select_next_some() => {
