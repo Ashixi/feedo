@@ -75,6 +75,26 @@ class SearchModule:
         }
         return await self._request("POST", "/index_document", json=payload)
 
+    async def index_image(self, hash_id: str, metadata: dict = None, symmetric_key: str = None):
+        author = ""
+        item_type = "image"
+        
+        if symmetric_key:
+            if not self.private_key:
+                raise ValueError("Private key required to index private images")
+            my_account = Account.from_key(self.private_key)
+            author = f"did:feedo:{my_account.address}"
+            item_type = "private_image"
+            
+        payload = {
+            "hash_id": hash_id,
+            "item_type": item_type,
+            "author": author,
+            "metadata": metadata or {},
+            "symmetric_key": symmetric_key
+        }
+        return await self._request("POST", "/index_image", json=payload)
+
     async def index_document(self, content: str, metadata: Optional[Dict] = None):
         import random, string
         metadata = metadata or {}

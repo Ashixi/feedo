@@ -56,6 +56,8 @@ pub enum SwarmCommand {
         tokio::sync::oneshot::Sender<Option<crate::did::DidDocument>>,
     ),
     PublishReputationDht(String, u64), // wallet_address, reputation_score
+    PublishAclDht(String, String, String), // file_hash, grantee_did, encrypted_key
+    QueryAclDht(String, String, tokio::sync::oneshot::Sender<Option<String>>), // file_hash, grantee_did, response_tx
 
     // Grant system
     CreateGrant {
@@ -358,6 +360,10 @@ pub async fn run_swarm(
     let mut pending_did_queries: HashMap<
         libp2p::kad::QueryId,
         tokio::sync::oneshot::Sender<Option<crate::did::DidDocument>>,
+    > = HashMap::new();
+    let mut pending_acl_queries: HashMap<
+        libp2p::kad::QueryId,
+        tokio::sync::oneshot::Sender<Option<String>>,
     > = HashMap::new();
     let mut pending_name_txs: HashMap<String, crate::NameRegistrationTx> = HashMap::new();
     let mut pending_cid_txs: HashMap<String, crate::UpdateCidTx> = HashMap::new();
@@ -1168,6 +1174,15 @@ pub async fn run_swarm(
                                     };
                                     let _ = tx.send(found);
                                 }
+                                if let Some(tx) = pending_acl_queries.remove(&id) {
+                                    let found = match &result {
+                                        libp2p::kad::QueryResult::GetRecord(Ok(
+                                            libp2p::kad::GetRecordOk::FoundRecord(peer_record),
+                                        )) => String::from_utf8(peer_record.record.value.clone()).ok(),
+                                        _ => None,
+                                    };
+                                    let _ = tx.send(found);
+                                }
                             }
                             _ => {}
                         }
@@ -1322,6 +1337,29 @@ pub async fn run_swarm(
                             .get_record(libp2p::kad::RecordKey::new(&did));
                         pending_did_queries.insert(query_id, tx);
                         eprintln!("Looking up DID {} in Kademlia DHT", did);
+                    }
+                    SwarmCommand::PublishAclDht(file_hash, grantee_did, encrypted_key) => {
+                        let key_str = format!("acl:{}:{}", file_hash, grantee_did);
+                        let record = libp2p::kad::Record {
+                            key: libp2p::kad::RecordKey::new(&key_str),
+                            value: encrypted_key.into_bytes(),
+                            publisher: None,
+                            expires: None,
+                        };
+                        let _ = swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .put_record(record, libp2p::kad::Quorum::One);
+                        eprintln!("Published ACL {} to Kademlia DHT", key_str);
+                    }
+                    SwarmCommand::QueryAclDht(file_hash, grantee_did, tx) => {
+                        let key_str = format!("acl:{}:{}", file_hash, grantee_did);
+                        let query_id = swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .get_record(libp2p::kad::RecordKey::new(&key_str));
+                        pending_acl_queries.insert(query_id, tx);
+                        eprintln!("Looking up ACL {} in Kademlia DHT", key_str);
                     }
                     SwarmCommand::PublishDht(name, res) => {
                         let record = libp2p::kad::Record {

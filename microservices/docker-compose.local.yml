@@ -19,7 +19,7 @@ services:
       - "8041:8041/udp"
     environment:
       - RUST_LOG=info
-      - ETH_RPC_URL=https://polygon-rpc.com
+      - ETH_RPC_URL=https://polygon.llamarpc.com
       - P2P_PORT=8041
       - NODE_WALLET_ADDRESS=0x0827e8caf5ff9652c5d89eb69d55ce083c750b21
       - NODE_WALLET_PRIVATE_KEY=
@@ -41,7 +41,7 @@ services:
       - "8042:8041/udp"
     environment:
       - RUST_LOG=info
-      - ETH_RPC_URL=https://polygon-rpc.com
+      - ETH_RPC_URL=https://polygon.llamarpc.com
       - P2P_PORT=8041
       - BOOTSTRAP_NODES=/ip4/consensus-node1/udp/8041/quic-v1/p2p/12D3KooWKpn8LR3km7qQ39vF2zK3LjADhVnMdZsBftvmV85c52mt
       - NODE_WALLET_ADDRESS=0x89bf2d987a05d6244bcef70f1d66fd4395c1588d

@@ -158,6 +158,13 @@ class IndexDocumentPayload(BaseModel):
     item_type: str = "document"
     metadata: dict = {}
 
+class IndexImagePayload(BaseModel):
+    hash_id: str
+    author: str = ""
+    item_type: str = "image"
+    metadata: dict = {}
+    symmetric_key: str = None  # Hex encoded symmetric key for private images
+
 class IndexVectorPayload(BaseModel):
     """Payload for /p2p/index_vector — receive a pre-computed vector from a peer node."""
     post_id: int
@@ -476,6 +483,40 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.post("/index_image")
+async def index_image(payload: IndexImagePayload, request: Request):
+    """
+    Index an image using CLIP.
+    """
+    try:
+        x_feedo_did = request.headers.get("X-Feedo-DID")
+        author = payload.author
+        if payload.item_type == "private_image":
+            if not x_feedo_did:
+                return JSONResponse(status_code=401, content={"detail": "Authentication required for private images"})
+            author = x_feedo_did
+
+        storage_gateways = get_storage_nodes() or GATEWAYS
+        if not storage_gateways:
+            return {"status": "error", "message": "No storage gateways available"}
+            
+        image_url = f"{storage_gateways[0]}/download/{payload.hash_id}"
+        
+        await brain.add_image_vector_async(
+            post_id=int(time.time()),
+            hash_id=payload.hash_id,
+            image_url=image_url,
+            symmetric_key=payload.symmetric_key,
+            source_type="api",
+            item_type=payload.item_type,
+            author=author,
+            metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 @app.get("/v1/node/peers")
 async def get_peers():

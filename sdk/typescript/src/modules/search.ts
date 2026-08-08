@@ -65,6 +65,28 @@ export class SearchModule {
         });
     }
 
+    async indexImage(hashId: string, metadata: Record<string, any> = {}, symmetricKey?: string) {
+        let author = "";
+        let itemType = "image";
+        
+        if (symmetricKey) {
+            if (!this.privateKey) {
+                throw new Error("Private key required to index private images");
+            }
+            const wallet = new ethers.Wallet(this.privateKey);
+            author = `did:feedo:${wallet.address}`;
+            itemType = "private_image";
+        }
+        
+        return this.request('POST', '/index_image', {
+            hash_id: hashId,
+            item_type: itemType,
+            author: author,
+            metadata: metadata,
+            symmetric_key: symmetricKey
+        });
+    }
+
     async indexDocument(content: string, metadata: Record<string, any> = {}) {
         // Generate a random hash_id to satisfy the backend requirement
         const hash_id = 'doc_' + Math.random().toString(36).substring(7);

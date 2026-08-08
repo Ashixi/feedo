@@ -402,6 +402,46 @@ class VectorBrain:
             
         self.add_vector_by_emb(post_id, hash_id, vector, source_type, item_type=item_type, language=language, geo=geo, image_vector=image_vector, relay_url=relay_url, author=author, text=text, metadata=metadata)
 
+    async def add_image_vector_async(self, post_id: int, hash_id: str, image_url: str, symmetric_key: str = None, source_type: str = "native", item_type: str = "image", author: str = "", metadata: str = ""):
+        loop = asyncio.get_event_loop()
+        
+        def process_image():
+            response = requests.get(image_url, timeout=10.0)
+            response.raise_for_status()
+            raw_data = response.content
+            
+            if symmetric_key:
+                import binascii
+                from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+                key_bytes = binascii.unhexlify(symmetric_key)
+                if len(raw_data) < 28:
+                    raise ValueError("Data too short to be AES-GCM encrypted")
+                nonce = raw_data[:12]
+                tag = raw_data[-16:]
+                ciphertext = raw_data[12:-16]
+                cipher = Cipher(algorithms.AES(key_bytes), modes.GCM(nonce, tag))
+                decryptor = cipher.decryptor()
+                raw_data = decryptor.update(ciphertext) + decryptor.finalize()
+                
+            image = Image.open(io.BytesIO(raw_data)).convert("RGB")
+            return self.image_model.encode(image).tolist()
+            
+        try:
+            image_vector = await loop.run_in_executor(self.executor, process_image)
+            vector = [0.0] * 384
+            self.add_vector_by_emb(
+                post_id=post_id,
+                hash_id=hash_id,
+                vector=vector,
+                source_type=source_type,
+                item_type=item_type,
+                author=author,
+                image_vector=image_vector,
+                metadata=metadata
+            )
+        except Exception as e:
+            print(f"⚠️ Помилка векторизації зображення {hash_id}: {e}")
+
     async def update_user_vector_async(self, current_vector: list[float] | None, post_text: str, weight: float = 0.2) -> list[float]:
         new_interest = await self.get_embedding_async(post_text)
         if not current_vector:

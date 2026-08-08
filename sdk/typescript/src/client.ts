@@ -32,15 +32,45 @@ export class FeedoClient {
 
         const { FeedoCrypto } = require('./modules/crypto');
         const symKey = FeedoCrypto.generateSymmetricKey();
-        const encryptedData = FeedoCrypto.encryptData(symKey, fileBuffer);
 
-        const blob = new Blob([encryptedData]);
-        console.log("[DEBUG] Calling storage.uploadFile...");
-        const hashId = await this.storage.uploadFile(blob, 'encrypted_file.bin');
-        console.log("[DEBUG] uploadFile finished, hashId:", hashId);
+        console.log("[DEBUG] Encrypting and uploading chunks...");
+        const CHUNK_SIZE = 5 * 1024 * 1024;
+        const size = fileBuffer.byteLength;
+        const chunks: Buffer[] = [];
+        let offset = 0;
+        while (offset < size) {
+            const chunk = fileBuffer.subarray(offset, offset + CHUNK_SIZE);
+            chunks.push(FeedoCrypto.encryptData(symKey, chunk));
+            offset += CHUNK_SIZE;
+        }
+
+        const limit = 10;
+        const hashes: string[] = new Array(chunks.length);
+        let i = 0;
+        const workers = new Array(limit).fill(0).map(async () => {
+            while (i < chunks.length) {
+                const index = i++;
+                const chunkFilename = `encrypted_part${index}`;
+                // Accessing private method for SDK internal chunk upload
+                hashes[index] = await (this.storage as any).uploadSingleChunk(chunks[index], chunkFilename);
+            }
+        });
+        await Promise.all(workers);
+
+        const manifest = {
+            type: "feedo_encrypted_manifest",
+            filename: 'encrypted_file.bin',
+            total_size: size,
+            chunk_size: CHUNK_SIZE,
+            chunks: hashes
+        };
+
+        const manifestString = JSON.stringify(manifest);
+        const manifestData = Buffer.from(manifestString, 'utf-8');
+        const hashId = await (this.storage as any).uploadSingleChunk(manifestData, 'manifest.json');
+        console.log("[DEBUG] uploadPrivateFile finished, hashId:", hashId);
 
         const encSymKey = FeedoCrypto.encryptSymmetricKeyEcies(targetPubKey, symKey);
-
         const payloadBytes = Buffer.from(`${hashId}${targetDid}${encSymKey}`, 'utf-8');
         const signature = await wallet.signMessage(payloadBytes);
 
@@ -49,13 +79,24 @@ export class FeedoClient {
         console.log("[DEBUG] grantFileAccess finished");
 
         if (indexForSearch && targetDid === myDid) {
-            try {
-                const textContent = fileBuffer.toString('utf-8');
-                console.log("[DEBUG] Calling search.indexPrivateDocument...");
-                await this.search.indexPrivateDocument(hashId, textContent, metadata);
-                console.log("[DEBUG] indexPrivateDocument finished");
-            } catch (e) {
-                // Not text
+            if (size > 30 * 1024 * 1024) {
+                console.log("[DEBUG] File > 30MB, skipping search indexing (Vectorization bypass)");
+            } else {
+                if (metadata.type === "image") {
+                    console.log("[DEBUG] Calling search.indexImage...");
+                    // Pass the symmetric key so search node can decrypt and vectorize
+                    await this.search.indexImage(hashId, metadata, symKey.toString('hex'));
+                    console.log("[DEBUG] indexImage finished");
+                } else {
+                    try {
+                        const textContent = fileBuffer.toString('utf-8');
+                        console.log("[DEBUG] Calling search.indexPrivateDocument...");
+                        await this.search.indexPrivateDocument(hashId, textContent, metadata);
+                        console.log("[DEBUG] indexPrivateDocument finished");
+                    } catch (e) {
+                        // Not text
+                    }
+                }
             }
         }
 
@@ -80,9 +121,34 @@ export class FeedoClient {
         const { FeedoCrypto } = require('./modules/crypto');
         const symKey = FeedoCrypto.decryptSymmetricKeyEcies(privateKey, encSymKey);
 
-        const encryptedDataArrayBuffer = await this.storage.downloadFile(hashId);
-        const encryptedData = Buffer.from(encryptedDataArrayBuffer);
+        const rawData = await this.storage.downloadFile(hashId);
+        
+        // Check if it's an encrypted manifest
+        if (rawData.byteLength < 1024 * 1024) {
+            try {
+                const text = new TextDecoder().decode(rawData);
+                const json = JSON.parse(text);
+                if (json.type === 'feedo_encrypted_manifest' && Array.isArray(json.chunks)) {
+                    const limit = 10;
+                    const decryptedChunks: Buffer[] = new Array(json.chunks.length);
+                    let i = 0;
+                    const workers = new Array(limit).fill(0).map(async () => {
+                        while (i < json.chunks.length) {
+                            const index = i++;
+                            const encChunkRaw = await (this.storage as any).downloadSingleChunk(json.chunks[index]);
+                            const encChunk = Buffer.from(encChunkRaw);
+                            decryptedChunks[index] = FeedoCrypto.decryptData(symKey, encChunk);
+                        }
+                    });
+                    await Promise.all(workers);
+                    return Buffer.concat(decryptedChunks);
+                }
+            } catch (e) {
+                // Not an encrypted manifest, handle as single encrypted file for backwards compatibility
+            }
+        }
 
+        const encryptedData = Buffer.from(rawData);
         return FeedoCrypto.decryptData(symKey, encryptedData);
     }
 }

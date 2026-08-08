@@ -328,6 +328,12 @@ async fn grant_file_access(State(state): State<AppState>, Json(payload): Json<Gr
         return Json(NameRegisterRes { success: false, error: Some(e.to_string()) });
     }
     
+    let _ = state.swarm_tx.send(SwarmCommand::PublishAclDht(
+        payload.file_hash.clone(),
+        payload.grantee_did.clone(),
+        payload.encrypted_symmetric_key.clone(),
+    ));
+    
     Json(NameRegisterRes { success: true, error: None })
 }
 
@@ -337,7 +343,22 @@ pub struct GetFileAccessRes {
 }
 
 async fn get_file_access(State(state): State<AppState>, Path((file_hash, grantee_did)): Path<(String, String)>) -> Json<GetFileAccessRes> {
-    let key = state.acl_manager.get_encrypted_key(&file_hash, &grantee_did);
+    if let Some(key) = state.acl_manager.get_encrypted_key(&file_hash, &grantee_did) {
+        return Json(GetFileAccessRes { encrypted_symmetric_key: Some(key) });
+    }
+    
+    // DHT query
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::QueryAclDht(file_hash.clone(), grantee_did.clone(), tx));
+    let key = match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+        Ok(Ok(Some(k))) => {
+            // Cache it locally so we don't have to query again
+            let _ = state.acl_manager.grant_access(&file_hash, &grantee_did, &k);
+            Some(k)
+        },
+        _ => None,
+    };
+    
     Json(GetFileAccessRes { encrypted_symmetric_key: key })
 }
 
@@ -1070,11 +1091,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", p2p_port).parse()?)?;
 
     if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
+        let mut bootstrapped = false;
         for s in nodes_csv.split(',') {
             let s = s.trim();
             if s.is_empty() { continue; }
             match s.parse::<libp2p::Multiaddr>() {
                 Ok(addr) => {
+                    if let Some(libp2p::multiaddr::Protocol::P2p(peer_id)) = addr.iter().find(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_))) {
+                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                        bootstrapped = true;
+                    }
                     match swarm.dial(addr.clone()) {
                         Ok(()) => eprintln!("Dialing bootstrap node: {}", addr),
                         Err(e) => eprintln!("Error dialing {}: {:?}", addr, e),
@@ -1082,6 +1108,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(e) => eprintln!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
             }
+        }
+        if bootstrapped {
+            let _ = swarm.behaviour_mut().kademlia.bootstrap();
+            eprintln!("Initiated Kademlia bootstrap");
         }
     }
 

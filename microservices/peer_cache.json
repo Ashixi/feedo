@@ -1,0 +1,34 @@
+{
+  "peers": {
+    "12D3KooWM5eoMsXbCaDfpt78zpEBTagH1mpGW4CCmdayGuUHqNiR": {
+      "peer_id": "12D3KooWM5eoMsXbCaDfpt78zpEBTagH1mpGW4CCmdayGuUHqNiR",
+      "multiaddrs": [],
+      "last_seen_unix": 1786193120,
+      "success_count": 1,
+      "fail_count": 0,
+      "score": 0.4,
+      "api_url": "http://193.179.119.170:3001",
+      "grpc_url": "193.179.119.170:50052"
+    },
+    "12D3KooWKdaKzYoheDhvT3knHQvX5fNkju32uugV1qYA8GUXCqN7": {
+      "peer_id": "12D3KooWKdaKzYoheDhvT3knHQvX5fNkju32uugV1qYA8GUXCqN7",
+      "multiaddrs": [],
+      "last_seen_unix": 1786193158,
+      "success_count": 1,
+      "fail_count": 0,
+      "score": 0.4,
+      "api_url": "http://193.179.119.170:3001",
+      "grpc_url": "193.179.119.170:50052"
+    },
+    "12D3KooWCLw5oqzcibfRoyHqBo1Q9zyx9gwEzbhkQiKerVkZf9RT": {
+      "peer_id": "12D3KooWCLw5oqzcibfRoyHqBo1Q9zyx9gwEzbhkQiKerVkZf9RT",
+      "multiaddrs": [],
+      "last_seen_unix": 1786193925,
+      "success_count": 1,
+      "fail_count": 0,
+      "score": 0.4,
+      "api_url": "http://193.179.119.170:3001",
+      "grpc_url": "193.179.119.170:50052"
+    }
+  }
+}

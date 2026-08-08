@@ -4,8 +4,10 @@ export declare class StorageModule {
     private privateKey?;
     constructor(router: NodeRouter, privateKey?: string | undefined);
     private request;
+    private uploadSingleChunk;
     uploadFile(fileBlobOrBuffer: any, filename?: string): Promise<string>;
-    downloadFile(hash: string): Promise<any>;
+    private downloadSingleChunk;
+    downloadFile(hash: string): Promise<ArrayBuffer>;
     ingestJson(payload: any): Promise<any>;
     getRecentFiles(): Promise<any>;
 }

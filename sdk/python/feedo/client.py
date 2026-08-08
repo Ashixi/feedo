@@ -53,10 +53,40 @@ class FeedoClient:
         target_did = "unknown" if grantee_public_key_hex else my_did
         
         sym_key = FeedoCrypto.generate_symmetric_key()
-        encrypted_data = FeedoCrypto.encrypt_data(sym_key, file_data)
         
-        # Upload encrypted bytes directly
-        hash_id = await self.storage.upload_bytes(encrypted_data, "encrypted_file.bin")
+        CHUNK_SIZE = 5 * 1024 * 1024
+        size = len(file_data)
+        chunks = []
+        offset = 0
+        while offset < size:
+            chunk = file_data[offset:offset + CHUNK_SIZE]
+            chunks.append(FeedoCrypto.encrypt_data(sym_key, chunk))
+            offset += CHUNK_SIZE
+            
+        import asyncio
+        import json
+        
+        hashes = [None] * len(chunks)
+        semaphore = asyncio.Semaphore(10)
+        
+        async def upload_worker(idx, chunk):
+            async with semaphore:
+                chunk_hash = await self.storage._upload_single_chunk(chunk, f"encrypted_part{idx}")
+                hashes[idx] = chunk_hash
+                
+        tasks = [upload_worker(i, c) for i, c in enumerate(chunks)]
+        await asyncio.gather(*tasks)
+        
+        manifest = {
+            "type": "feedo_encrypted_manifest",
+            "filename": "encrypted_file.bin",
+            "total_size": size,
+            "chunk_size": CHUNK_SIZE,
+            "chunks": hashes
+        }
+        
+        manifest_bytes = json.dumps(manifest).encode('utf-8')
+        hash_id = await self.storage._upload_single_chunk(manifest_bytes, "manifest.json")
         
         # Encrypt symmetric key for the grantee
         enc_sym_key = FeedoCrypto.encrypt_symmetric_key_ecies(target_pub_key, sym_key)
@@ -77,11 +107,19 @@ class FeedoClient:
         
         # Optionally index plaintext in search node for private semantic search
         if index_for_search and target_did == my_did:
-            try:
-                text_content = file_data.decode('utf-8')
-                await self.search.index_private_document(hash_id, text_content, metadata)
-            except UnicodeDecodeError:
-                pass  # Not text, skip indexing
+            if size > 30 * 1024 * 1024:
+                print("[DEBUG] File > 30MB, skipping search indexing (Vectorization bypass)")
+            else:
+                metadata = metadata or {}
+                if metadata.get("type") == "image":
+                    print("[DEBUG] Calling search.index_image...")
+                    await self.search.index_image(hash_id, metadata, sym_key.hex())
+                else:
+                    try:
+                        text_content = file_data.decode('utf-8')
+                        await self.search.index_private_document(hash_id, text_content, metadata)
+                    except UnicodeDecodeError:
+                        pass  # Not text, skip indexing
         
         return hash_id
 
@@ -111,8 +149,30 @@ class FeedoClient:
         private_key_hex = self.private_key
         sym_key = FeedoCrypto.decrypt_symmetric_key_ecies(private_key_hex, enc_sym_key)
         
-        # 3. Download encrypted file from storage node
-        encrypted_data = await self.storage.download_file(hash_id)
+        # 3. Download file or manifest from storage node
+        raw_data = await self.storage.download_file(hash_id)
         
-        # 4. Decrypt file data
-        return FeedoCrypto.decrypt_data(sym_key, encrypted_data)
+        if len(raw_data) < 1024 * 1024:
+            import json
+            import asyncio
+            try:
+                text = raw_data.decode('utf-8')
+                manifest = json.loads(text)
+                if manifest.get("type") == "feedo_encrypted_manifest" and isinstance(manifest.get("chunks"), list):
+                    semaphore = asyncio.Semaphore(10)
+                    decrypted_chunks = [None] * len(manifest["chunks"])
+                    
+                    async def download_worker(idx, h):
+                        async with semaphore:
+                            enc_chunk = await self.storage._download_single_chunk(h)
+                            decrypted_chunks[idx] = FeedoCrypto.decrypt_data(sym_key, enc_chunk)
+                            
+                    tasks = [download_worker(i, h) for i, h in enumerate(manifest["chunks"])]
+                    await asyncio.gather(*tasks)
+                    
+                    return b''.join(decrypted_chunks)
+            except Exception:
+                pass
+        
+        # 4. Decrypt file data fallback (for single unchunked file)
+        return FeedoCrypto.decrypt_data(sym_key, raw_data)
