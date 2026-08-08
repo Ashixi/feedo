@@ -405,6 +405,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if s.is_empty() { continue; }
             match s.parse::<libp2p::Multiaddr>() {
                 Ok(addr) => {
+                    // Extract PeerId from Multiaddr
+                    let mut peer_id = None;
+                    for p in addr.iter() {
+                        if let libp2p::multiaddr::Protocol::P2p(hash) = p {
+                            peer_id = PeerId::from_multihash(hash).ok();
+                        }
+                    }
+                    
+                    if let Some(pid) = peer_id {
+                        swarm.behaviour_mut().kademlia.add_address(&pid, addr.clone());
+                        println!("Added Kademlia bootstrap node: {} with peer id: {}", addr, pid);
+                    } else {
+                        println!("Warning: No PeerId found in bootstrap multiaddr: {}", addr);
+                    }
+
                     match swarm.dial(addr.clone()) {
                         Ok(()) => println!("Dialing bootstrap node: {}", addr),
                         Err(e) => println!("Error dialing {}: {:?}", addr, e),
@@ -413,6 +428,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => println!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
             }
         }
+        
+        println!("Triggering initial Kademlia bootstrap...");
+        let _ = swarm.behaviour_mut().kademlia.bootstrap();
     }
 
     let (swarm_tx, swarm_rx) = mpsc::unbounded_channel();
