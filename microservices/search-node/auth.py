@@ -18,7 +18,7 @@ async def verify_feedo_auth(request: Request):
     
     # Exclude specific internal endpoints from DID auth
     # Note: p2p routes are node-to-node and should have their own auth (or none, depending on P2P design)
-    if path.startswith("/p2p/") or path.startswith("/v1/node/") or path == "/explorer/stats":
+    if path.startswith("/p2p/") or path.startswith("/v1/node/") or path == "/explorer/stats" or path == "/proxy/publish_feedo":
         return None
         
     did = request.headers.get("X-Feedo-DID")
