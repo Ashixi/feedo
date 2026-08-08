@@ -142,7 +142,7 @@ impl RrCodec for ConsensusCodec {
 #[derive(NetworkBehaviour)]
 pub struct ConsensusBehaviour {
     pub gossipsub: gossipsub::Behaviour,
-    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    pub kademlia: kad::Behaviour<crate::dht_store::SledRecordStore>,
     pub identify: identify::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
     pub request_response: request_response::Behaviour<ConsensusCodec>,

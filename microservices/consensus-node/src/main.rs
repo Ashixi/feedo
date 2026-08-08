@@ -27,6 +27,7 @@ pub mod replay;
 pub mod acl;
 pub mod peer_cache;
 pub mod telemetry;
+pub mod dht_store;
 
 use swarm_loop::SwarmCommand;
 use network::{ConsensusCodec, CONSENSUS_PROTOCOL};
@@ -1057,7 +1058,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let kad_config = libp2p::kad::Config::default();
-            let store = libp2p::kad::store::MemoryStore::new(local_peer_id);
+            let db_dir = std::env::var("DB_DIR").unwrap_or_else(|_| "consensus_db".to_string());
+            let store = dht_store::SledRecordStore::new(sled::open(format!("{}/kademlia_db", db_dir)).unwrap());
             let mut kademlia = libp2p::kad::Behaviour::with_config(local_peer_id, store, kad_config);
             kademlia.set_mode(Some(libp2p::kad::Mode::Server));
 
@@ -1159,26 +1161,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         acl_manager: acl_manager.clone(),
         telemetry_cache: telemetry_cache.clone(),
     };
-    
-    let local_name_db = name_db.lock().await;
-    if let Ok(records) = local_name_db.get_all_records() {
-        for (name, did, cid, gateways_json) in records {
-            let gateways = gateways_json.and_then(|json| serde_json::from_str(&json).ok());
-            let res = ResolveRes { did, cid, gateways, epoch: None, finalized_at: None, title: None, description: None, icon_cid: None, created_at: None, updated_at: None };
-            let _ = swarm_tx.send(SwarmCommand::PublishDht(name, res));
-        }
-    }
-    drop(local_name_db);
-
-    let local_did_manager = did_manager.lock().await;
-    for doc in local_did_manager.get_all_documents() {
-        let _ = swarm_tx.send(SwarmCommand::PublishDidDht(doc.id.clone(), doc));
-    }
-    drop(local_did_manager);
-
-    for (file_hash, grantee_did, encrypted_key) in acl_manager.get_all_grants() {
-        let _ = swarm_tx.send(SwarmCommand::PublishAclDht(file_hash, grantee_did, encrypted_key));
-    }
     
     let app = Router::new()
         .route("/resolve/:name", get(resolve_name_http))
