@@ -409,7 +409,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut peer_id = None;
                     for p in addr.iter() {
                         if let libp2p::multiaddr::Protocol::P2p(hash) = p {
-                            peer_id = PeerId::from_multihash(hash).ok();
+                            peer_id = Some(hash);
                         }
                     }
                     
