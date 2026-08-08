@@ -102,14 +102,21 @@ async def proxy_request(request: Request, domain_or_path: str = ""):
             raise HTTPException(status_code=500, detail=f"Failed to connect to consensus node: {str(e)}")
 
     # Fetch content (ZIP archive)
+    storage_nodes = [STORAGE_NODE_URL, "http://95.111.245.68:3001"]
+    zip_content = None
+    
     async with httpx.AsyncClient() as client:
-        try:
-            file_res = await client.get(f"{STORAGE_NODE_URL}/download/{cid}")
-            if file_res.status_code != 200:
-                raise HTTPException(status_code=404, detail="Content not found in DHT")
-            zip_content = file_res.content
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to connect to storage node: {str(e)}")
+        for node in storage_nodes:
+            try:
+                file_res = await client.get(f"{node}/download/{cid}")
+                if file_res.status_code == 200:
+                    zip_content = file_res.content
+                    break
+            except httpx.RequestError:
+                continue
+
+    if not zip_content:
+        raise HTTPException(status_code=404, detail="Content not found in DHT")
 
     # Extract requested file from ZIP in memory
     import zipfile
