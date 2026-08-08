@@ -39,9 +39,9 @@ from feedo import FeedoClient
 
 client = FeedoClient(
     private_key="0x...",   # your wallet private key
-    storage_seeds=["http://localhost:3011"],
-    consensus_seeds=["http://localhost:3012"],
-    search_seeds=["http://localhost:8013"],
+    storage_seeds=["http://localhost:3001"],
+    consensus_seeds=["http://localhost:3000"],
+    search_seeds=["http://localhost:8000"],
 )
 ```
 
@@ -68,9 +68,9 @@ async def main():
 
     client = FeedoClient(
         private_key=account.key.hex(),
-        storage_seeds=["http://localhost:3011"],
-        consensus_seeds=["http://localhost:3012"],
-        search_seeds=["http://localhost:8013"],
+        storage_seeds=["http://localhost:3001"],
+        consensus_seeds=["http://localhost:3000"],
+        search_seeds=["http://localhost:8000"],
     )
 
     # 1. Register your DID on the network

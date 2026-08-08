@@ -45,7 +45,7 @@ class ConsensusModule:
         """
         account = Account.from_key(private_key_hex)
         did = f"did:feedo:{account.address}"
-        public_key_hex = account._key_obj.public_key.to_hex()
+        public_key_hex = account.address
         return await self._request("POST", "/did/register", json={
             "did": did,
             "public_key": public_key_hex,

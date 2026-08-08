@@ -71,7 +71,7 @@ class FeedoClient:
             file_hash=hash_id,
             grantee_did=target_did,
             encrypted_symmetric_key=enc_sym_key,
-            public_key=my_public_key,
+            public_key=my_account.address,
             signature_hex=signed.signature.hex()
         )
         
@@ -108,7 +108,7 @@ class FeedoClient:
             raise PermissionError(f"No access granted for {my_did} to file {hash_id}")
             
         # 2. Decrypt symmetric key
-        private_key_hex = my_account._key_obj.private_key.to_hex()
+        private_key_hex = self.private_key
         sym_key = FeedoCrypto.decrypt_symmetric_key_ecies(private_key_hex, enc_sym_key)
         
         # 3. Download encrypted file from storage node

@@ -4,8 +4,8 @@ from typing import List, Optional, Dict
 
 DEFAULT_SEEDS = {
     "search": ["http://95.111.245.68:8000", "http://178.18.253.94:8000", "http://localhost:8000"],
-    "consensus": ["http://95.111.245.68:8080", "http://178.18.253.94:8080", "http://localhost:8080"],
-    "storage": ["http://95.111.245.68:8081", "http://178.18.253.94:8081", "http://localhost:8081"]
+    "consensus": ["http://95.111.245.68:3000", "http://178.18.253.94:3000", "http://localhost:3000"],
+    "storage": ["http://95.111.245.68:3001", "http://178.18.253.94:3001", "http://localhost:3001"]
 }
 
 class NodeRouter:
