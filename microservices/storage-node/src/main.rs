@@ -399,6 +399,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .unwrap_or(8040);
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", p2p_port).parse()?)?;
+
+    println!("DEBUG: BOOTSTRAP_NODES from env is: {:?}", std::env::var("BOOTSTRAP_NODES"));
+    
     if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
         for s in nodes_csv.split(',') {
             let s = s.trim();
