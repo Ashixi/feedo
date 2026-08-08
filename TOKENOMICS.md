@@ -1,13 +1,14 @@
 # Feedo Tokenomics & Economic Model — Concept Plan
 
 > **Status**: Well-formed concept — the core architecture and pricing are defined, but specific details may evolve as the protocol matures and real-world data informs adjustments.
+> **Current Phase (Early Access)**: **Currently, all services (Storage, Vector Search, Domains) are completely FREE.** The pricing listed below will take effect *after* scaling the network and onboarding the first enterprise clients.
 > **Audience**: Internal use, grant applications, ecosystem participants.
 
 ---
 
 ## Overview
 
-This document describes the economic architecture of the Feedo network, pricing principles for services, and the fair revenue distribution formula among ecosystem participants. The model is based on fiat-pegged stablecoins (USDT) and microtransactions — **no volatile internal token** is used for payments.
+This document describes the future economic architecture of the Feedo network, pricing principles for services, and the fair revenue distribution formula among ecosystem participants. The model is based on fiat-pegged stablecoins (USDT) and microtransactions — **no volatile internal token** is used for payments.
 
 ---
 
@@ -72,7 +73,7 @@ AI-powered data parsing and semantic search is a key differentiator for Feedo:
 | Service | Price | Notes |
 |---------|-------|-------|
 | **Raw Data Parsing by DID** | **Free** | Ensures Web3 openness. DDoS protection is enforced via P2P-level rate limiting, verified through cryptographic signatures of the initiator. |
-| **Vector Search (AI / Embeddings / LanceDB)** | **$1 per 10,000 queries/vectors** | The user purchases a "quota" that is gradually consumed during complex search queries. Funds go to the Search Nodes that spent CPU/GPU resources on computation. |
+| **Vector Search (AI / Embeddings / LanceDB)** | **$5 per 10,000 queries/vectors** | The user purchases a "quota" that is gradually consumed during complex search queries. Funds go to the Search Nodes that spent CPU/GPU resources on computation. |
 
 ---
 
