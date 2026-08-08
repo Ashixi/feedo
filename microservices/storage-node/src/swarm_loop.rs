@@ -220,6 +220,7 @@ pub async fn run_swarm(
                                         println!("Manifest received from DHT for {}. Starting parallel shard download...", hash);
                                         if let Some(state) = active_fetches.get_mut(&hash) {
                                             state.manifest = Some(manifest.clone());
+                                            state.original_size = manifest.size;
                                         }
                                         for (index, peer_id_str) in manifest.shards {
                                             if let Ok(peer_id) = PeerId::from_str(&peer_id_str) {
