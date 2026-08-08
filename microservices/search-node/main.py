@@ -581,7 +581,7 @@ async def proxy_publish(file: UploadFile = File(...)):
                 f.close()
 
 @app.post("/proxy/publish_feedo")
-async def proxy_publish_feedo(file: UploadFile = File(...)):
+async def proxy_publish_feedo(request: Request, file: UploadFile = File(...)):
     import tempfile
     import zipfile
     import shutil
@@ -654,7 +654,12 @@ async def proxy_publish_feedo(file: UploadFile = File(...)):
         
         with open(zip_path, 'rb') as f_obj:
             files = {'file': (file.filename or 'site.zip', f_obj, 'application/zip')}
-            resp = await asyncio.to_thread(requests.post, url, files=files)
+            fwd_headers = {
+                "X-Feedo-DID": request.headers.get("X-Feedo-DID", ""),
+                "X-Feedo-Timestamp": request.headers.get("X-Feedo-Timestamp", ""),
+                "X-Feedo-Signature": request.headers.get("X-Feedo-Signature", "")
+            }
+            resp = await asyncio.to_thread(requests.post, url, files=files, headers=fwd_headers)
             
         if resp.status_code == 200:
             feedo_hash = resp.text.strip()
