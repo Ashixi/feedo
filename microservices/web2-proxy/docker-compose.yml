@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web2-proxy:
+    build: .
+    image: feedo-web2-proxy
+    container_name: web2-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - CONSENSUS_NODE_URL=http://178.18.253.94:3000
+      - STORAGE_NODE_URL=http://178.18.253.94:3001

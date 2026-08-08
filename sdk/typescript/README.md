@@ -52,11 +52,33 @@ const feedo = new FeedoClient({
 *(Optional) You can provide your own seed nodes if you are running a private/local cluster:*
 ```typescript
 const feedo = new FeedoClient({
-    searchSeeds: ['http://localhost:8013'],
-    consensusSeeds: ['http://localhost:3012'],
-    storageSeeds: ['http://localhost:3011'],
+    searchSeeds: ['http://localhost:8000'],
+    consensusSeeds: ['http://localhost:3000'],
+    storageSeeds: ['http://localhost:3001'],
     privateKey: '0x...'
 });
+```
+
+---
+
+## ⚠️ Important: Registering Your DID
+
+Before you can perform **any write operations** (uploading files, indexing documents, granting access), you **MUST** register your Decentralized Identifier (DID) on the Feedo Consensus network.
+
+Registering your DID creates your identity on the blockchain and grants you the initial credits (500,000 credits) needed to pay for storage and compute. Without a registered DID, the storage nodes will reject your uploads due to "insufficient balance".
+
+You only need to do this **once per wallet**.
+
+```typescript
+import { ethers } from 'ethers';
+
+// 1. Ask the user to sign a message to prove ownership of the private key
+const sig = await wallet.signMessage('register');
+
+// 2. Register the DID on the network
+await feedo.consensus.registerDid(wallet.signingKey.publicKey, sig);
+
+console.log("DID Registered successfully! You can now upload files.");
 ```
 
 ---
@@ -71,9 +93,9 @@ const wallet = ethers.Wallet.createRandom();
 
 const feedo = new FeedoClient({
     privateKey: wallet.privateKey,
-    storageSeeds: ['http://localhost:3011'],
-    consensusSeeds: ['http://localhost:3012'],
-    searchSeeds: ['http://localhost:8013'],
+    storageSeeds: ["http://localhost:3001"],
+    consensusSeeds: ["http://localhost:3000"],
+    searchSeeds: ["http://localhost:8000"],
 });
 
 // 1. Register your DID on the network

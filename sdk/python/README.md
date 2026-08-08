@@ -56,6 +56,33 @@ client = FeedoClient(
 
 ---
 
+## ⚠️ Important: Registering Your DID
+
+Before you can perform **any write operations** (uploading files, indexing documents, granting access), you **MUST** register your Decentralized Identifier (DID) on the Feedo Consensus network.
+
+Registering your DID creates your identity on the blockchain and grants you the initial credits (500,000 credits) needed to pay for storage and compute. Without a registered DID, the storage nodes will reject your uploads due to "insufficient balance".
+
+You only need to do this **once per wallet**.
+
+```python
+import asyncio
+from eth_account import Account
+from feedo import FeedoClient
+
+async def main():
+    account = Account.create()
+
+    client = FeedoClient(private_key=account.key.hex())
+
+    # 1. Register the DID on the network
+    await client.consensus.register_did(account.key.hex())
+    print("DID Registered successfully! You can now upload files.")
+
+asyncio.run(main())
+```
+
+---
+
 ## Quick Start — Full E2EE Flow
 
 ```python
