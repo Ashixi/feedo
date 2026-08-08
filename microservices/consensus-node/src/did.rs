@@ -224,4 +224,16 @@ impl DidManager {
         self.db.insert(format!("did:{}", doc.id).as_bytes(), data)?;
         Ok(())
     }
+
+    pub fn get_all_documents(&self) -> Vec<DidDocument> {
+        let mut docs = Vec::new();
+        for item in self.db.scan_prefix("did:") {
+            if let Ok((_key, value)) = item {
+                if let Ok(doc) = serde_json::from_slice::<DidDocument>(&value) {
+                    docs.push(doc);
+                }
+            }
+        }
+        docs
+    }
 }

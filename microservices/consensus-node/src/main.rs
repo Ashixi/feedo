@@ -1169,6 +1169,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     drop(local_name_db);
+
+    let local_did_manager = did_manager.lock().await;
+    for doc in local_did_manager.get_all_documents() {
+        let _ = swarm_tx.send(SwarmCommand::PublishDidDht(doc.id.clone(), doc));
+    }
+    drop(local_did_manager);
+
+    for (file_hash, grantee_did, encrypted_key) in acl_manager.get_all_grants() {
+        let _ = swarm_tx.send(SwarmCommand::PublishAclDht(file_hash, grantee_did, encrypted_key));
+    }
     
     let app = Router::new()
         .route("/resolve/:name", get(resolve_name_http))

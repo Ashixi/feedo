@@ -32,4 +32,18 @@ impl AclManager {
         }
         None
     }
+    pub fn get_all_grants(&self) -> Vec<(String, String, String)> {
+        let mut grants = Vec::new();
+        for item in self.db.scan_prefix("acl:") {
+            if let Ok((key, value)) = item {
+                if let (Ok(key_str), Ok(val_str)) = (String::from_utf8(key.to_vec()), String::from_utf8(value.to_vec())) {
+                    let parts: Vec<&str> = key_str.split(':').collect();
+                    if parts.len() == 3 {
+                        grants.push((parts[1].to_string(), parts[2].to_string(), val_str));
+                    }
+                }
+            }
+        }
+        grants
+    }
 }
