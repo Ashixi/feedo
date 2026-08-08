@@ -40,6 +40,11 @@ pub enum ConsensusRequest {
         phase: i32,
         tx_hash: String,
     },
+    /// Direct peer announcement to bypass gossipsub mesh formation delays.
+    #[serde(rename = "announce")]
+    PeerAnnounce {
+        announce_json: String,
+    },
 }
 
 // --- Old types kept for backward compatibility in swarm_loop.rs references ---
@@ -68,9 +73,11 @@ pub enum ConsensusResponse {
     /// Response to a TxRelay request.
     #[serde(rename = "tx_ack")]
     TxAck { accepted: bool, reason: String },
-    /// Response to a PbftVote request.
     #[serde(rename = "pbft_ack")]
     PbftAck { received: bool },
+    /// Response to a PeerAnnounce request.
+    #[serde(rename = "announce_ack")]
+    PeerAnnounceAck { received: bool },
 }
 
 #[async_trait::async_trait]

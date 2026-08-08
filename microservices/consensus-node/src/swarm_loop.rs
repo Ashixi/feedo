@@ -659,6 +659,48 @@ pub async fn run_swarm(
                                             ConsensusResponse::PbftAck { received: true },
                                         );
                                 }
+                                ConsensusRequest::PeerAnnounce { announce_json } => {
+                                    if let Ok(announce) = serde_json::from_str::<PeerAnnounce>(&announce_json) {
+                                        eprintln!(
+                                            "[PEER_ANNOUNCE_DIRECT] Received: wallet={}, peer={}, rep={}",
+                                            announce.wallet_address,
+                                            announce.peer_id,
+                                            announce.reputation
+                                        );
+                                        if let Ok(p_id) = announce.peer_id.parse::<libp2p::PeerId>() {
+                                            wallet_to_peer.insert(announce.wallet_address.clone(), p_id);
+                                            peer_to_wallet.insert(p_id, announce.wallet_address.clone());
+                                        }
+                                        
+                                        peer_cache.add_or_update(&announce.peer_id, vec![], true);
+                                        if let Some(api_url) = announce.api_url {
+                                            peer_cache.update_api_url(&announce.peer_id, api_url, announce.grpc_url);
+                                        }
+                                        peer_cache.save("peer_cache.json");
+
+                                        let mut manager = ppor_manager.lock().await;
+                                        if !manager.reputation_table.contains_key(&announce.wallet_address) {
+                                            manager.reputation_table.insert(
+                                                announce.wallet_address.clone(),
+                                                announce.reputation,
+                                            );
+                                        }
+                                        let seed = format!(
+                                            "{}:{}",
+                                            manager.last_finalized_hash, manager.current_epoch
+                                        );
+                                        manager.select_committee_weighted(&seed);
+                                        drop(manager);
+                                    }
+                                    
+                                    let _ = swarm
+                                        .behaviour_mut()
+                                        .request_response
+                                        .send_response(
+                                            channel,
+                                            ConsensusResponse::PeerAnnounceAck { received: true },
+                                        );
+                                }
                             },
                             libp2p::request_response::Message::Response {
                                 request_id: _,
@@ -675,6 +717,9 @@ pub async fn run_swarm(
                                         if !received {
                                             eprintln!("[PBFT_DIRECT] Validator did NOT receive our PBFT vote");
                                         }
+                                    }
+                                    ConsensusResponse::PeerAnnounceAck { received: _ } => {
+                                        // Acknowledged, no further action needed
                                     }
                                 }
                             }
@@ -1513,6 +1558,14 @@ pub async fn run_swarm(
                 if let Ok(data) = serde_json::to_vec(&announce) {
                     let topic = libp2p::gossipsub::IdentTopic::new("feedo_peer_announce");
                     let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                    
+                    if let Ok(announce_json) = serde_json::to_string(&announce) {
+                        let request = ConsensusRequest::PeerAnnounce { announce_json };
+                        let peers: Vec<_> = swarm.connected_peers().copied().collect();
+                        for p in peers {
+                            swarm.behaviour_mut().request_response.send_request(&p, request.clone());
+                        }
+                    }
                 }
             }
         }
