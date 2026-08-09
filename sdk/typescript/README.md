@@ -122,10 +122,18 @@ console.log(results);
 
 The Search module handles semantic queries, document vectorization, and Web2/Web3 gateways.
 
-### `search(queryText, limit?, federated?, itemType?, offset?, appId?)`
-Perform a semantic search across the network, optionally filtering by item type or application ID.
+### `search(queryText, limit?, federated?, itemType?, offset?, appId?, searchType?, imageUrl?)`
+Perform a semantic search across the network. By default, this performs text-to-text semantic search.
+To search for an image using text, set `searchType` to `"image"`. To search for an image using another image, provide the `imageUrl` and set `searchType` to `"image"`.
 ```typescript
+// Text-to-text search
 const response = await feedo.search.search("DeFi protocols", 5, true, "post", 0, "SocialApp1");
+
+// Text-to-image search (e.g. for a Fashion app)
+const textToImage = await feedo.search.search("red dress", 5, true, "image", 0, undefined, "image");
+
+// Image-to-image search
+const imageToImage = await feedo.search.search("", 5, true, "image", 0, undefined, "image", "https://example.com/dress.jpg");
 console.log(response.results);
 ```
 

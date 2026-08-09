@@ -42,10 +42,12 @@ class SearchModule {
             return retryResponse.data;
         }
     }
-    async search(query, limit = 50, federated = true, itemType = "all", offset = 0, appId) {
-        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}`;
+    async search(query, limit = 50, federated = true, itemType = "all", offset = 0, appId, searchType = "text", imageUrl) {
+        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}&search_type=${encodeURIComponent(searchType)}`;
         if (appId)
             qs += `&app_id=${encodeURIComponent(appId)}`;
+        if (imageUrl)
+            qs += `&image_url=${encodeURIComponent(imageUrl)}`;
         return this.request('GET', `/query?${qs}`);
     }
     async getDocuments(limit = 50, offset = 0, itemType = "all", appId) {
@@ -66,6 +68,25 @@ class SearchModule {
             item_type: "private_post",
             author: myDid,
             metadata: metadata
+        });
+    }
+    async indexImage(hashId, metadata = {}, symmetricKey) {
+        let author = "";
+        let itemType = "image";
+        if (symmetricKey) {
+            if (!this.privateKey) {
+                throw new Error("Private key required to index private images");
+            }
+            const wallet = new ethers_1.ethers.Wallet(this.privateKey);
+            author = `did:feedo:${wallet.address}`;
+            itemType = "private_image";
+        }
+        return this.request('POST', '/index_image', {
+            hash_id: hashId,
+            item_type: itemType,
+            author: author,
+            metadata: metadata,
+            symmetric_key: symmetricKey
         });
     }
     async indexDocument(content, metadata = {}) {

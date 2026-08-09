@@ -363,6 +363,18 @@ class VectorBrain:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, self.get_image_embedding, image_url)
 
+    def get_image_embedding_from_text(self, text: str) -> list[float]:
+        try:
+            vec = self.image_model.encode(text).tolist()
+            return vec
+        except Exception as e:
+            print(f"⚠️ Помилка обробки тексту для зображення: {e}")
+            return None
+
+    async def get_image_embedding_from_text_async(self, text: str) -> list[float]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self.get_image_embedding_from_text, text)
+
     async def get_embedding_async(self, text: str, is_query: bool = False) -> list[float]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self.executor, self.get_embedding, text, is_query)

@@ -150,6 +150,8 @@ class HandshakePayload(BaseModel):
 class SearchPayload(BaseModel):
     query: str
     ttl: int = 3
+    search_type: str = "text"
+    image_url: str = None
 
 class IndexDocumentPayload(BaseModel):
     hash_id: str
@@ -248,15 +250,27 @@ async def p2p_handshake(payload: HandshakePayload):
     return {"status": "ok", "peers": other_peers}
 
 @app.get("/query")
-async def client_query(request: Request, text: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: str = ""):
+async def client_query(request: Request, text: str = "", limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: str = "", search_type: str = "text", image_url: str = None):
     x_feedo_did = request.headers.get("X-Feedo-DID")
-    query_vector = await brain.get_embedding_async(text, is_query=True)
+    
+    if search_type == "image":
+        if image_url:
+            query_vector = await brain.get_image_embedding_async(image_url)
+            if not query_vector:
+                return {"query": text or image_url, "results": [], "error": "Failed to process image_url"}
+        else:
+            query_vector = await brain.get_image_embedding_from_text_async(text)
+        vector_column = "image_vector"
+    else:
+        query_vector = await brain.get_embedding_async(text, is_query=True)
+        vector_column = "vector"
+        
     local_results = []
     
     try:
         fetch_limit = (limit + offset) * 5
         def search_lance_vector(qv, flimit):
-            q = brain.table.search(qv, vector_column_name="vector")
+            q = brain.table.search(qv, vector_column_name=vector_column)
             conditions = []
             
             if item_type == "all":
@@ -307,7 +321,7 @@ async def client_query(request: Request, text: str, limit: int = 50, federated: 
     if federated and p2p_net:
         try:
             federated_results = await asyncio.wait_for(
-                p2p_net.federated_search(query_vector, text, ttl=3, top_k=5),
+                p2p_net.federated_search(query_vector, text, ttl=3, top_k=5, search_type=search_type, image_url=image_url),
                 timeout=5.0
             )
         except asyncio.TimeoutError:
@@ -729,7 +743,7 @@ async def proxy_publish_feedo(request: Request, file: UploadFile = File(...)):
 async def p2p_search(request: Request, payload: SearchPayload):
     # For now, p2p federated search uses a mock request without auth headers to fetch public items only.
     mock_request = Request(scope={"type": "http", "headers": []})
-    result = await client_query(mock_request, payload.query, limit=10, federated=False)
+    result = await client_query(mock_request, payload.query, limit=10, federated=False, search_type=payload.search_type, image_url=payload.image_url)
     return {"query": payload.query, "results": result["results"]}
 
 @app.post("/p2p/index_vector")

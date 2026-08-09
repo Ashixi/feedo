@@ -73,14 +73,22 @@ class FeedoClient {
                 console.log("[DEBUG] File > 30MB, skipping search indexing (Vectorization bypass)");
             }
             else {
-                try {
-                    const textContent = fileBuffer.toString('utf-8');
-                    console.log("[DEBUG] Calling search.indexPrivateDocument...");
-                    await this.search.indexPrivateDocument(hashId, textContent, metadata);
-                    console.log("[DEBUG] indexPrivateDocument finished");
+                if (metadata.type === "image") {
+                    console.log("[DEBUG] Calling search.indexImage...");
+                    // Pass the symmetric key so search node can decrypt and vectorize
+                    await this.search.indexImage(hashId, metadata, symKey.toString('hex'));
+                    console.log("[DEBUG] indexImage finished");
                 }
-                catch (e) {
-                    // Not text
+                else {
+                    try {
+                        const textContent = fileBuffer.toString('utf-8');
+                        console.log("[DEBUG] Calling search.indexPrivateDocument...");
+                        await this.search.indexPrivateDocument(hashId, textContent, metadata);
+                        console.log("[DEBUG] indexPrivateDocument finished");
+                    }
+                    catch (e) {
+                        // Not text
+                    }
                 }
             }
         }

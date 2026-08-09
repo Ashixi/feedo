@@ -125,10 +125,18 @@ asyncio.run(main())
 
 The Search module handles semantic queries and document vectorization.
 
-### `query(query_text, limit=10, item_type="all", app_id=None)`
-Perform a semantic search across the network.
+### `query(query_text, limit=10, item_type="all", app_id=None, search_type="text", image_url=None)`
+Perform a semantic search across the network. By default, this performs text-to-text semantic search.
+To search for an image using text, set `search_type="image"`. To search for an image using another image, provide the `image_url` and set `search_type="image"`.
 ```python
+# Text-to-text search
 response = await client.search.query("DeFi protocols", limit=5, item_type="post", app_id="SocialApp1")
+
+# Text-to-image search
+text_to_image = await client.search.query("red dress", limit=5, item_type="image", search_type="image")
+
+# Image-to-image search
+image_to_image = await client.search.query("", limit=5, item_type="image", search_type="image", image_url="https://example.com/dress.jpg")
 print(response.get("results", []))
 ```
 

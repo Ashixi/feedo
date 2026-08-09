@@ -125,8 +125,7 @@ class P2PNetwork:
             if centroids is not None:
                 await self._do_broadcast(centroids, reason="periodic")
 
-    async def federated_search(self, query_vector: list[float], query_text: str, ttl: int, top_k: int = 10) -> list[dict]:
-        """Routes the query to top peers and aggregates results."""
+    async def federated_search(self, query_vector: list[float], query_text: str, ttl: int = 3, top_k: int = 5, search_type: str = "text", image_url: str = None) -> list[dict]:
         if ttl <= 0:
             return []
             
@@ -138,7 +137,9 @@ class P2PNetwork:
         
         payload = {
             "query": query_text,
-            "ttl": ttl - 1
+            "ttl": ttl - 1,
+            "search_type": search_type,
+            "image_url": image_url
         }
         
         for peer in target_peers:

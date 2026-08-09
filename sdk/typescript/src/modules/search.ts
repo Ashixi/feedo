@@ -37,9 +37,10 @@ export class SearchModule {
         }
     }
 
-    async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string) {
-        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}`;
+    async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string, searchType: string = "text", imageUrl?: string) {
+        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}&search_type=${encodeURIComponent(searchType)}`;
         if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
+        if (imageUrl) qs += `&image_url=${encodeURIComponent(imageUrl)}`;
         return this.request('GET', `/query?${qs}`);
     }
 
