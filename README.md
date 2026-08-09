@@ -101,7 +101,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 |----------|----------|-------------|
 | [Technical Docs](microservices/consensus-node/CONSENSUS_DOCS.md) | Developers | Architecture, PBFT consensus, modules, API, testing |
 | [Operator Guide](microservices/consensus-node/CONSENSUS_OPERATOR.md) | Node operators | Prerequisites, config, monitoring, troubleshooting, upgrades |
-| [Deployment Guide](microservices/consensus-node/CONSENSUS_DEPLOY.md) | DevOps | Docker, K8s, Terraform, CI/CD, monitoring stack, hardening |
+| [Deployment Guide](microservices/consensus-node/CONSENSUS_DEPLOY.md) | DevOps | Zero-config bare-metal deployment via `install.sh`, systemd, hardening |
 | [Roadmap](microservices/consensus-node/CONSENSUS_ROADMAP.md) | Everyone | Scaling plan from 25 to 10,000+ nodes |
 
 ### Storage Node (Rust)
@@ -110,7 +110,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 |----------|----------|-------------|
 | [Technical Docs](microservices/storage-node/STORAGE_DOCS.md) | Developers | Architecture, erasure coding, P2P protocol, modules, API |
 | [Operator Guide](microservices/storage-node/STORAGE_OPERATOR.md) | Node operators | Quick start, quotas, monitoring, troubleshooting, upgrades |
-| [Deployment Guide](microservices/storage-node/STORAGE_DEPLOY.md) | DevOps | Docker Compose, K8s StatefulSet, Terraform, Ansible, CI/CD |
+| [Deployment Guide](microservices/storage-node/STORAGE_DEPLOY.md) | DevOps | Zero-config bare-metal deployment via `install.sh`, systemd, hardening |
 | [Roadmap](microservices/storage-node/STORAGE_ROADMAP.md) | Everyone | 5-phase scaling plan (Phase 1 ✅ done) |
 
 ### Search Node (Python)
@@ -119,7 +119,7 @@ Each microservice has a documentation suite covering technical architecture, nod
 |----------|----------|-------------|
 | [Technical Docs](microservices/search-node/SEARCH_DOCS.md) | Developers | Architecture, vector search, federated search, modules, API |
 | [Operator Guide](microservices/search-node/SEARCH_OPERATOR.md) | Node operators | Prerequisites, config, monitoring, troubleshooting, upgrades |
-| [Deployment Guide](microservices/search-node/SEARCH_DEPLOY.md) | DevOps | Docker, K8s, Terraform, CI/CD, monitoring stack, hardening |
+| [Deployment Guide](microservices/search-node/SEARCH_DEPLOY.md) | DevOps | Zero-config bare-metal deployment via `install.sh`, systemd, hardening |
 | [Roadmap](microservices/search-node/SEARCH_ROADMAP.md) | Everyone | 5-phase scaling plan (Phase 1 ✅ done) |
 
 ---
