@@ -64,7 +64,8 @@ The domain registry is the foundation of the ecosystem, generating the baseline 
 
 | Service | Price | Notes |
 |---------|-------|-------|
-| **Data Storage** | **$5 per 1 TB** | The payment (specifically 90% of it, per the revenue split) is distributed among the storage nodes that physically store the erasure-coded replicas of that data volume. |
+| **Data Storage** | **$20 per 1 TB** | The payment (specifically 90% of it, per the revenue split) is distributed among the storage nodes that physically store the erasure-coded replicas of that data volume. |
+
 
 ### 3.3 Search & Vectorization (Search Nodes)
 
@@ -81,7 +82,7 @@ AI-powered data parsing and semantic search is a key differentiator for Feedo:
 
 ### Understandable for Web2 Users
 
-No complex internal currency with a volatile exchange rate. People pay in familiar dollars (USDT) at **fixed, transparent prices**. A domain costs $5/year — just like traditional registrars. Storage costs $5/TB — comparable to centralized cloud providers but with the user receiving 90% of the revenue instead of a corporation.
+No complex internal currency with a volatile exchange rate. People pay in familiar dollars (USDT) at **fixed, transparent prices**. A domain costs $5/year — just like traditional registrars. Storage costs $20/TB — comparable to centralized cloud providers but with the user receiving 90% of the revenue instead of a corporation.
 
 ### High Profitability for Providers
 
