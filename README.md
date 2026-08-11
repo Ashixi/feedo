@@ -1,5 +1,13 @@
 # Feedo Protocol
 
+> ## Beta — Free for Everyone
+>
+> Feedo is currently in open beta. **Everything is free** — no payments, no tokens, no limits.
+> We are actively working on the tokenomics layer, which is expected to be ready **within about a month**.
+> Until then, use the network as much as you want — no strings attached.
+
+---
+
 > **We're building what everyone else only dreamed about.**
 >
 > **Feedo is the first fully decentralized search engine.**
