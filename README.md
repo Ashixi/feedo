@@ -2,9 +2,9 @@
 
 > ## Beta — Free for Everyone
 >
-> Feedo is currently in open beta. **Everything is free** — no payments, no tokens, no limits.
+> Feedo is currently in open beta. **Everything is free** — no payments, no tokens.
 > We are actively working on the tokenomics layer, which is expected to be ready **within about a month**.
-> Until then, use the network as much as you want — no strings attached.
+> Until then, use the network as much as you want — just be reasonable, we're running on ~2 TB of storage.
 
 ---
 
