@@ -267,7 +267,7 @@ class VectorBrain:
 
     def optimize_index(self):
         try:
-            if len(self.table) >= 500:
+            if self.table.count_rows() >= 500:
                 print("⚡ Оптимізація LanceDB: Створення INT8 індексу...")
                 self.table.create_index(metric="cosine", vector_column_name="vector", num_partitions=256, num_sub_vectors=96, replace=True)
                 print("✅ Індекс успішно створено (Квантизація увімкнена).")
@@ -491,7 +491,7 @@ class VectorBrain:
         """Returns the number of vectors that belong to a given namespace."""
         try:
             if not namespace:
-                return len(self.table)
+                return self.table.count_rows()
             condition = f"metadata LIKE '%\"namespace\": \"{namespace}\"%'"
             return len(self.table.search().where(condition).limit(1000000).to_list())
         except Exception as e:

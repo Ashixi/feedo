@@ -559,7 +559,7 @@ async def get_peers():
 async def get_explorer_stats():
     try:
         def get_stats():
-            return len(brain.table)
+            return brain.table.count_rows()
         indexed_posts = await asyncio.to_thread(get_stats)
     except Exception:
         indexed_posts = 0
