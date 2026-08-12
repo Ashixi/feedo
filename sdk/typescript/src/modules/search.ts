@@ -92,9 +92,10 @@ export class SearchModule {
         });
     }
 
-    async indexDocument(content: string, metadata: Record<string, any> = {}, namespace?: string) {
-        // Generate a random hash_id to satisfy the backend requirement
-        const hash_id = 'doc_' + Math.random().toString(36).substring(7);
+    async indexDocument(content: string, metadata: Record<string, any> = {}, namespace?: string, hashId?: string) {
+        // Allow caller to pass a custom hash_id (e.g. for later deletion).
+        // If omitted, generate a random one to satisfy the backend requirement.
+        const hash_id = hashId || ('doc_' + Math.random().toString(36).substring(7));
         const item_type = metadata.type || "document";
         // Send 'text: content' because the backend expects the field 'text'
         return this.request('POST', '/index_document', { text: content, metadata, hash_id, item_type, namespace: namespace || "" });

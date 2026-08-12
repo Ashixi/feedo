@@ -8,7 +8,7 @@ export declare class SearchModule {
     getDocuments(limit?: number, offset?: number, itemType?: string, appId?: string, namespace?: string): Promise<any>;
     indexPrivateDocument(hashId: string, plaintext: string, metadata?: Record<string, any>, namespace?: string): Promise<any>;
     indexImage(hashId: string, metadata?: Record<string, any>, symmetricKey?: string, namespace?: string): Promise<any>;
-    indexDocument(content: string, metadata?: Record<string, any>, namespace?: string): Promise<any>;
+    indexDocument(content: string, metadata?: Record<string, any>, namespace?: string, hashId?: string): Promise<any>;
     countByNamespace(namespace: string, federated?: boolean): Promise<{
         count: number;
     }>;
