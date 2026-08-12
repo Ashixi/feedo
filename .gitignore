@@ -79,3 +79,6 @@ microservices/feedo-ingester/
 
 # Ignored website dir
 website/
+
+# AnythingLLM clone (for integration development)
+anything-llm/

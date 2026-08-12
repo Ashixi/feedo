@@ -42,21 +42,25 @@ class SearchModule {
             return retryResponse.data;
         }
     }
-    async search(query, limit = 50, federated = true, itemType = "all", offset = 0, appId, searchType = "text", imageUrl) {
+    async search(query, limit = 50, federated = true, itemType = "all", offset = 0, appId, searchType = "text", imageUrl, namespace) {
         let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}&search_type=${encodeURIComponent(searchType)}`;
         if (appId)
             qs += `&app_id=${encodeURIComponent(appId)}`;
         if (imageUrl)
             qs += `&image_url=${encodeURIComponent(imageUrl)}`;
+        if (namespace)
+            qs += `&namespace=${encodeURIComponent(namespace)}`;
         return this.request('GET', `/query?${qs}`);
     }
-    async getDocuments(limit = 50, offset = 0, itemType = "all", appId) {
+    async getDocuments(limit = 50, offset = 0, itemType = "all", appId, namespace) {
         let qs = `limit=${limit}&offset=${offset}&item_type=${itemType}`;
         if (appId)
             qs += `&app_id=${encodeURIComponent(appId)}`;
+        if (namespace)
+            qs += `&namespace=${encodeURIComponent(namespace)}`;
         return this.request('GET', `/documents?${qs}`);
     }
-    async indexPrivateDocument(hashId, plaintext, metadata = {}) {
+    async indexPrivateDocument(hashId, plaintext, metadata = {}, namespace) {
         if (!this.privateKey) {
             throw new Error("Private key required to index private documents");
         }
@@ -67,10 +71,11 @@ class SearchModule {
             text: plaintext,
             item_type: "private_post",
             author: myDid,
-            metadata: metadata
+            metadata: metadata,
+            namespace: namespace || ""
         });
     }
-    async indexImage(hashId, metadata = {}, symmetricKey) {
+    async indexImage(hashId, metadata = {}, symmetricKey, namespace) {
         let author = "";
         let itemType = "image";
         if (symmetricKey) {
@@ -86,15 +91,22 @@ class SearchModule {
             item_type: itemType,
             author: author,
             metadata: metadata,
-            symmetric_key: symmetricKey
+            symmetric_key: symmetricKey,
+            namespace: namespace || ""
         });
     }
-    async indexDocument(content, metadata = {}) {
+    async indexDocument(content, metadata = {}, namespace) {
         // Generate a random hash_id to satisfy the backend requirement
         const hash_id = 'doc_' + Math.random().toString(36).substring(7);
         const item_type = metadata.type || "document";
         // Send 'text: content' because the backend expects the field 'text'
-        return this.request('POST', '/index_document', { text: content, metadata, hash_id, item_type });
+        return this.request('POST', '/index_document', { text: content, metadata, hash_id, item_type, namespace: namespace || "" });
+    }
+    async countByNamespace(namespace, federated = true) {
+        return this.request('GET', `/count?namespace=${encodeURIComponent(namespace)}&federated=${federated}`);
+    }
+    async deleteByNamespace(namespace) {
+        return this.request('DELETE', `/namespace/${encodeURIComponent(namespace)}`);
     }
     async deployProxy(directoryPath, domain) {
         return this.request('POST', '/proxy/publish_feedo', { source_dir: directoryPath, domain });

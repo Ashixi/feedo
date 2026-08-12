@@ -90,6 +90,13 @@ class VectorBrain:
         print(f"[SEARCH] Semantic sharding: {'ENABLED' if self._sharding_enabled else 'DISABLED'} "
               f"(centroid_cache_ttl={self._centroids_cache_ttl}s, update_threshold={self._centroids_update_threshold})")
         
+        # --- Phase A5.3: Namespace tracking for global_knowledge_map ---
+        # Cache of unique namespaces held on this node (used in handshake broadcasts)
+        self._namespaces_cache = None         # list[str] | None
+        self._namespaces_cache_ts = 0.0       # timestamp of last computation
+        self._namespaces_cache_ttl = int(os.getenv("NAMESPACE_CACHE_TTL", "600"))  # 10 min
+        print(f"[SEARCH] Namespace tracking: ENABLED (cache_ttl={self._namespaces_cache_ttl}s)")
+        
     async def update_default_vector(self):
         def run_query():
             try:
@@ -348,6 +355,15 @@ class VectorBrain:
             self.inserts_since_centroids_update = 0
             self._my_centroids_cache = None
 
+        # Invalidate namespaces cache if a new namespace was added
+        if metadata:
+            try:
+                meta_dict = json.loads(metadata) if isinstance(metadata, str) else dict(metadata)
+                if meta_dict.get("namespace"):
+                    self._namespaces_cache = None
+            except Exception:
+                pass
+
     def get_image_embedding(self, image_url: str) -> list[float]:
         try:
             response = requests.get(image_url, timeout=5.0)
@@ -471,6 +487,32 @@ class VectorBrain:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(self.executor, self.delete_vector, hash_id)
 
+    def count_by_namespace(self, namespace: str) -> int:
+        """Returns the number of vectors that belong to a given namespace."""
+        try:
+            if not namespace:
+                return len(self.table)
+            condition = f"metadata LIKE '%\\\"namespace\\\": \\\"{namespace}\\\"%'"
+            return len(self.table.search().where(condition).limit(1000000).to_list())
+        except Exception as e:
+            print(f"⚠️ Error counting by namespace: {e}")
+            return 0
+
+    def delete_by_namespace(self, namespace: str) -> int:
+        """Deletes all vectors that belong to a given namespace. Returns the number of deleted rows."""
+        try:
+            if not namespace:
+                return 0
+            condition = f"metadata LIKE '%\\\"namespace\\\": \\\"{namespace}\\\"%'"
+            rows = self.table.search().where(condition).limit(1000000).to_list()
+            deleted = len(rows)
+            for r in rows:
+                self.table.delete(f"hash_id = '{r['hash_id']}'")
+            return deleted
+        except Exception as e:
+            print(f"⚠️ Error deleting by namespace: {e}")
+            return 0
+
 
 
     # --- Stage V: Supernode AI Scaling ---
@@ -506,10 +548,11 @@ class VectorBrain:
             print(f"⚠️ Error computing centroids: {e}")
             return []
 
-    def update_global_map(self, peer_id: str, centroids: list[list[float]], cluster_ids: list[str]):
+    def update_global_map(self, peer_id: str, centroids: list[list[float]], cluster_ids: list[str], namespaces: list[str] = None):
         """
         Updates the global knowledge map with centroids from a specific supernode.
         """
+        namespaces = namespaces or []
         # Remove old centroids for this peer
         self.global_knowledge_map = [c for c in self.global_knowledge_map if c["peer_id"] != peer_id]
         
@@ -518,7 +561,8 @@ class VectorBrain:
             self.global_knowledge_map.append({
                 "centroid": centroid,
                 "peer_id": peer_id,
-                "cluster_id": cid
+                "cluster_id": cid,
+                "namespaces": namespaces
             })
             
         # Rebuild the NearestNeighbors model for fast routing
@@ -529,10 +573,45 @@ class VectorBrain:
             self.nn_model.fit(X)
             self.nn_fitted = True
 
-    def route_query(self, query_vector: list[float], top_k: int = 3) -> list[str]:
+    def _get_my_namespaces(self) -> list[str]:
+        """
+        Returns the list of unique namespaces currently held in the local table.
+        Cached for NAMESPACE_CACHE_TTL seconds; invalidated on new namespace inserts.
+        """
+        now = time.time()
+        cache_valid = (
+            self._namespaces_cache is not None
+            and (now - self._namespaces_cache_ts) < self._namespaces_cache_ttl
+        )
+        if cache_valid:
+            return self._namespaces_cache
+
+        namespaces = set()
+        try:
+            all_records = self.table.search().limit(1000000).to_list()
+            for r in all_records:
+                meta = r.get("metadata", {})
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta) if meta else {}
+                    except Exception:
+                        meta = {}
+                ns = meta.get("namespace") if isinstance(meta, dict) else ""
+                if ns:
+                    namespaces.add(ns)
+        except Exception as e:
+            print(f"⚠️ Error scanning namespaces: {e}")
+
+        self._namespaces_cache = sorted(namespaces)
+        self._namespaces_cache_ts = now
+        return self._namespaces_cache
+
+    def route_query(self, query_vector: list[float], top_k: int = 3, namespace: str = "") -> list[str]:
         """
         Returns the top_k peer_ids of Supernodes that have centroids closest to the query.
         Uses NearestNeighbors (ANN) for fast routing.
+        If namespace is provided, only peers that hold that namespace are considered
+        (fallback: if no peer claims the namespace, fall back to all peers as before).
         """
         if not self.nn_fitted or not self.global_knowledge_map:
             return []
@@ -540,12 +619,26 @@ class VectorBrain:
         vec_np = np.array([query_vector])
         
         try:
-            n_neighbors = min(top_k, len(self.global_knowledge_map))
-            distances, indices = self.nn_model.kneighbors(vec_np, n_neighbors=n_neighbors)
+            # Filter candidates by namespace if one is requested
+            candidates = self.global_knowledge_map
+            if namespace:
+                ns_filtered = [c for c in candidates if namespace in (c.get("namespaces") or [])]
+                if ns_filtered:
+                    candidates = ns_filtered
+
+            if not candidates:
+                return []
+
+            # Build a temporary NN index over the filtered candidates
+            X = np.array([c["centroid"] for c in candidates])
+            n_neighbors = min(top_k, len(X))
+            nn_temp = NearestNeighbors(n_neighbors=n_neighbors, metric="cosine")
+            nn_temp.fit(X)
+            distances, indices = nn_temp.kneighbors(vec_np, n_neighbors=n_neighbors)
             
             target_peers = []
             for idx in indices[0]:
-                peer_id = self.global_knowledge_map[idx]["peer_id"]
+                peer_id = candidates[idx]["peer_id"]
                 if peer_id not in target_peers:
                     target_peers.append(peer_id)
             return target_peers

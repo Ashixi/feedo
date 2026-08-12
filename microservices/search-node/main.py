@@ -146,12 +146,14 @@ class HandshakePayload(BaseModel):
     peer_id: str
     centroids: list[list[float]]
     cluster_ids: list[str]
+    namespaces: list[str] = []
 
 class SearchPayload(BaseModel):
     query: str
     ttl: int = 3
     search_type: str = "text"
     image_url: str = None
+    namespace: str = ""
 
 class IndexDocumentPayload(BaseModel):
     hash_id: str
@@ -159,6 +161,7 @@ class IndexDocumentPayload(BaseModel):
     text: str = ""
     item_type: str = "document"
     metadata: dict = {}
+    namespace: str = ""
 
 class IndexImagePayload(BaseModel):
     hash_id: str
@@ -166,6 +169,7 @@ class IndexImagePayload(BaseModel):
     item_type: str = "image"
     metadata: dict = {}
     symmetric_key: str = None  # Hex encoded symmetric key for private images
+    namespace: str = ""
 
 class IndexVectorPayload(BaseModel):
     """Payload for /p2p/index_vector — receive a pre-computed vector from a peer node."""
@@ -177,6 +181,7 @@ class IndexVectorPayload(BaseModel):
     item_type: str = "text"
     author: str = ""
     metadata: str = ""
+    namespace: str = ""
 
 async def telemetry_loop():
     import uuid
@@ -240,7 +245,7 @@ async def startup_event():
 
 @app.post("/p2p/handshake")
 async def p2p_handshake(payload: HandshakePayload):
-    brain.update_global_map(payload.peer_id, payload.centroids, payload.cluster_ids)
+    brain.update_global_map(payload.peer_id, payload.centroids, payload.cluster_ids, payload.namespaces)
     if p2p_net and payload.peer_id:
         p2p_net.known_peers.add(payload.peer_id)
 
@@ -250,7 +255,7 @@ async def p2p_handshake(payload: HandshakePayload):
     return {"status": "ok", "peers": other_peers}
 
 @app.get("/query")
-async def client_query(request: Request, text: str = "", limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: str = "", search_type: str = "text", image_url: str = None):
+async def client_query(request: Request, text: str = "", limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: str = "", search_type: str = "text", image_url: str = None, namespace: str = ""):
     x_feedo_did = request.headers.get("X-Feedo-DID")
     
     if search_type == "image":
@@ -290,6 +295,9 @@ async def client_query(request: Request, text: str = "", limit: int = 50, federa
             if app_id:
                 conditions.append(f"metadata LIKE '%{app_id}%'")
                 
+            if namespace:
+                conditions.append(f"metadata LIKE '%\"namespace\": \"{namespace}\"%'")
+                
             if conditions:
                 return q.where(" AND ".join(conditions)).limit(flimit).to_list()
             return q.limit(flimit).to_list()
@@ -321,7 +329,7 @@ async def client_query(request: Request, text: str = "", limit: int = 50, federa
     if federated and p2p_net:
         try:
             federated_results = await asyncio.wait_for(
-                p2p_net.federated_search(query_vector, text, ttl=3, top_k=5, search_type=search_type, image_url=image_url),
+                p2p_net.federated_search(query_vector, text, ttl=3, top_k=5, search_type=search_type, image_url=image_url, namespace=namespace),
                 timeout=5.0
             )
         except asyncio.TimeoutError:
@@ -397,7 +405,7 @@ async def client_query(request: Request, text: str = "", limit: int = 50, federa
     return {"results": final_results}
 
 @app.get("/documents")
-async def get_documents(request: Request, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = ""):
+async def get_documents(request: Request, limit: int = 50, offset: int = 0, item_type: str = "all", app_id: str = "", namespace: str = ""):
     """Generic endpoint to fetch latest indexed documents."""
     x_feedo_did = request.headers.get("X-Feedo-DID")
     try:
@@ -420,6 +428,9 @@ async def get_documents(request: Request, limit: int = 50, offset: int = 0, item
                 
             if app_id:
                 conditions.append(f"metadata LIKE '%{app_id}%'")
+                
+            if namespace:
+                conditions.append(f"metadata LIKE '%\"namespace\": \"{namespace}\"%'")
                 
             if conditions:
                 return q.where(" AND ".join(conditions)).limit(1000).to_list()
@@ -470,6 +481,9 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
             
         text_for_vector = payload.text
         text_to_store = payload.text
+        metadata = dict(payload.metadata)
+        if payload.namespace:
+            metadata["namespace"] = payload.namespace
         
         if payload.item_type == "private_post":
             # 1. Compute embedding with the plaintext
@@ -483,7 +497,7 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
                 item_type="private_post",
                 author=author,
                 text="", # Erased!
-                metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+                metadata=json.dumps(metadata)
             )
         else:
             await brain.add_vector_async(
@@ -492,7 +506,7 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
                 text=text_to_store,
                 item_type=payload.item_type,
                 author=author,
-                metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+                metadata=json.dumps(metadata)
             )
         return {"status": "ok"}
     except Exception as e:
@@ -516,6 +530,9 @@ async def index_image(payload: IndexImagePayload, request: Request):
             return {"status": "error", "message": "No storage gateways available"}
             
         image_url = f"{storage_gateways[0]}/download/{payload.hash_id}"
+        metadata = dict(payload.metadata)
+        if payload.namespace:
+            metadata["namespace"] = payload.namespace
         
         await brain.add_image_vector_async(
             post_id=int(time.time()),
@@ -525,7 +542,7 @@ async def index_image(payload: IndexImagePayload, request: Request):
             source_type="api",
             item_type=payload.item_type,
             author=author,
-            metadata=json.dumps(payload.metadata) if isinstance(payload.metadata, dict) else payload.metadata
+            metadata=json.dumps(metadata)
         )
         return {"status": "ok"}
     except Exception as e:
@@ -743,7 +760,7 @@ async def proxy_publish_feedo(request: Request, file: UploadFile = File(...)):
 async def p2p_search(request: Request, payload: SearchPayload):
     # For now, p2p federated search uses a mock request without auth headers to fetch public items only.
     mock_request = Request(scope={"type": "http", "headers": []})
-    result = await client_query(mock_request, payload.query, limit=10, federated=False, search_type=payload.search_type, image_url=payload.image_url)
+    result = await client_query(mock_request, payload.query, limit=10, federated=False, search_type=payload.search_type, image_url=payload.image_url, namespace=payload.namespace)
     return {"query": payload.query, "results": result["results"]}
 
 @app.post("/p2p/index_vector")
@@ -753,6 +770,14 @@ async def p2p_index_vector(payload: IndexVectorPayload):
     a vector does not belong to its shard, it forwards it here.
     No shard check is performed — we trust the sender."""
     try:
+        metadata = {}
+        if payload.metadata:
+            try:
+                metadata = json.loads(payload.metadata) if isinstance(payload.metadata, str) else dict(payload.metadata)
+            except Exception:
+                metadata = {}
+        if payload.namespace:
+            metadata["namespace"] = payload.namespace
         brain.add_vector_by_emb(
             post_id=payload.post_id,
             hash_id=payload.hash_id,
@@ -761,7 +786,7 @@ async def p2p_index_vector(payload: IndexVectorPayload):
             item_type=payload.item_type,
             author=payload.author,
             text=payload.text,
-            metadata=payload.metadata,
+            metadata=json.dumps(metadata),
         )
         return {"status": "ok"}
     except Exception as e:
@@ -812,6 +837,49 @@ async def proxy_unpin_feedo(cid: str):
     except Exception as e:
         await brain.delete_vector_async(cid)
         return {"status": "error", "message": str(e)}
+
+@app.get("/count")
+async def count_vectors(request: Request, namespace: str = "", federated: bool = True):
+    """Returns the number of indexed vectors, optionally filtered by namespace.
+    If federated=true (default), also queries all known peers and returns the aggregate count."""
+    try:
+        local_count = await asyncio.to_thread(brain.count_by_namespace, namespace)
+        if federated and p2p_net:
+            peer_count = 0
+            try:
+                peer_count = await asyncio.wait_for(
+                    p2p_net.federated_count(namespace),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                print(f"⚠️ Federated count timed out after 5s for namespace: {namespace}")
+            except Exception as e:
+                print(f"⚠️ Federated count error: {e}")
+            local_count += peer_count
+        return {"count": local_count}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/namespace/{namespace}")
+async def delete_namespace(request: Request, namespace: str, federated: bool = True):
+    """Deletes all vectors that belong to a given namespace.
+    If federated=true (default), also asks all known peers to delete their copies."""
+    try:
+        local_deleted = await asyncio.to_thread(brain.delete_by_namespace, namespace)
+        peer_deleted = 0
+        if federated and p2p_net:
+            try:
+                peer_deleted = await asyncio.wait_for(
+                    p2p_net.federated_delete(namespace),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                print(f"⚠️ Federated delete timed out after 5s for namespace: {namespace}")
+            except Exception as e:
+                print(f"⚠️ Federated delete error: {e}")
+        return {"status": "ok", "deleted": local_deleted + peer_deleted}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))

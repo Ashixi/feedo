@@ -73,10 +73,12 @@ class P2PNetwork:
     async def _do_broadcast(self, centroids: list[list[float]], reason: str = "periodic"):
         """Send centroids to all known peers and update local tracking."""
         cluster_ids = [f"cluster_{i}" for i in range(len(centroids))]
+        namespaces = self.vector_brain._get_my_namespaces()
         payload = {
             "peer_id": self.my_url,
             "centroids": centroids,
             "cluster_ids": cluster_ids,
+            "namespaces": namespaces,
         }
 
         for peer in self.known_peers:
@@ -125,21 +127,22 @@ class P2PNetwork:
             if centroids is not None:
                 await self._do_broadcast(centroids, reason="periodic")
 
-    async def federated_search(self, query_vector: list[float], query_text: str, ttl: int = 3, top_k: int = 5, search_type: str = "text", image_url: str = None) -> list[dict]:
+    async def federated_search(self, query_vector: list[float], query_text: str, ttl: int = 3, top_k: int = 5, search_type: str = "text", image_url: str = None, namespace: str = "") -> list[dict]:
         if ttl <= 0:
             return []
-            
-        # 1. Find the best peers to route to
-        target_peers = self.vector_brain.route_query(query_vector, top_k=top_k)
-        
+
+        # 1. Find the best peers to route to (filter by namespace if requested)
+        target_peers = self.vector_brain.route_query(query_vector, top_k=top_k, namespace=namespace)
+       
         results = []
         tasks = []
-        
+
         payload = {
             "query": query_text,
             "ttl": ttl - 1,
             "search_type": search_type,
-            "image_url": image_url
+            "image_url": image_url,
+            "namespace": namespace
         }
         
         for peer in target_peers:
@@ -161,5 +164,69 @@ class P2PNetwork:
             peer_results = await asyncio.gather(*tasks)
             for r_list in peer_results:
                 results.extend(r_list)
-                
+
         return results
+
+    async def federated_count(self, namespace: str) -> int:
+        """Ask all known peers how many vectors they hold for a given namespace."""
+        if not namespace:
+            return 0
+
+        total = 0
+        tasks = []
+
+        for peer in self.known_peers:
+            if peer == self.my_url:
+                continue
+
+            async def fetch(p):
+                try:
+                    resp = await self.client.get(
+                        f"{p}/count",
+                        params={"namespace": namespace, "federated": "false"},
+                    )
+                    if resp.status_code == 200:
+                        return int(resp.json().get("count", 0))
+                except Exception:
+                    pass
+                return 0
+
+            tasks.append(fetch(peer))
+
+        if tasks:
+            peer_results = await asyncio.gather(*tasks)
+            total = sum(peer_results)
+
+        return total
+
+    async def federated_delete(self, namespace: str) -> int:
+        """Ask all known peers to delete all vectors for a given namespace."""
+        if not namespace:
+            return 0
+
+        total_deleted = 0
+        tasks = []
+
+        for peer in self.known_peers:
+            if peer == self.my_url:
+                continue
+
+            async def fetch(p):
+                try:
+                    resp = await self.client.delete(
+                        f"{p}/namespace/{namespace}",
+                        params={"federated": "false"},
+                    )
+                    if resp.status_code == 200:
+                        return int(resp.json().get("deleted", 0))
+                except Exception:
+                    pass
+                return 0
+
+            tasks.append(fetch(peer))
+
+        if tasks:
+            peer_results = await asyncio.gather(*tasks)
+            total_deleted = sum(peer_results)
+
+        return total_deleted

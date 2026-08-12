@@ -37,20 +37,22 @@ export class SearchModule {
         }
     }
 
-    async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string, searchType: string = "text", imageUrl?: string) {
+    async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string, searchType: string = "text", imageUrl?: string, namespace?: string) {
         let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}&search_type=${encodeURIComponent(searchType)}`;
         if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
         if (imageUrl) qs += `&image_url=${encodeURIComponent(imageUrl)}`;
+        if (namespace) qs += `&namespace=${encodeURIComponent(namespace)}`;
         return this.request('GET', `/query?${qs}`);
     }
 
-    async getDocuments(limit: number = 50, offset: number = 0, itemType: string = "all", appId?: string) {
+    async getDocuments(limit: number = 50, offset: number = 0, itemType: string = "all", appId?: string, namespace?: string) {
         let qs = `limit=${limit}&offset=${offset}&item_type=${itemType}`;
         if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
+        if (namespace) qs += `&namespace=${encodeURIComponent(namespace)}`;
         return this.request('GET', `/documents?${qs}`);
     }
 
-    async indexPrivateDocument(hashId: string, plaintext: string, metadata: Record<string, any> = {}) {
+    async indexPrivateDocument(hashId: string, plaintext: string, metadata: Record<string, any> = {}, namespace?: string) {
         if (!this.privateKey) {
             throw new Error("Private key required to index private documents");
         }
@@ -62,11 +64,12 @@ export class SearchModule {
             text: plaintext,
             item_type: "private_post",
             author: myDid,
-            metadata: metadata
+            metadata: metadata,
+            namespace: namespace || ""
         });
     }
 
-    async indexImage(hashId: string, metadata: Record<string, any> = {}, symmetricKey?: string) {
+    async indexImage(hashId: string, metadata: Record<string, any> = {}, symmetricKey?: string, namespace?: string) {
         let author = "";
         let itemType = "image";
         
@@ -84,16 +87,25 @@ export class SearchModule {
             item_type: itemType,
             author: author,
             metadata: metadata,
-            symmetric_key: symmetricKey
+            symmetric_key: symmetricKey,
+            namespace: namespace || ""
         });
     }
 
-    async indexDocument(content: string, metadata: Record<string, any> = {}) {
+    async indexDocument(content: string, metadata: Record<string, any> = {}, namespace?: string) {
         // Generate a random hash_id to satisfy the backend requirement
         const hash_id = 'doc_' + Math.random().toString(36).substring(7);
         const item_type = metadata.type || "document";
         // Send 'text: content' because the backend expects the field 'text'
-        return this.request('POST', '/index_document', { text: content, metadata, hash_id, item_type });
+        return this.request('POST', '/index_document', { text: content, metadata, hash_id, item_type, namespace: namespace || "" });
+    }
+
+    async countByNamespace(namespace: string, federated: boolean = true): Promise<{ count: number }> {
+        return this.request('GET', `/count?namespace=${encodeURIComponent(namespace)}&federated=${federated}`);
+    }
+
+    async deleteByNamespace(namespace: string): Promise<{ status: string; deleted: number }> {
+        return this.request('DELETE', `/namespace/${encodeURIComponent(namespace)}`);
     }
 
     async deployProxy(directoryPath: string, domain: string) {
