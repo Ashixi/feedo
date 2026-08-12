@@ -492,7 +492,7 @@ class VectorBrain:
         try:
             if not namespace:
                 return len(self.table)
-            condition = f"metadata LIKE '%\\\"namespace\\\": \\\"{namespace}\\\"%'"
+            condition = f"metadata LIKE '%\"namespace\": \"{namespace}\"%'"
             return len(self.table.search().where(condition).limit(1000000).to_list())
         except Exception as e:
             print(f"⚠️ Error counting by namespace: {e}")
@@ -503,7 +503,7 @@ class VectorBrain:
         try:
             if not namespace:
                 return 0
-            condition = f"metadata LIKE '%\\\"namespace\\\": \\\"{namespace}\\\"%'"
+            condition = f"metadata LIKE '%\"namespace\": \"{namespace}\"%'"
             rows = self.table.search().where(condition).limit(1000000).to_list()
             deleted = len(rows)
             for r in rows:
