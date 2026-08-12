@@ -24,6 +24,11 @@
       "type": "storage",
       "http_url": "http://178.18.253.94:3001",
       "p2p_addr": "/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWPvQ6GDXN4mfPo18AFBf6VypzyRbEdeAWsGRuF1o2gYsM"
+    },
+    {
+      "type": "search",
+      "http_url": "http://178.18.253.94:8000",
+      "p2p_addr": ""
     }
   ]
 }

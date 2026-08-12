@@ -84,6 +84,7 @@ BOOTSTRAP_PEERS=""
 CONSENSUS_NODE_URL=""
 STORAGE_NODE_URL=""
 SEARCH_NODE_URL=""
+SEARCH_PEERS=""
 
 if curl -s -f $REGISTRY_URL > /tmp/seed_nodes.json 2>/dev/null; then
   # Extract P2P addresses for bootstrap
@@ -93,6 +94,8 @@ if curl -s -f $REGISTRY_URL > /tmp/seed_nodes.json 2>/dev/null; then
   CONSENSUS_NODE_URL=$(jq -r '[.nodes[] | select(.type=="consensus") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
   STORAGE_NODE_URL=$(jq -r '[.nodes[] | select(.type=="storage") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
   SEARCH_NODE_URL=$(jq -r '[.nodes[] | select(.type=="search") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
+  # All search node HTTP URLs (for P2P peer discovery — search nodes use HTTP, not libp2p)
+  SEARCH_PEERS=$(jq -r '[.nodes[] | select(.type=="search") | .http_url] | join(",")' /tmp/seed_nodes.json 2>/dev/null || echo "")
 
   echo "  Consensus: ${CONSENSUS_NODE_URL:-not found in registry}"
   echo "  Storage:   ${STORAGE_NODE_URL:-not found in registry}"
@@ -144,6 +147,13 @@ elif [ "$NODE_TYPE" = "search" ]; then
   python3 -m venv venv
   source venv/bin/activate
   pip install -r requirements.txt
+
+  # P2P: search nodes discover each other via HTTP URLs (KNOWN_PEERS),
+  # not libp2p multiaddrs (BOOTSTRAP_NODES is for consensus/storage only).
+  echo "KNOWN_PEERS=$SEARCH_PEERS" >> $ENV_FILE
+  read -p "Public URL of THIS search node (e.g. http://YOUR_IP:8000): " PUBLIC_API_URL < /dev/tty
+  echo "PUBLIC_API_URL=${PUBLIC_API_URL:-http://127.0.0.1:8000}" >> $ENV_FILE
+
   EXEC_PATH="$INSTALL_DIR/microservices/search-node/venv/bin/python $INSTALL_DIR/microservices/search-node/main.py"
 fi
 
