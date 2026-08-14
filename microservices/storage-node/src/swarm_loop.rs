@@ -114,7 +114,7 @@ pub struct PeerAnnounce {
 }
 
 pub enum SwarmCommand {
-    DhtUpload(Vec<u8>, StorageClass, oneshot::Sender<String>),
+    DhtUpload(Vec<u8>, StorageClass, String, oneshot::Sender<String>),
     DhtDownload(String, oneshot::Sender<Option<Vec<u8>>>),
     DhtDelete(String),
     SavePeerCache,
@@ -414,7 +414,7 @@ pub async fn run_swarm(
             }
             Some(command) = command_rx.recv() => {
                 match command {
-                    SwarmCommand::DhtUpload(data, storage_class, reply) => {
+                    SwarmCommand::DhtUpload(data, storage_class, did, reply) => {
                         let mut hasher = Sha256::new();
                         hasher.update(&data);
                         let hash = hex::encode(hasher.finalize());
@@ -480,8 +480,8 @@ pub async fn run_swarm(
                                 let _ = reply.send(hash);
                             },
                             Err(e) => {
-                                // Release quota reservation on encoding failure
-                                quota_manager.release(storage_class, data.len() as u64);
+                                // Release quota reservation (per-user + global) on encoding failure
+                                quota_manager.release_for(&did, storage_class, data.len() as u64);
                                 println!("Error encoding data: {:?}", e);
                                 let _ = reply.send("error".to_string());
                             }

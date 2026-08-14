@@ -87,7 +87,7 @@ fn extract_storage_class_from_header(headers: &axum::http::HeaderMap) -> Storage
 }
 
 async fn handle_upload(
-    _auth: auth::FeedoAuth,
+    auth: auth::FeedoAuth,
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     mut multipart: Multipart,
@@ -106,13 +106,13 @@ async fn handle_upload(
         return Err((axum::http::StatusCode::BAD_REQUEST, "No file provided".to_string()));
     }
 
-    // Check quota before sending to swarm
-    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+    // Check quota (per-user + global) before sending to swarm
+    if let Err(msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
         return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
     }
 
     let (resp_tx, resp_rx) = oneshot::channel();
-    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
+    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, auth.did, resp_tx));
     
     match resp_rx.await {
         Ok(hash) => {
@@ -137,7 +137,7 @@ pub struct IngestPayload {
 }
 
 async fn handle_json_ingest(
-    _auth: auth::FeedoAuth,
+    auth: auth::FeedoAuth,
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<IngestPayload>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
@@ -149,12 +149,12 @@ async fn handle_json_ingest(
 
     let file_data = serde_json::to_vec(&payload).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+    if let Err(msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
         return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
     }
 
     let (resp_tx, resp_rx) = oneshot::channel();
-    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
+    let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, auth.did, resp_tx));
     
     match resp_rx.await {
         Ok(hash) => {
@@ -166,7 +166,7 @@ async fn handle_json_ingest(
 }
 
 async fn handle_batch_json_ingest(
-    _auth: auth::FeedoAuth,
+    auth: auth::FeedoAuth,
     State(state): State<AppState>,
     axum::Json(payloads): axum::Json<Vec<IngestPayload>>,
 ) -> Result<axum::Json<Vec<String>>, (axum::http::StatusCode, String)> {
@@ -183,12 +183,12 @@ async fn handle_batch_json_ingest(
             Err(_) => continue,
         };
 
-        if let Err(_msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+        if let Err(_msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
             continue; // skip this item, backpressure for class
         }
 
         let (resp_tx, resp_rx) = oneshot::channel();
-        let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, resp_tx));
+        let _ = state.swarm_tx.send(SwarmCommand::DhtUpload(file_data, storage_class, auth.did.clone(), resp_tx));
         if let Ok(hash) = resp_rx.await {
             state.recent_hashes.lock().unwrap().push(hash.clone());
             hashes.push(hash);
@@ -198,10 +198,19 @@ async fn handle_batch_json_ingest(
 }
 
 async fn handle_quota(
-    _auth: auth::FeedoAuth,
+    auth: auth::FeedoAuth,
     State(state): State<AppState>,
 ) -> axum::Json<serde_json::Value> {
-    axum::Json(state.quota_manager.usage_all())
+    let mut json = state.quota_manager.usage_all();
+    let (used, max) = state.quota_manager.per_user_usage(&auth.did);
+    json["per_user"] = serde_json::json!({
+        "did": auth.did,
+        "used_bytes": used,
+        "max_bytes": max,
+        "used_gb": format!("{:.2}", used as f64 / (1024.0 * 1024.0 * 1024.0)),
+        "max_gb": format!("{:.2}", max as f64 / (1024.0 * 1024.0 * 1024.0)),
+    });
+    axum::Json(json)
 }
 
 #[derive(serde::Serialize)]
