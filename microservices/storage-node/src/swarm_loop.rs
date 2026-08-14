@@ -116,7 +116,7 @@ pub struct PeerAnnounce {
 pub enum SwarmCommand {
     DhtUpload(Vec<u8>, StorageClass, String, oneshot::Sender<String>),
     DhtDownload(String, oneshot::Sender<Option<Vec<u8>>>),
-    DhtDelete(String),
+    DhtDelete(String, oneshot::Sender<Option<u64>>),
     SavePeerCache,
     GcPeerCache(u64), // days
     AnnouncePeer,
@@ -551,11 +551,13 @@ pub async fn run_swarm(
                             manifest: None,
                         });
                     }
-                    SwarmCommand::DhtDelete(hash) => {
+                    SwarmCommand::DhtDelete(hash, reply) => {
                         println!("Deleting file from local storage: {}", hash);
                         let manifest_key = RecordKey::new(&format!("{}_manifest", hash));
+                        let mut deleted_size: Option<u64> = None;
                         if let Some(record) = swarm.behaviour_mut().kademlia.store_mut().get(&manifest_key) {
                             if let Ok(manifest) = serde_json::from_slice::<Manifest>(&record.value) {
+                                deleted_size = Some(manifest.size as u64);
                                 for index in manifest.shards.keys() {
                                     let chunk_key = RecordKey::new(&format!("{}_chunk_{}", hash, index));
                                     swarm.behaviour_mut().kademlia.remove_record(&chunk_key);
@@ -563,6 +565,7 @@ pub async fn run_swarm(
                             }
                         }
                         swarm.behaviour_mut().kademlia.remove_record(&manifest_key);
+                        let _ = reply.send(deleted_size);
                     }
                     SwarmCommand::SavePeerCache => {
                         peer_cache.save(peer_cache_path);

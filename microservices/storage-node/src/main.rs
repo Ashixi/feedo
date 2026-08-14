@@ -311,12 +311,20 @@ async fn handle_download(
 }
 
 async fn handle_delete(
-    _auth: auth::FeedoAuth,
+    auth: auth::FeedoAuth,
     State(state): State<AppState>,
     Path(hash): Path<String>,
 ) -> Result<String, (axum::http::StatusCode, String)> {
-    let _ = state.swarm_tx.send(SwarmCommand::DhtDelete(hash.clone()));
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let _ = state.swarm_tx.send(SwarmCommand::DhtDelete(hash.clone(), resp_tx));
     state.recent_hashes.lock().unwrap().retain(|h| h != &hash);
+
+    // Release storage quota if we know the original file size.
+    if let Ok(Some(size)) = resp_rx.await {
+        state.quota_manager.release(StorageClass::Blob, size);
+        release_storage_on_consensus(&auth.did, size).await;
+    }
+
     Ok("Deleted locally".to_string())
 }
 
