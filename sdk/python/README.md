@@ -125,37 +125,66 @@ asyncio.run(main())
 
 The Search module handles semantic queries and document vectorization.
 
-### `query(query_text, limit=10, item_type="all", app_id=None, search_type="text", image_url=None)`
+### `search(query, limit=50, federated=True, item_type="all", offset=0, app_id=None, search_type="text", image_url=None, namespace=None)`
 Perform a semantic search across the network. By default, this performs text-to-text semantic search.
 To search for an image using text, set `search_type="image"`. To search for an image using another image, provide the `image_url` and set `search_type="image"`.
+
+- `namespace` (optional) — restrict the search to a single namespace (multi-tenant isolation).
+- `app_id` (optional) — filter by application.
+
 ```python
 # Text-to-text search
-response = await client.search.query("DeFi protocols", limit=5, item_type="post", app_id="SocialApp1")
+response = await client.search.search("DeFi protocols", limit=5, item_type="post", app_id="SocialApp1")
+
+# Search only within a namespace
+response = await client.search.search("DeFi protocols", limit=5, namespace="workspace-42")
 
 # Text-to-image search
-text_to_image = await client.search.query("red dress", limit=5, item_type="image", search_type="image")
+text_to_image = await client.search.search("red dress", limit=5, item_type="image", search_type="image")
 
 # Image-to-image search
-image_to_image = await client.search.query("", limit=5, item_type="image", search_type="image", image_url="https://example.com/dress.jpg")
+image_to_image = await client.search.search("", limit=5, item_type="image", search_type="image", image_url="https://example.com/dress.jpg")
 print(response.get("results", []))
 ```
 
-### `get_documents(limit=50, offset=0, item_type="all", app_id=None)`
+> `query(query_text, limit=10, item_type="all", app_id=None)` is kept as a shorter backwards-compatible alias of `search()`.
+
+### `get_documents(limit=50, offset=0, item_type="all", app_id=None, namespace=None)`
 Fetch a feed of the latest indexed documents.
 ```python
 feed = await client.search.get_documents(item_type="post", app_id="SocialApp1")
+
+# filtered by namespace
+feed = await client.search.get_documents(namespace="workspace-42")
 ```
 
-### `index_document(content, metadata=None)`
+### `index_document(content, metadata=None, namespace=None, hash_id=None)`
 Index a public document into the vector database.
+- `namespace` (optional) — logical partition for the document.
+- `hash_id` (optional) — custom id (useful for later deletion); auto-generated if omitted.
 ```python
 await client.search.index_document("Bitcoin is decentralized.", {"type": "post"})
+await client.search.index_document("Some private note", {"type": "post"}, namespace="workspace-42")
 ```
 
-### `index_private_document(hash_id, plaintext, metadata=None)`
+### `index_private_document(hash_id, plaintext, metadata=None, namespace=None)`
 Index a **private** document (requires `private_key` to sign the request).
 ```python
-await client.search.index_private_document(hash_id, "My private content", {"app_id": "com.myapp"})
+await client.search.index_private_document(hash_id, "My private content", {"app_id": "com.myapp"}, namespace="workspace-42")
+```
+
+### `count_by_namespace(namespace, federated=True) -> {"count": int}`
+Count all vectors in a namespace across the federated network.
+```python
+res = await client.search.count_by_namespace("workspace-42")
+print(res["count"])
+```
+
+### `delete_by_namespace(namespace) -> {"status": str, "deleted": int}`
+Delete all vectors in a namespace.
+```python
+res = await client.search.delete_by_namespace("workspace-42")
+print(res["deleted"])
 ```
 
 ### `get_stats()`
