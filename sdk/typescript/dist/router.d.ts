@@ -3,6 +3,8 @@ export interface FeedoNetworkConfig {
     consensusSeeds?: string[];
     storageSeeds?: string[];
     privateKey?: string;
+    usageKey?: string;
+    did?: string;
 }
 export declare class NodeRouter {
     private searchNodes;

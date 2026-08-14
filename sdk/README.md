@@ -68,7 +68,7 @@ Upon registering a new DID, you receive 500,000 test credits, which allows you t
 **Future Mainnet Pricing:**
 As the network scales and onboards enterprise clients, the Feedo Protocol will transition to a sustainable paid model. The target pricing structure is designed to be highly competitive for Web3 and AI developers:
 
-- **Decentralized Storage:** ~$5.00 per Terabyte (TB)
+- **Decentralized Storage:** ~$20.00 per Terabyte (TB)
 - **Vector Search / Indexing:** ~$5.00 per 10,000 semantic search queries
 
 *(Note: Pricing will be managed via on-chain tokenomics and smart contracts, allowing developers to pay via stablecoins or the native Feedo token).*

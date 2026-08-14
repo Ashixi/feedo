@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feedo Identity Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+  }
+  .card {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 24px;
+    padding: 48px 40px;
+    width: 520px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  h1 {
+    font-size: 28px;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, #a78bfa, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    margin-bottom: 36px;
+  }
+  .btn {
+    background: linear-gradient(90deg, #7c3aed, #a78bfa);
+    border: none;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 600;
+    padding: 14px 48px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(124,58,237,0.4);
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(124,58,237,0.6); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .result {
+    margin-top: 32px;
+    text-align: left;
+    display: none;
+  }
+  .result.active { display: block; }
+  .field {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .field .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 6px;
+  }
+  .field .value {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    word-break: break-all;
+    color: #c4b5fd;
+    line-height: 1.5;
+  }
+  .status {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    display: none;
+  }
+  .status.ok { display: block; background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .status.err { display: block; background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+  .spinner {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .warning {
+    margin-top: 20px;
+    padding: 14px;
+    background: rgba(251,191,36,0.1);
+    border: 1px solid rgba(251,191,36,0.2);
+    border-radius: 10px;
+    font-size: 12px;
+    color: #fbbf24;
+    line-height: 1.6;
+  }
+  .warning strong { color: #fcd34d; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>⚡ Feedo Identity</h1>
+  <p class="subtitle">Децентралізована ідентичність у мережі Feedo</p>
+
+  <button class="btn" id="generateBtn" onclick="generateIdentity()">
+    Згенерувати айдентику
+  </button>
+
+  <div class="result" id="result">
+    <div class="field">
+      <div class="label">DID (твій ідентифікатор)</div>
+      <div class="value" id="did">—</div>
+    </div>
+    <div class="field">
+      <div class="label">Ethereum Address</div>
+      <div class="value" id="address">—</div>
+    </div>
+    <div class="field">
+      <div class="label">Public Key</div>
+      <div class="value" id="pubkey">—</div>
+    </div>
+    <div class="field">
+      <div class="label">Private Key <span style="color:#fbbf24;font-size:10px;">(збережи надійно!)</span></div>
+      <div class="value" id="privkey">—</div>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="warning" id="warning" style="display:none;">
+    <strong>⚠️ Важливо:</strong> Збережи приватний ключ у безпечному місці.
+    Без нього ти не зможеш відновити доступ до своєї айдентики.
+  </div>
+</div>
+
+<script type="module">
+import { ethers } from 'https://esm.sh/ethers@6.9.0';
+
+const SEEDS = {
+  consensus: ['http://95.111.245.68:3000', 'http://178.18.253.94:3000'],
+};
+
+async function pickNode(nodes) {
+  for (const url of nodes) {
+    try {
+      const resp = await fetch(url + '/grants', { method: 'GET' });
+      if (resp.ok) return url;
+    } catch (_) {}
+  }
+  return nodes[0];
+}
+
+window.generateIdentity = async function () {
+  const btn = document.getElementById('generateBtn');
+  const result = document.getElementById('result');
+  const status = document.getElementById('status');
+  const warning = document.getElementById('warning');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Генеруємо...';
+  status.className = 'status';
+
+  try {
+    // 1. Generate wallet
+    const wallet = ethers.Wallet.createRandom();
+    const address = wallet.address;
+    const privateKey = wallet.privateKey;
+    const publicKey = wallet.signingKey.publicKey;
+    const did = `did:feedo:${address}`;
+
+    // Show
+    document.getElementById('did').textContent = did;
+    document.getElementById('address').textContent = address;
+    document.getElementById('pubkey').textContent = publicKey;
+    document.getElementById('privkey').textContent = privateKey;
+    result.classList.add('active');
+    warning.style.display = 'block';
+    btn.innerHTML = '✅ Айдентику згенеровано';
+
+    // 2. Register DID directly on consensus node
+    status.className = 'status';
+    status.innerHTML = '<span class="spinner"></span>Реєструємо DID у мережі Feedo...';
+
+    try {
+      const message = `feedo register ${did}`;
+      const signature = await wallet.signMessage(message);
+
+      const node = await pickNode(SEEDS.consensus);
+      const regResp = await fetch(node + '/did/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ did, public_key: address, signature }),
+      });
+
+      if (!regResp.ok) {
+        throw new Error(`HTTP ${regResp.status}: ${await regResp.text()}`);
+      }
+
+      const regData = await regResp.json();
+      status.className = 'status ok';
+      status.textContent = `✅ DID зареєстровано: ${regData.did}. Тобі нараховано 500 000 кредитів! Тепер ти можеш використовувати свою айдентику для семантичного пошуку, зберігання файлів та інших операцій.`;
+      btn.innerHTML = '🎉 Айдентику створено!';
+      btn.style.background = 'linear-gradient(90deg, #059669, #10b981)';
+    } catch (e) {
+      status.className = 'status err';
+      status.textContent = '⚠️ DID згенеровано локально, але не вдалося зареєструвати в мережі: ' + e.message + '. Спробуй пізніше.';
+    }
+  } catch (e) {
+    status.className = 'status err';
+    status.textContent = '❌ Помилка: ' + e.message;
+    btn.disabled = false;
+    btn.innerHTML = '🔄 Спробувати ще раз';
+  }
+};
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-use axum::{routing::{get, post}, Router, Json, extract::{State, Path}};
+use axum::{routing::{get, post}, Router, Json, extract::{State, Path}, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use shared_proto::consensus::consensus_service_server::{ConsensusService, ConsensusServiceServer};
@@ -165,13 +165,39 @@ pub struct AppState {
 }
 
 #[derive(Deserialize)]
-pub struct DidRegisterReq { 
+pub struct DidRegisterReq {
     pub did: String,
-    pub public_key: String 
+    pub public_key: String,
+    pub signature: String
 }
 
 #[derive(Serialize)]
-pub struct DidRegisterRes { pub did: String }
+pub struct DidRegisterRes {
+    pub did: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>
+}
+
+#[derive(Deserialize)]
+pub struct DelegateReq {
+    pub did: String,
+    pub usage_key: String,
+    pub signature: String,
+}
+
+#[derive(Serialize)]
+pub struct DelegateRes {
+    pub did: String,
+    pub usage_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DelegationRes {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
 
 #[derive(Deserialize)]
 pub struct NameRegisterReq {
@@ -363,9 +389,31 @@ async fn get_file_access(State(state): State<AppState>, Path((file_hash, grantee
     Json(GetFileAccessRes { encrypted_symmetric_key: key })
 }
 
-async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Json<DidRegisterRes> {
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegisterReq>) -> Result<Json<DidRegisterRes>, (StatusCode, Json<DidRegisterRes>)> {
     let did_id = payload.did.clone();
+
+    // 1. The DID must be an Ethereum wallet address: did:feedo:0x...
+    let address = match did_id.strip_prefix("did:feedo:") {
+        Some(a) if !a.is_empty() => a,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(DidRegisterRes { did: String::new(), error: Some("Invalid DID format. Expected did:feedo:0x...".into()) }),
+            ));
+        }
+    };
+
+    // 2. Proof of ownership: the registrant must sign the canonical registration
+    //    message with the wallet that owns this DID (EIP-191 personal_sign).
+    let message = format!("feedo register {}", did_id);
+    if !did::verify_signature(address, message.as_bytes(), &payload.signature) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(DidRegisterRes { did: String::new(), error: Some("Invalid signature: sign the registration message with the wallet that owns this DID".into()) }),
+        ));
+    }
+
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let doc = did::DidDocument::new(did_id.clone(), payload.public_key.clone(), ts);
     let did_manager = state.did_manager.lock().await;
     let _ = did_manager.insert_document(&doc);
@@ -383,7 +431,49 @@ async fn register_did(State(state): State<AppState>, Json(payload): Json<DidRegi
     let _ = state.swarm_tx.send(SwarmCommand::BroadcastLedgerTx(tx));
 
     let _ = state.swarm_tx.send(SwarmCommand::PublishDidDht(did_id.clone(), doc));
-    Json(DidRegisterRes { did: did_id })
+    Ok(Json(DidRegisterRes { did: did_id, error: None }))
+}
+
+async fn delegate_usage_key(State(state): State<AppState>, Json(payload): Json<DelegateReq>) -> Result<Json<DelegateRes>, (StatusCode, Json<DelegateRes>)> {
+    let owner = match payload.did.strip_prefix("did:feedo:") {
+        Some(a) if !a.is_empty() => a,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(DelegateRes { did: String::new(), usage_key: String::new(), error: Some("Invalid DID format. Expected did:feedo:0x...".into()) }),
+            ));
+        }
+    };
+
+    if payload.usage_key.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(DelegateRes { did: payload.did.clone(), usage_key: String::new(), error: Some("usage_key is required".into()) }),
+        ));
+    }
+
+    // The wallet (0xW) proves ownership and authorizes the usage key (0xD).
+    let message = format!("feedo delegate usage to {}", payload.usage_key);
+    if !did::verify_signature(owner, message.as_bytes(), &payload.signature) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(DelegateRes { did: payload.did.clone(), usage_key: payload.usage_key.clone(), error: Some("Invalid signature: sign the delegation message with the wallet that owns this DID".into()) }),
+        ));
+    }
+
+    let did_manager = state.did_manager.lock().await;
+    let _ = did_manager.set_delegation(owner, &payload.usage_key);
+    drop(did_manager);
+
+    Ok(Json(DelegateRes { did: payload.did, usage_key: payload.usage_key, error: None }))
+}
+
+async fn get_delegation(State(state): State<AppState>, Path(address): Path<String>) -> Json<DelegationRes> {
+    let did_manager = state.did_manager.lock().await;
+    let owner = did_manager.get_delegation_owner(&address);
+    drop(did_manager);
+    let owner = owner.map(|o| format!("did:feedo:{}", o));
+    Json(DelegationRes { owner })
 }
 
 /// Returns true if the name ends with ".feedo" and is longer than just ".feedo".
@@ -1229,6 +1319,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .route("/storage/release", post(release_storage_http))
         .route("/did/:did/names", get(get_names_by_did))
         .route("/did/register", post(register_did))
+        .route("/did/delegate", post(delegate_usage_key))
+        .route("/did/:address/delegation", get(get_delegation))
         .route("/name/register", post(register_name))
         .route("/name/update_cid", post(update_cid))
         .route("/name/update_metadata", post(update_metadata))

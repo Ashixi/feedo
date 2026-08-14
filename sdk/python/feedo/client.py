@@ -13,12 +13,16 @@ class FeedoClient:
         search_seeds: Optional[List[str]] = None,
         consensus_seeds: Optional[List[str]] = None,
         storage_seeds: Optional[List[str]] = None,
-        private_key: Optional[str] = None
+        private_key: Optional[str] = None,
+        usage_key: Optional[str] = None,
+        did: Optional[str] = None
     ):
         self.router = NodeRouter(search_seeds, consensus_seeds, storage_seeds)
         self.private_key = private_key
+        self.usage_key = usage_key
+        self.did = did
         
-        self.search = SearchModule(self.router, self.private_key)
+        self.search = SearchModule(self.router, self.private_key, self.usage_key, self.did)
         self.consensus = ConsensusModule(self.router, self.private_key)
         self.storage = StorageModule(self.router, self.private_key)
 

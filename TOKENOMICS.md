@@ -3,6 +3,7 @@
 > **Status**: Well-formed concept — the core architecture and pricing are defined, but specific details may evolve as the protocol matures and real-world data informs adjustments.
 > **Current Phase (Early Access)**: **Currently, all services (Storage, Vector Search, Domains) are completely FREE.** The pricing listed below will take effect *after* scaling the network and onboarding the first enterprise clients.
 > **Audience**: Internal use, grant applications, ecosystem participants.
+> **Currency note**: Target **USDC** (Circle, regulated) — the doc still references USDT as the interim; the switch happens later.
 
 ---
 

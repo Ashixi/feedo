@@ -17,14 +17,19 @@ echo "Which Feedo node would you like to install?"
 echo "1) Consensus Node (Rust)"
 echo "2) Storage Node (Rust)"
 echo "3) Search Node (Python, ML)"
-read -p "Select (1-3): " NODE_CHOICE < /dev/tty
+echo "4) All nodes (consensus + storage + search)"
+read -p "Select (1-4): " NODE_CHOICE < /dev/tty
 
 case $NODE_CHOICE in
-  1) NODE_TYPE="consensus" ;;
-  2) NODE_TYPE="storage" ;;
-  3) NODE_TYPE="search" ;;
+  1) NODE_TYPES=(consensus) ;;
+  2) NODE_TYPES=(storage) ;;
+  3) NODE_TYPES=(search) ;;
+  4) NODE_TYPES=(consensus storage search) ;;
   *) echo "Invalid choice."; exit 1;;
 esac
+
+install_node() {
+  local NODE_TYPE="$1"
 
 echo "Starting installation for $NODE_TYPE node..."
 
@@ -193,3 +198,8 @@ if [ -z "$BOOTSTRAP_PEERS" ]; then
   echo "Please add your Node IP and Peer ID to the seed_nodes.json in the repository so others can connect to you."
 fi
 echo "=========================================="
+}
+
+for NODE_TYPE in "${NODE_TYPES[@]}"; do
+  install_node "$NODE_TYPE"
+done

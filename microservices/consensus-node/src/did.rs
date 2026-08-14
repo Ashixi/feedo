@@ -236,4 +236,30 @@ impl DidManager {
         }
         docs
     }
+
+    /// Normalizes an Ethereum address for storage/lookup: lowercase, no 0x / did prefix.
+    fn normalize_addr(addr: &str) -> String {
+        addr.trim()
+            .trim_start_matches("did:feedo:")
+            .trim_start_matches("0x")
+            .to_lowercase()
+    }
+
+    /// Stores a usage-key delegation: wallet (0xW) delegates request-signing to 0xD.
+    pub fn set_delegation(&self, owner: &str, usage_key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let owner_norm = Self::normalize_addr(owner);
+        let usage_norm = Self::normalize_addr(usage_key);
+        self.db.insert(format!("delegation:{}", usage_norm).as_bytes(), owner_norm.as_bytes())?;
+        Ok(())
+    }
+
+    /// Returns the owner wallet address (lowercase, no 0x) for a delegated usage key, if any.
+    pub fn get_delegation_owner(&self, usage_key: &str) -> Option<String> {
+        let usage_norm = Self::normalize_addr(usage_key);
+        self.db
+            .get(format!("delegation:{}", usage_norm).as_bytes())
+            .ok()
+            .flatten()
+            .map(|v| String::from_utf8_lossy(&v).to_string())
+    }
 }

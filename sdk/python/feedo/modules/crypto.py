@@ -1,12 +1,37 @@
 import os
+import hmac
+import hashlib
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from ecies import encrypt, decrypt
 import binascii
+from eth_account import Account
 
 class FeedoCrypto:
     @staticmethod
     def generate_symmetric_key() -> bytes:
         return os.urandom(32)
+
+    @staticmethod
+    def derive_usage_key(wallet_private_key_hex: str) -> dict:
+        """
+        Deterministically derive the usage key (0xD) from the wallet key (0xW).
+
+        usage_sk = HMAC-SHA256(key=wallet_sk, msg="feedo/usage-key/v1") mod n
+
+        Returns {"private_key": "0x...", "address": "0x..."}.
+        The derived key can sign requests but cannot move funds (USDT stay on 0xW).
+        """
+        sk_bytes = bytes.fromhex(wallet_private_key_hex.replace("0x", ""))
+        digest = hmac.new(sk_bytes, b"feedo/usage-key/v1", hashlib.sha256).digest()
+        usage_int = int.from_bytes(digest, "big")
+        # secp256k1 group order n (reduction is negligible in practice, keeps the key valid)
+        n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+        usage_int = usage_int % n
+        if usage_int == 0:
+            usage_int = 1
+        usage_hex = format(usage_int, "064x")
+        account = Account.from_key(usage_hex)
+        return {"private_key": "0x" + usage_hex, "address": account.address}
 
     @staticmethod
     def encrypt_data(key: bytes, data: bytes) -> bytes:

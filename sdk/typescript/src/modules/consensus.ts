@@ -46,7 +46,8 @@ export class ConsensusModule {
 
         return this.request('POST', '/did/register', {
             did: did,
-            public_key: publicKeyHex,
+            public_key: address,
+            signature: signature,
         });
     }
 

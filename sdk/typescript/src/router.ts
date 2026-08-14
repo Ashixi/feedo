@@ -5,6 +5,8 @@ export interface FeedoNetworkConfig {
     consensusSeeds?: string[];
     storageSeeds?: string[];
     privateKey?: string;
+    usageKey?: string;
+    did?: string;
 }
 
 const DEFAULT_SEEDS = {

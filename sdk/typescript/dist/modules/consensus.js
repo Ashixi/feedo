@@ -50,7 +50,8 @@ class ConsensusModule {
         const did = `did:feedo:${address}`;
         return this.request('POST', '/did/register', {
             did: did,
-            public_key: publicKeyHex,
+            public_key: address,
+            signature: signature,
         });
     }
     async registerName(name, did, cid, signatureHex) {

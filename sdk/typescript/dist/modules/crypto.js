@@ -36,9 +36,27 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FeedoCrypto = void 0;
 const eciesjs_1 = require("eciesjs");
 const crypto = __importStar(require("crypto"));
+const ethers_1 = require("ethers");
 class FeedoCrypto {
     static generateSymmetricKey() {
         return crypto.randomBytes(32);
+    }
+    /**
+     * Deterministically derive the usage key (0xD) from the wallet key (0xW).
+     * usage_sk = HMAC-SHA256(key=wallet_sk, msg="feedo/usage-key/v1") mod n
+     * The derived key can sign requests but cannot move funds (USDT stay on 0xW).
+     */
+    static deriveUsageKey(walletPrivateKeyHex) {
+        const skBytes = Buffer.from(walletPrivateKeyHex.replace('0x', ''), 'hex');
+        const digest = crypto.createHmac('sha256', skBytes).update('feedo/usage-key/v1').digest();
+        let usageInt = BigInt('0x' + digest.toString('hex'));
+        const n = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
+        usageInt = usageInt % n;
+        if (usageInt === 0n)
+            usageInt = 1n;
+        const usageHex = usageInt.toString(16).padStart(64, '0');
+        const wallet = new ethers_1.ethers.Wallet('0x' + usageHex);
+        return { privateKey: '0x' + usageHex, address: wallet.address };
     }
     static encryptData(key, data) {
         const nonce = crypto.randomBytes(12);

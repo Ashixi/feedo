@@ -12,7 +12,7 @@ class FeedoClient {
     router;
     constructor(config) {
         this.router = new router_1.NodeRouter(config);
-        this.search = new search_1.SearchModule(this.router, config?.privateKey);
+        this.search = new search_1.SearchModule(this.router, config?.privateKey, config?.usageKey, config?.did);
         this.consensus = new consensus_1.ConsensusModule(this.router, config?.privateKey);
         this.storage = new storage_1.StorageModule(this.router, config?.privateKey);
     }

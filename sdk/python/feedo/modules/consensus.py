@@ -41,14 +41,16 @@ class ConsensusModule:
         """
         Register a DID on the Feedo Consensus Network.
         Derives the Ethereum address from the private key, builds did:feedo:0xAddress,
-        and registers it with the public key.
+        signs the canonical registration message to prove ownership, and registers it.
         """
         account = Account.from_key(private_key_hex)
         did = f"did:feedo:{account.address}"
-        public_key_hex = account.address
+        message = f"feedo register {did}"
+        signed = account.sign_message(encode_defunct(text=message))
         return await self._request("POST", "/did/register", json={
             "did": did,
-            "public_key": public_key_hex,
+            "public_key": account.address,
+            "signature": signed.signature.hex(),
         })
 
     async def register_name(self, name: str, did: str, cid: str, signature_hex: str):

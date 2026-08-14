@@ -12,7 +12,7 @@ export class FeedoClient {
     constructor(config?: FeedoNetworkConfig) {
         this.router = new NodeRouter(config);
         
-        this.search = new SearchModule(this.router, config?.privateKey);
+        this.search = new SearchModule(this.router, config?.privateKey, config?.usageKey, config?.did);
         this.consensus = new ConsensusModule(this.router, config?.privateKey);
         this.storage = new StorageModule(this.router, config?.privateKey);
     }

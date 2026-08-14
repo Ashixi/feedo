@@ -18,7 +18,8 @@ async function runTest() {
 
     try {
         console.log("\n[1] Registering DID on Consensus Node...");
-        const signature = await wallet.signMessage("register");
+        const did = `did:feedo:${wallet.address}`;
+        const signature = await wallet.signMessage(`feedo register ${did}`);
         await client.consensus.registerDid(wallet.signingKey.publicKey, signature);
         console.log("[V] DID Registered!");
 

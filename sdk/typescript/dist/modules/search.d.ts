@@ -2,7 +2,10 @@ import { NodeRouter } from '../router';
 export declare class SearchModule {
     private router;
     private privateKey?;
-    constructor(router: NodeRouter, privateKey?: string | undefined);
+    private usageKey?;
+    private did?;
+    constructor(router: NodeRouter, privateKey?: string | undefined, usageKey?: string | undefined, did?: string | undefined);
+    private myDid;
     private request;
     search(query: string, limit?: number, federated?: boolean, itemType?: string, offset?: number, appId?: string, searchType?: string, imageUrl?: string, namespace?: string): Promise<any>;
     getDocuments(limit?: number, offset?: number, itemType?: string, appId?: string, namespace?: string): Promise<any>;

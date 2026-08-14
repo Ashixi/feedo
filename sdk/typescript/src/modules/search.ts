@@ -3,14 +3,36 @@ import { NodeRouter } from '../router';
 import { ethers } from 'ethers';
 
 export class SearchModule {
-    constructor(private router: NodeRouter, private privateKey?: string) {}
+    constructor(
+        private router: NodeRouter,
+        private privateKey?: string,
+        private usageKey?: string,
+        private did?: string
+    ) {}
+
+    private myDid(): string {
+        if (this.did) return this.did;
+        const wallet = new ethers.Wallet(this.privateKey!);
+        return `did:feedo:${wallet.address}`;
+    }
 
     private async request(method: string, path: string, data?: any) {
         let baseUrl = await this.router.getSearchNode();
         let url = `${baseUrl}${path}`;
         
         const headers: any = {};
-        if (this.privateKey) {
+        if (this.usageKey && this.did) {
+            // Delegated mode: sign with the derived usage key (0xD), declare the owner DID (0xW).
+            const wallet = new ethers.Wallet(this.usageKey);
+            const timestamp = Date.now().toString();
+            const basePath = path.split('?')[0]; // server reconstructs payload using path WITHOUT query string
+            const payload = `FeedoAction:${method}:${basePath}:${timestamp}`;
+            const signature = await wallet.signMessage(payload);
+            
+            headers['X-Feedo-DID'] = this.did;
+            headers['X-Feedo-Timestamp'] = timestamp;
+            headers['X-Feedo-Signature'] = signature;
+        } else if (this.privateKey) {
             const wallet = new ethers.Wallet(this.privateKey);
             const did = `did:feedo:${wallet.address}`;
             const timestamp = Date.now().toString();
@@ -53,11 +75,10 @@ export class SearchModule {
     }
 
     async indexPrivateDocument(hashId: string, plaintext: string, metadata: Record<string, any> = {}, namespace?: string) {
-        if (!this.privateKey) {
-            throw new Error("Private key required to index private documents");
+        if (!this.privateKey && !this.usageKey) {
+            throw new Error("Private key or usage key required to index private documents");
         }
-        const wallet = new ethers.Wallet(this.privateKey);
-        const myDid = `did:feedo:${wallet.address}`;
+        const myDid = this.myDid();
         
         return this.request('POST', '/index_document', {
             hash_id: hashId,
@@ -74,11 +95,10 @@ export class SearchModule {
         let itemType = "image";
         
         if (symmetricKey) {
-            if (!this.privateKey) {
-                throw new Error("Private key required to index private images");
+            if (!this.privateKey && !this.usageKey) {
+                throw new Error("Private key or usage key required to index private images");
             }
-            const wallet = new ethers.Wallet(this.privateKey);
-            author = `did:feedo:${wallet.address}`;
+            author = this.myDid();
             itemType = "private_image";
         }
         

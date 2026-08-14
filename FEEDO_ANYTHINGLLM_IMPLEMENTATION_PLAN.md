@@ -104,28 +104,31 @@
 
 ## Фаза E — Провайдер AnythingLLM
 
-- [ ] **E1.** Створити `server/utils/vectorDbProviders/feedo/index.js`
-  - [ ] Клас `FeedoDb extends VectorDatabase`
-  - [ ] `connect()` — створення `FeedoClient` з privateKey
-  - [ ] `heartbeat()`
-  - [ ] `namespaceCount(namespace)`
-  - [ ] `addDocumentToNamespace(namespace, documentData, fullFilePath, skipCache)`
-  - [ ] `performSimilaritySearch({...})`
-  - [ ] `curateSources(sources)`
-  - [ ] `deleteDocumentFromNamespace(namespace, docId)`
-  - [ ] `deleteVectorsInNamespace(namespace)`
-  - [ ] `reset()`
+- [x] **E1.** Створити `server/utils/vectorDbProviders/feedo/index.js`
+  - [x] Клас `FeedoDb extends VectorDatabase`
+  - [x] `connect()` — створення `FeedoClient` з privateKey
+  - [x] `heartbeat()` — перевірка живості
+  - [x] `namespaceCount(namespace)` — через `countByNamespace()`
+  - [x] `addDocumentToNamespace(namespace, documentData, fullFilePath, skipCache)` — через `indexPrivateDocument()`, docId як hash_id
+  - [x] `performSimilaritySearch({...})` — через `search()` з namespace, фільтрація по similarityThreshold
+  - [x] `curateSources(sources)` — стандартний мапінг метаданих
+  - [x] `deleteDocumentFromNamespace(namespace, docId)` — через `unpin(docId)`
+  - [x] `deleteVectorsInNamespace(namespace)` — через `deleteByNamespace()`
+  - [x] `reset()` — логування (індивідуальне видалення через `delete-namespace`)
 
-- [ ] **E2.** Зареєструвати провайдера
-  - [ ] `server/utils/helpers/index.js` — `case "feedo"` у `getVectorDbClass`
-  - [ ] `server/utils/helpers/updateENV.js` — `"feedo"` у `supportedVectorDB`
-  - [ ] `updateENV.js` — конфіг `FeedoPrivateKey` → `FEEDO_PRIVATE_KEY`
-  - [ ] Перевірити `docker/.env.example`
+- [x] **E2.** Зареєструвати провайдера
+  - [x] `server/utils/helpers/index.js` — `case "feedo"` у `getVectorDbClass` + JSDoc
+  - [x] `server/utils/helpers/updateENV.js` — `"feedo"` у `supportedVectorDB`
+  - [x] `updateENV.js` — конфіг `FeedoPrivateKey` → `FEEDO_PRIVATE_KEY`
+  - [x] `server/models/systemSettings.js` — `FeedoPrivateKey` в `vectorDBPreferenceKeys`
+  - [x] `docker/.env.example` — секція Feedo з `VECTOR_DB=feedo` та `FEEDO_PRIVATE_KEY`
 
-- [ ] **E3.** Фронтенд
-  - [ ] Додати Feedo у випадаючий список векторних БД
-  - [ ] Створити `frontend/src/components/VectorDBSelection/FeedoDBOptions/index.jsx`
-  - [ ] Поле `FeedoPrivateKey` (password)
+- [x] **E3.** Фронтенд
+  - [x] Додати Feedo у випадаючий список векторних БД (`VECTOR_DBS`)
+  - [x] Створити `frontend/src/components/VectorDBSelection/FeedoDBOptions/index.jsx`
+  - [x] Поле `FeedoPrivateKey` (password)
+  - [x] Логотип `frontend/src/media/vectordbs/feedo.png` (тимчасовий плейсхолдер)
+  - [x] Імпорти у `VectorDatabase/index.jsx`
 
 - [ ] **E4.** Перевірка інтеграції
   - [ ] Запустити AnythingLLM
@@ -139,6 +142,50 @@
   - [ ] Закомітити всі зміни
   - [ ] Створити PR з описом (посилання на issue #6113)
   - [ ] Оновити issue #6113 — додати посилання на PR
+
+---
+
+## Фаза F — «Ідея 1»: зберігання документів у Storage Nodes (опційно, поверх векторів)
+
+> **Поточна модель:** Feedo = **text-in** векторне сховище (Feedo ембедить сам через e5-small, зберігає вектори + чанки у Search Nodes). Сирі файли документів лишаються на диску AnythingLLM (`STORAGE_DIR`).
+
+> **Мета «Ідеї 1»:** Feedo = єдиний бекенд — і вектори (Search Nodes), і сирі документи (Storage Nodes). Тоді AnythingLLM стає повністю безсерверним (ні локального диску, ні векторної БД).
+
+### Ключове розуміння: зв'язок «вектор → повний файл» через `docId`
+
+AnythingLLM **вже має** механізм пошуку повного файлу за чанком:
+
+```
+Пошук → чанк (вектор + metadata.docId)
+   ↓
+Document.content(docId)              ← server/models/documents.js (~рядок 286)
+   ↓
+fileData(document.docpath)           ← читає ПОВНИЙ файл
+```
+
+- Чанки зберігаються з `docId` у metadata (наш провайдер це вже робить: `indexDocument(pageContent, { ...metadata, docId }, namespace, docId)`)
+- Повний файл береться за `docpath` (шлях на диску), НЕ через вектор
+
+**Точка підключення — одна функція `fileData()` у `server/utils/files/index.js`:**
+- Зараз: `docpath = "/server/storage/documents/foo.pdf"` → `fs.readFile` з диску
+- Ідея 1: `docpath = "feedo://<CID>"` → читати/писати через `sdk.storage` (Storage Nodes)
+
+### Що змінити (коли вирішимо робити)
+
+- [ ] **F1.** При upload — замість запису на диск: `sdk.storage.upload(file)` → отримати CID → зберегти CID як `docpath`
+- [ ] **F2.** У `fileData()` — якщо `docpath` починається з `feedo://` → `sdk.storage.download(CID)` замість `fs.readFile`
+- [ ] **F3.** При delete — `sdk.storage.delete(CID)` разом з `unpin(docId)`
+
+### Токеноміка: все сходиться, проблем немає
+
+| Шар | Ціна | Хто платить |
+|---|---|---|
+| Вектори (Search Nodes) | безкоштовно | — |
+| Документи (Storage Nodes) | $20 / TB / місяць | AnythingLLM-юзер |
+
+- Вектори лишаються безкоштовними (як зараз)
+- Сирі документи — платні ($20/TB) = **новий дохід**, не проблема
+- Розділення чисте: Search Nodes (free) vs Storage Nodes (paid)
 
 ---
 

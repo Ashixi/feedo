@@ -6,16 +6,36 @@ from eth_account import Account
 from ..router import NodeRouter
 
 class SearchModule:
-    def __init__(self, router: NodeRouter, private_key: Optional[str] = None):
+    def __init__(self, router: NodeRouter, private_key: Optional[str] = None, usage_key: Optional[str] = None, did: Optional[str] = None):
         self.router = router
         self.private_key = private_key
+        self.usage_key = usage_key
+        self.did = did
+
+    def _did(self) -> str:
+        """The DID this module acts as (owner wallet in usage-key mode)."""
+        if self.did:
+            return self.did
+        account = Account.from_key(self.private_key)
+        return f"did:feedo:{account.address}"
 
     async def _request(self, method: str, path: str, json: Optional[Dict] = None, params: Optional[Dict] = None) -> Any:
         base_url = await self.router.get_search_node()
         url = f"{base_url}{path}"
         
         headers = {}
-        if self.private_key:
+        if self.usage_key and self.did:
+            # Delegated mode: sign with the derived usage key (0xD), declare the owner DID (0xW).
+            timestamp = str(int(time.time() * 1000))
+            base_path = path.split('?')[0]
+            payload_str = f"FeedoAction:{method}:{base_path}:{timestamp}"
+            message = encode_defunct(text=payload_str)
+            signed_message = Account.sign_message(message, private_key=self.usage_key)
+            
+            headers['X-Feedo-DID'] = self.did
+            headers['X-Feedo-Timestamp'] = timestamp
+            headers['X-Feedo-Signature'] = signed_message.signature.hex()
+        elif self.private_key:
             account = Account.from_key(self.private_key)
             did = f"did:feedo:{account.address}"
             timestamp = str(int(time.time() * 1000))
@@ -65,11 +85,10 @@ class SearchModule:
         return await self.search(query_text, limit=limit, item_type=item_type, app_id=app_id)
 
     async def index_private_document(self, hash_id: str, plaintext: str, metadata: dict = None, namespace: Optional[str] = None):
-        if not self.private_key:
-            raise ValueError("Private key required to index private documents")
+        if not self.private_key and not self.usage_key:
+            raise ValueError("Private key or usage key required to index private documents")
             
-        my_account = Account.from_key(self.private_key)
-        my_did = f"did:feedo:{my_account.address}"
+        my_did = self._did()
         
         payload = {
             "hash_id": hash_id,
@@ -86,10 +105,9 @@ class SearchModule:
         item_type = "image"
         
         if symmetric_key:
-            if not self.private_key:
-                raise ValueError("Private key required to index private images")
-            my_account = Account.from_key(self.private_key)
-            author = f"did:feedo:{my_account.address}"
+            if not self.private_key and not self.usage_key:
+                raise ValueError("Private key or usage key required to index private images")
+            author = self._did()
             item_type = "private_image"
             
         payload = {
