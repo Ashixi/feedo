@@ -79,6 +79,8 @@
 - Storage classes ready for Phase 2 (different encoding)
 - Posts can be limited to 500 MB and automatically deleted (Phase 3), not consuming space for sites
 
+> **📌 Decision update (post-Phase 1)**: We decided to **abandon per-type quotas** (`QUOTA_SITES_GB`, `QUOTA_BLOBS_GB`, `QUOTA_SOCIAL_MB`, `QUOTA_PROFILES_MB`) in favor of a **single general storage quota** (`QUOTA_TOTAL_GB`, default 70 GB). A single total quota is simpler and more logical for operators. The `StorageClass` enum stays — it still tags *what* data is stored and drives future per-class logic (encoding, TTL), but capacity is now enforced against one combined quota instead of four separate buckets.
+
 ---
 
 ## 🔶 Tokenomics (separate project)
@@ -445,6 +447,8 @@ Recommended implementation order (highest impact first):
 - Нода не "вмирає" при досягненні ліміту — тільки сповільнює прийом для переповненого класу
 - Storage classes готові для Фази 2 (різне кодування)
 - Пости можуть бути обмежені 500 MB і автоматично видалятися (Фаза 3), не займаючи місце для сайтів
+
+> **📌 Оновлення рішення (після Фази 1)**: Вирішили **відмовитись від квот для кожного типу даних** (`QUOTA_SITES_GB`, `QUOTA_BLOBS_GB`, `QUOTA_SOCIAL_MB`, `QUOTA_PROFILES_MB`) на користь **єдиної загальної квоти зберігання** (`QUOTA_TOTAL_GB`, за замовчуванням 70 GB). Одна загальна квота простіша й логічніша для операторів. Enum `StorageClass` лишається — він і далі позначає *що* зберігається та керує майбутньою per-class логікою (кодування, TTL), але місткість тепер рахується по одній спільній квоті, а не по чотирьох окремих.
 
 ---
 

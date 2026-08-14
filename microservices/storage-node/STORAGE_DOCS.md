@@ -350,17 +350,16 @@ Parsing: accepts `"site"`, `"social_post"` / `"social"` / `"post"`, `"profile"`,
 - Thread-safe — safe to call from multiple tasks concurrently
 
 **QuotaConfig:**
-- Read from environment variables with sensible defaults:
-  - `QUOTA_SITES_GB` → default 100 GB
-  - `QUOTA_BLOBS_GB` → default 1 TB
-  - `QUOTA_SOCIAL_MB` → default 500 MB
-  - `QUOTA_PROFILES_MB` → default 100 MB
-- Accepts floating-point values (e.g., `QUOTA_SOCIAL_MB=0.5` for 512 KB)
+- Read from a single environment variable with a sensible default:
+  - `QUOTA_TOTAL_GB` → default 70 GB
+- Accepts floating-point values (e.g., `QUOTA_TOTAL_GB=1.5` for 1.5 GB)
+
+> **📌 Decision update**: After Phase 1 we **abandoned per-type quotas** (`QUOTA_SITES_GB`, `QUOTA_BLOBS_GB`, `QUOTA_SOCIAL_MB`, `QUOTA_PROFILES_MB`) in favor of a **single general storage quota** (`QUOTA_TOTAL_GB`). The `StorageClass` enum is kept purely as a data-type tag (for future encoding/TTL logic), but capacity is enforced against one combined quota.
 
 **StorageQuotaManager:**
-- `check_and_reserve(class, size) → Result<(), String>`: atomically reserves bytes for a class. Returns `Err` with human-readable message if quota exceeded (prints warning to stderr).
+- `check_and_reserve(class, size) → Result<(), String>`: atomically reserves bytes against the global quota. Returns `Err` with a human-readable message if the quota is exceeded (prints warning to stderr).
 - `release(class, size)`: returns bytes to the pool.
-- `usage_all() → Value`: returns JSON snapshot for all 4 classes (used_bytes, max_bytes, human-readable MB strings).
+- `usage_all() → Value`: returns JSON snapshot of the single global quota (used_bytes, max_bytes, human-readable GB strings).
 
 ### 3.5 `peer_cache.rs` — Peer Discovery Cache
 
@@ -403,10 +402,7 @@ All configuration is via environment variables.
 | `BOOTSTRAP_NODES` | string | (none) | Comma-separated multiaddrs, e.g. `/ip4/1.2.3.4/udp/8040/quic-v1/p2p/12D3...` |
 | `NODE_PRIVATE_KEY` | hex | (auto-generated) | Ed25519 64-byte hex-encoded private key. If not set, reads from `{DB_DIR}/peer_key.bin` or generates new. |
 | `DHT_RAM_CACHE_LIMIT` | usize | `1000` | Max records in libp2p MemoryStore (LRU eviction). |
-| `QUOTA_SITES_GB` | f64 | `100` | Max gigabytes for `Site` storage class |
-| `QUOTA_BLOBS_GB` | f64 | `1000` | Max gigabytes for `Blob` storage class |
-| `QUOTA_SOCIAL_MB` | f64 | `500` | Max megabytes for `SocialPost` storage class |
-| `QUOTA_PROFILES_MB` | f64 | `100` | Max megabytes for `Profile` storage class |
+| `QUOTA_TOTAL_GB` | f64 | `70` | Max gigabytes for the whole node — single general storage quota (all storage classes share one pool). |
 
 ---
 

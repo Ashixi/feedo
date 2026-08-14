@@ -173,10 +173,9 @@ All configuration via environment variables. Set these in your `.env` file or Do
 | `NODE_PRIVATE_KEY` | hex | auto-gen | **Optional** — auto-generated and saved to `peer_key.bin` if not set. Only set explicitly if migrating to a new server, using IaC (Ansible/Terraform), or storing in a secrets manager. 64-char Ed25519 hex. |
 | `DHT_RAM_CACHE_LIMIT` | usize | `1000` | Reduce to `500` if your node has <2 GB RAM. Increase to `5000` for better DHT performance. |
 | `RUST_LOG` | string | — | `info` for normal operation, `debug` for troubleshooting, `info,storage_node=debug` for storage-specific detail |
-| `QUOTA_SITES_GB` | f64 | `100` | Max gigabytes for websites. **Highest priority** — never evicted. |
-| `QUOTA_BLOBS_GB` | f64 | `1000` | Max gigabytes for generic files/cloud storage. |
-| `QUOTA_SOCIAL_MB` | f64 | `500` | Max megabytes for Nostr social posts. **Lowest priority** — temporary data. |
-| `QUOTA_PROFILES_MB` | f64 | `100` | Max megabytes for Nostr user profiles. |
+| `QUOTA_TOTAL_GB` | f64 | `70` | Max gigabytes for the whole node — single general storage quota (all data types share one pool). |
+
+> **📌 Decision update**: Per-type quotas were **abandoned** in favor of a **single general storage quota** (`QUOTA_TOTAL_GB`). The `StorageClass` tag still exists (it may drive future per-class encoding/TTL), but disk space is now shared across all classes.
 
 **Storage class priority** (what gets accepted when disk is close to full):
 1. `Site` — highest, indefinite storage
@@ -184,7 +183,7 @@ All configuration via environment variables. Set these in your `.env` file or Do
 3. `Blob` — medium (paid via tokenomics in future)
 4. `SocialPost` — lowest, temporary (30-day TTL planned)
 
-**Floating-point quotas** are supported: `QUOTA_SOCIAL_MB=0.5` = 512 KB.
+**Floating-point quotas** are supported: `QUOTA_TOTAL_GB=1.5` = 1.5 GB.
 
 **Wallet/identity variables** (important distinction):
 
@@ -234,9 +233,9 @@ The node tries each in order and starts serving as soon as it connects to at lea
 
 ## 6. Quota Planning Guide
 
-Choose quotas based on your node's role. The sum of all quotas is the maximum disk space your node will use.
+> **📌 Decision update**: The per-type role templates below are **superseded** — we now use a **single general storage quota** (`QUOTA_TOTAL_GB`). Pick one total value based on your node's role and disk size (e.g., 200 GB for a small host, 1 TB for a dedicated storage node).
 
-### Role templates
+### Role templates (historical — per-type quotas, superseded)
 
 | Role | QUOTA_SITES_GB | QUOTA_BLOBS_GB | QUOTA_SOCIAL_MB | QUOTA_PROFILES_MB | Total (~) |
 |------|---------------|---------------|-----------------|-------------------|-----------|
