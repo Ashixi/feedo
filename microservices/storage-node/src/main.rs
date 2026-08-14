@@ -86,6 +86,55 @@ fn extract_storage_class_from_header(headers: &axum::http::HeaderMap) -> Storage
         .unwrap_or_default()
 }
 
+/// Резервує байти сховища для DID на consensus-node (авторитетний мережевий ліміт).
+pub(crate) async fn reserve_storage_on_consensus(did: &str, bytes: u64) -> Result<(), String> {
+    let consensus_url = std::env::var("CONSENSUS_NODE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("{}/storage/reserve", consensus_url))
+        .json(&serde_json::json!({ "did": did, "bytes": bytes }))
+        .send()
+        .await
+        .map_err(|e| format!("Consensus storage reserve failed: {}", e))?;
+
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        Err(format!("Storage quota check failed ({}): {}", status, body))
+    }
+}
+
+/// Звільняє байти сховища для DID на consensus-node.
+pub(crate) async fn release_storage_on_consensus(did: &str, bytes: u64) {
+    let consensus_url = std::env::var("CONSENSUS_NODE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(format!("{}/storage/release", consensus_url))
+        .json(&serde_json::json!({ "did": did, "bytes": bytes }))
+        .send()
+        .await;
+}
+
+/// Отримує per-DID usage сховища з consensus-node.
+async fn fetch_consensus_storage_usage(did: &str) -> Option<serde_json::Value> {
+    let consensus_url = std::env::var("CONSENSUS_NODE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+    let client = reqwest::Client::new();
+    let url = format!("{}/did/{}/storage_usage", consensus_url, did);
+    if let Ok(res) = client.get(&url).send().await {
+        if res.status().is_success() {
+            if let Ok(v) = res.json::<serde_json::Value>().await {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
 async fn handle_upload(
     auth: auth::FeedoAuth,
     State(state): State<AppState>,
@@ -106,8 +155,14 @@ async fn handle_upload(
         return Err((axum::http::StatusCode::BAD_REQUEST, "No file provided".to_string()));
     }
 
-    // Check quota (per-user + global) before sending to swarm
-    if let Err(msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
+    // Check local global quota before sending to swarm
+    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+        return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
+    }
+
+    // Check network-wide per-user quota (authoritative, on consensus-node)
+    if let Err(msg) = reserve_storage_on_consensus(&auth.did, file_data.len() as u64).await {
+        state.quota_manager.release(storage_class, file_data.len() as u64);
         return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
     }
 
@@ -149,7 +204,12 @@ async fn handle_json_ingest(
 
     let file_data = serde_json::to_vec(&payload).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    if let Err(msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
+    if let Err(msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+        return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
+    }
+
+    if let Err(msg) = reserve_storage_on_consensus(&auth.did, file_data.len() as u64).await {
+        state.quota_manager.release(storage_class, file_data.len() as u64);
         return Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, msg));
     }
 
@@ -183,8 +243,13 @@ async fn handle_batch_json_ingest(
             Err(_) => continue,
         };
 
-        if let Err(_msg) = state.quota_manager.check_and_reserve_for(&auth.did, storage_class, file_data.len() as u64) {
-            continue; // skip this item, backpressure for class
+        if let Err(_msg) = state.quota_manager.check_and_reserve(storage_class, file_data.len() as u64) {
+            continue; // skip this item, backpressure (global quota)
+        }
+
+        if let Err(_msg) = reserve_storage_on_consensus(&auth.did, file_data.len() as u64).await {
+            state.quota_manager.release(storage_class, file_data.len() as u64);
+            continue; // skip this item, per-user quota exceeded
         }
 
         let (resp_tx, resp_rx) = oneshot::channel();
@@ -202,14 +267,10 @@ async fn handle_quota(
     State(state): State<AppState>,
 ) -> axum::Json<serde_json::Value> {
     let mut json = state.quota_manager.usage_all();
-    let (used, max) = state.quota_manager.per_user_usage(&auth.did);
-    json["per_user"] = serde_json::json!({
-        "did": auth.did,
-        "used_bytes": used,
-        "max_bytes": max,
-        "used_gb": format!("{:.2}", used as f64 / (1024.0 * 1024.0 * 1024.0)),
-        "max_gb": format!("{:.2}", max as f64 / (1024.0 * 1024.0 * 1024.0)),
-    });
+    // Network-wide per-user usage (authoritative, consensus-node)
+    if let Some(usage) = fetch_consensus_storage_usage(&auth.did).await {
+        json["per_user"] = usage;
+    }
     axum::Json(json)
 }
 

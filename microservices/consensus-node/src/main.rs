@@ -662,6 +662,64 @@ async fn get_did_balance(State(state): State<AppState>, Path(did): Path<String>)
 }
 
 #[derive(Deserialize)]
+pub struct StorageOpReq {
+    pub did: String,
+    pub bytes: u64,
+}
+
+#[derive(Serialize)]
+pub struct StorageUsageRes {
+    pub did: String,
+    pub used_bytes: u64,
+    pub max_bytes: u64,
+}
+
+async fn reserve_storage_http(
+    State(state): State<AppState>,
+    Json(req): Json<StorageOpReq>,
+) -> Result<Json<StorageUsageRes>, (axum::http::StatusCode, String)> {
+    let did = if req.did.starts_with("did:feedo:") {
+        req.did.clone()
+    } else {
+        format!("did:feedo:{}", req.did)
+    };
+    match state.ledger.reserve_storage(&did, req.bytes).await {
+        Ok(used) => {
+            let (_, max) = state.ledger.get_storage_usage(&did).await;
+            Ok(Json(StorageUsageRes { did, used_bytes: used, max_bytes: max }))
+        }
+        Err(e) => Err((axum::http::StatusCode::INSUFFICIENT_STORAGE, e)),
+    }
+}
+
+async fn release_storage_http(
+    State(state): State<AppState>,
+    Json(req): Json<StorageOpReq>,
+) -> Json<StorageUsageRes> {
+    let did = if req.did.starts_with("did:feedo:") {
+        req.did.clone()
+    } else {
+        format!("did:feedo:{}", req.did)
+    };
+    state.ledger.release_storage(&did, req.bytes).await;
+    let (used, max) = state.ledger.get_storage_usage(&did).await;
+    Json(StorageUsageRes { did, used_bytes: used, max_bytes: max })
+}
+
+async fn get_storage_usage_http(
+    State(state): State<AppState>,
+    Path(did): Path<String>,
+) -> Json<StorageUsageRes> {
+    let did = if did.starts_with("did:feedo:") {
+        did.clone()
+    } else {
+        format!("did:feedo:{}", did)
+    };
+    let (used, max) = state.ledger.get_storage_usage(&did).await;
+    Json(StorageUsageRes { did, used_bytes: used, max_bytes: max })
+}
+
+#[derive(Deserialize)]
 pub struct UpdateMetadataReq {
     pub name: String,
     pub title: Option<String>,
@@ -1166,6 +1224,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/resolve/:name", get(resolve_name_http))
         .route("/resolve_cid/:cid", get(resolve_cid_http))
         .route("/did/:did/balance", get(get_did_balance))
+    .route("/did/:did/storage_usage", get(get_storage_usage_http))
+    .route("/storage/reserve", post(reserve_storage_http))
+    .route("/storage/release", post(release_storage_http))
         .route("/did/:did/names", get(get_names_by_did))
         .route("/did/register", post(register_did))
         .route("/name/register", post(register_name))

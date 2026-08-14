@@ -480,8 +480,9 @@ pub async fn run_swarm(
                                 let _ = reply.send(hash);
                             },
                             Err(e) => {
-                                // Release quota reservation (per-user + global) on encoding failure
-                                quota_manager.release_for(&did, storage_class, data.len() as u64);
+                                // Release quota reservation (global + network-wide per-user) on encoding failure
+                                quota_manager.release(storage_class, data.len() as u64);
+                                crate::release_storage_on_consensus(&did, data.len() as u64).await;
                                 println!("Error encoding data: {:?}", e);
                                 let _ = reply.send("error".to_string());
                             }

@@ -25,13 +25,23 @@ pub struct Ledger {
     /// Відстежує час останньої активності ноди (wallet -> UNIX timestamp).
     /// Використовується для відбору комітету — ноди без активності виключаються.
     pub last_active: Arc<Mutex<HashMap<String, u64>>>,
+    /// Авторитетний per-DID облік використаного сховища (в байтах) — мережевий ліміт.
+    pub storage_used: Arc<Mutex<HashMap<String, u64>>>,
+    /// Ліміт сховища на одного юзера (в байтах).
+    pub max_storage_per_user: u64,
 }
 
 impl Ledger {
     pub fn new(db: Db) -> Self {
         let balances = Arc::new(Mutex::new(HashMap::new()));
         let last_active = Arc::new(Mutex::new(HashMap::new()));
-        Self { db, balances, last_active }
+        let storage_used = Arc::new(Mutex::new(HashMap::new()));
+        let max_storage_per_user = std::env::var("QUOTA_PER_USER_GB")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|v| (v * 1024.0 * 1024.0 * 1024.0) as u64)
+            .unwrap_or(10 * 1024 * 1024 * 1024); // 10 GB за замовчуванням
+        Self { db, balances, last_active, storage_used, max_storage_per_user }
     }
 
     /// Записує поточний час як останню активність для гаманця.
@@ -71,6 +81,40 @@ impl Ledger {
     pub async fn get_balance(&self, wallet: &str) -> u64 {
         let map = self.balances.lock().await;
         *map.get(wallet).unwrap_or(&0)
+    }
+
+    /// Атомарно резервує `bytes` байтів сховища для DID у межах per-user квоти.
+    /// Повертає Ok(поточний usage) або Err з повідомленням про перевищення.
+    pub async fn reserve_storage(&self, did: &str, bytes: u64) -> Result<u64, String> {
+        let mut map = self.storage_used.lock().await;
+        let entry = map.entry(did.to_string()).or_insert(0);
+        if entry.saturating_add(bytes) > self.max_storage_per_user {
+            return Err(format!(
+                "Per-user storage quota exceeded for {}: {:.2} GB used of {:.2} GB max",
+                did,
+                *entry as f64 / (1024.0 * 1024.0 * 1024.0),
+                self.max_storage_per_user as f64 / (1024.0 * 1024.0 * 1024.0),
+            ));
+        }
+        *entry += bytes;
+        let db_key = format!("storage_used:{}", did);
+        let _ = self.db.insert(db_key.as_bytes(), &entry.to_be_bytes());
+        Ok(*entry)
+    }
+
+    /// Звільняє раніше зарезервовані байти сховища для DID.
+    pub async fn release_storage(&self, did: &str, bytes: u64) {
+        let mut map = self.storage_used.lock().await;
+        let entry = map.entry(did.to_string()).or_insert(0);
+        *entry = entry.saturating_sub(bytes);
+        let db_key = format!("storage_used:{}", did);
+        let _ = self.db.insert(db_key.as_bytes(), &entry.to_be_bytes());
+    }
+
+    /// Поточне використання сховища та ліміт для DID.
+    pub async fn get_storage_usage(&self, did: &str) -> (u64, u64) {
+        let map = self.storage_used.lock().await;
+        (*map.get(did).unwrap_or(&0), self.max_storage_per_user)
     }
 
     /// Нарахувати грантові кредити на DID. Повертає новий баланс.
@@ -203,5 +247,27 @@ impl Ledger {
         let root = merkle_tree.root().unwrap_or([0u8; 32]);
         
         (root, merkle_tree)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_storage_quota_reserve_release() {
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let ledger = Ledger::new(db);
+
+        let did = "did:feedo:0xAAA";
+        let limit = 10u64 * 1024 * 1024 * 1024;
+
+        // Reserve within the limit.
+        assert!(ledger.reserve_storage(did, 100).await.is_ok());
+        assert_eq!(ledger.get_storage_usage(did).await, (100, limit));
+
+        // Release part of it.
+        ledger.release_storage(did, 40).await;
+        assert_eq!(ledger.get_storage_usage(did).await, (60, limit));
     }
 }
