@@ -765,11 +765,33 @@ async fn get_did_balance(State(state): State<AppState>, Path(did): Path<String>)
         format!("did:feedo:{}", did)
     };
     let balance = state.ledger.get_balance(&normalized_did).await;
+
     let did_manager = state.did_manager.lock().await;
-    if did_manager.get_document(&normalized_did).is_none() && balance == 0 {
+    let has_local_doc = did_manager.get_document(&normalized_did).is_some();
+    drop(did_manager);
+
+    // DHT fallback: if the DID document isn't local, look it up in the Kademlia DHT
+    // (registrations are replicated via PublishDidDht, so any node can resolve them).
+    let mut doc_found = has_local_doc;
+    if !doc_found {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if state
+            .swarm_tx
+            .send(SwarmCommand::LookupDidDht(normalized_did.clone(), tx))
+            .is_ok()
+        {
+            if let Ok(Some(doc)) = rx.await {
+                let did_manager = state.did_manager.lock().await;
+                let _ = did_manager.insert_document(&doc);
+                drop(did_manager);
+                doc_found = true;
+            }
+        }
+    }
+
+    if !doc_found && balance == 0 {
         return Json(None);
     }
-    drop(did_manager);
 
     Json(Some(BalanceRes {
         balance_credits: balance,
