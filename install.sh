@@ -3,7 +3,7 @@
 set -e
 
 echo "=========================================="
-echo "🚀 Feedo Node Installer (Zero Config)"
+echo "🚀 Feedo Node Installer / Updater"
 echo "=========================================="
 
 # Ensure root
@@ -12,8 +12,21 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# Prompt for action: install (full) or update (existing node)
+echo "What would you like to do?"
+echo "1) Install a new node (full setup: deps, keys, build)"
+echo "2) Update existing node(s) (git pull + rebuild + restart)"
+read -p "Select (1-2): " ACTION < /dev/tty
+
+case $ACTION in
+  1) MODE="install" ;;
+  2) MODE="update" ;;
+  *) echo "Invalid choice."; exit 1;;
+esac
+
 # Prompt for node type
-echo "Which Feedo node would you like to install?"
+echo ""
+echo "Which Feedo node type?"
 echo "1) Consensus Node (Rust)"
 echo "2) Storage Node (Rust)"
 echo "3) Search Node (Python, ML)"
@@ -200,6 +213,55 @@ fi
 echo "=========================================="
 }
 
+update_node() {
+  local NODE_TYPE="$1"
+  local INSTALL_DIR="/opt/feedo-$NODE_TYPE"
+  local SERVICE="feedo-$NODE_TYPE"
+
+  echo ""
+  echo "=========================================="
+  echo "Updating $NODE_TYPE node..."
+  echo "=========================================="
+
+  if [ ! -d "$INSTALL_DIR/.git" ]; then
+    echo "⚠️  $NODE_TYPE node is NOT installed at $INSTALL_DIR."
+    echo "    Skipping. Choose 'Install a new node' instead."
+    return 0
+  fi
+
+  # 1. Pull latest code (discard any local server changes)
+  echo "[1/3] Pulling latest Feedo source..."
+  cd "$INSTALL_DIR"
+  git fetch origin main
+  git reset --hard origin/main
+
+  # 2. Rebuild
+  echo "[2/3] Rebuilding $NODE_TYPE node..."
+  if [ "$NODE_TYPE" = "consensus" ] || [ "$NODE_TYPE" = "storage" ]; then
+    source $HOME/.cargo/env 2>/dev/null || true
+    cd "$INSTALL_DIR/microservices"
+    cargo build --release -p "$NODE_TYPE-node"
+  elif [ "$NODE_TYPE" = "search" ]; then
+    cd "$INSTALL_DIR/microservices/search-node"
+    if [ ! -d "venv" ]; then
+      python3 -m venv venv
+    fi
+    source venv/bin/activate
+    pip install -r requirements.txt
+  fi
+
+  # 3. Restart (keys, .env and systemd unit are left untouched)
+  echo "[3/3] Restarting $SERVICE..."
+  systemctl daemon-reload
+  systemctl restart "$SERVICE"
+  echo "✅ $NODE_TYPE node updated."
+  echo "   View logs: journalctl -u $SERVICE -f"
+}
+
 for NODE_TYPE in "${NODE_TYPES[@]}"; do
-  install_node "$NODE_TYPE"
+  if [ "$MODE" = "update" ]; then
+    update_node "$NODE_TYPE"
+  else
+    install_node "$NODE_TYPE"
+  fi
 done
