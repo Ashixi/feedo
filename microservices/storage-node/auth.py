@@ -5,9 +5,28 @@ from fastapi.responses import JSONResponse
 import httpx
 from eth_account.messages import encode_defunct
 from eth_account import Account
+from typing import Optional
 
 # In Feedo, the Consensus Node holds the ledger of registered DIDs
 CONSENSUS_NODE_URL = os.getenv("CONSENSUS_NODE_URL", "http://127.0.0.1:3000")
+
+
+async def _resolve_delegation(address: str) -> Optional[str]:
+    """Resolve a delegated usage key (0xD) to its owner wallet address (0xW).
+
+    Returns the owner address (without the 'did:feedo:' prefix) or None.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{CONSENSUS_NODE_URL}/did/{address}/delegation", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                owner = data.get("owner")
+                if owner:
+                    return owner.split("did:feedo:")[-1]
+    except Exception as e:
+        print(f"Warning: Failed to resolve delegation for {address}: {e}")
+    return None
 
 async def verify_feedo_auth(request: Request):
     """
@@ -58,7 +77,10 @@ async def verify_feedo_auth(request: Request):
     did_address = did.split("did:feedo:")[1]
     
     if recovered_address.lower() != did_address.lower():
-        return JSONResponse(status_code=401, content={"detail": "Signature does not match the provided DID"})
+        # Not a direct signature. It may be a delegated usage key (0xD) acting for this DID (0xW).
+        delegated_owner = await _resolve_delegation(recovered_address)
+        if delegated_owner is None or delegated_owner.lower() != did_address.lower():
+            return JSONResponse(status_code=401, content={"detail": "Signature does not match the provided DID"})
         
     # 5. Consensus Check: verify the DID is registered in the network
     try:

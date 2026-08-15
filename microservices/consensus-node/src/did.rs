@@ -238,7 +238,7 @@ impl DidManager {
     }
 
     /// Normalizes an Ethereum address for storage/lookup: lowercase, no 0x / did prefix.
-    fn normalize_addr(addr: &str) -> String {
+    pub fn normalize_addr(addr: &str) -> String {
         addr.trim()
             .trim_start_matches("did:feedo:")
             .trim_start_matches("0x")

@@ -465,14 +465,39 @@ async fn delegate_usage_key(State(state): State<AppState>, Json(payload): Json<D
     let _ = did_manager.set_delegation(owner, &payload.usage_key);
     drop(did_manager);
 
+    // Replicate the delegation across consensus nodes via the Kademlia DHT,
+    // so any node can resolve the usage key → owner mapping.
+    let usage_norm = did::DidManager::normalize_addr(&payload.usage_key);
+    let owner_norm = did::DidManager::normalize_addr(owner);
+    let _ = state
+        .swarm_tx
+        .send(SwarmCommand::PublishDelegationDht(usage_norm, owner_norm));
+
     Ok(Json(DelegateRes { did: payload.did, usage_key: payload.usage_key, error: None }))
 }
 
 async fn get_delegation(State(state): State<AppState>, Path(address): Path<String>) -> Json<DelegationRes> {
+    // 1. Local lookup first.
     let did_manager = state.did_manager.lock().await;
-    let owner = did_manager.get_delegation_owner(&address);
+    let mut owner = did_manager.get_delegation_owner(&address);
     drop(did_manager);
-    let owner = owner.map(|o| format!("did:feedo:{}", o));
+
+    // 2. Fall back to the Kademlia DHT (delegations are replicated across consensus nodes).
+    if owner.is_none() {
+        let usage_norm = did::DidManager::normalize_addr(&address);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if state
+            .swarm_tx
+            .send(SwarmCommand::QueryDelegationDht(usage_norm, tx))
+            .is_ok()
+        {
+            if let Ok(Some(remote_owner)) = rx.await {
+                owner = Some(remote_owner);
+            }
+        }
+    }
+
+    let owner = owner.map(|o| format!("did:feedo:0x{}", o));
     Json(DelegationRes { owner })
 }
 
