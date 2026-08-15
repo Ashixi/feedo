@@ -613,6 +613,8 @@ The DID is your Ethereum wallet address: `did:feedo:0x<address>`. Registration p
 
 DID creation automatically credits 500,000 credits to the new DID.
 
+> Users typically register via the identity page at [https://feedo.ink/identity.html](https://feedo.ink/identity.html) or via the SDK/CLI.
+
 ### 7.2 Register Name
 
 ```

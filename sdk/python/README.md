@@ -64,6 +64,8 @@ Registering your DID creates your identity on the blockchain and grants you the 
 
 You only need to do this **once per wallet**.
 
+> **No-code option:** create your identity in the browser at [https://feedo.ink/identity.html](https://feedo.ink/identity.html) — connect any wallet, register the DID, and generate a usage key in one flow.
+
 ```python
 import asyncio
 from eth_account import Account
@@ -315,7 +317,7 @@ Your DID **is** your wallet address — the **funding key** that holds your cred
 
 ### Getting a usage key
 
-**Option A — Website (recommended).** Open the identity page, connect any wallet (EIP-6963: MetaMask, Coinbase Wallet, Rabby, Trust, Brave, Phantom, OKX…), and click **Generate usage key**. The site generates a random usage key in the browser and registers the delegation with a single wallet signature. Copy the printed private key into your server env.
+**Option A — Website (recommended).** Open [https://feedo.ink/identity.html](https://feedo.ink/identity.html), connect any wallet (EIP-6963: MetaMask, Coinbase Wallet, Rabby, Trust, Brave, Phantom, OKX…), and click **Generate usage key**. The site generates a random usage key in the browser and registers the delegation with a single wallet signature. Copy the printed private key into your server env.
 
 **Option B — SDK / CLI (deterministic).** Derive it from your wallet key with HMAC:
 

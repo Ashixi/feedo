@@ -57,7 +57,7 @@ Your **identity is your wallet** — your DID is simply `did:feedo:0x<your-walle
 
 - **Register** once by signing `feedo register <did>` (`registerDid` / `register_did`).
 - For server SDKs, use a separate **usage key** so your funding key never leaves your wallet. See the "Usage Key & Delegation" section in each SDK's README.
-- You can create an identity + usage key without code on the identity page (any EIP-6963 wallet: MetaMask, Coinbase Wallet, Rabby, …).
+- You can create an identity + usage key without code at [https://feedo.ink/identity.html](https://feedo.ink/identity.html) (any EIP-6963 wallet: MetaMask, Coinbase Wallet, Rabby, …).
 
 Learn more:
 - [TypeScript SDK — Usage Key & Delegation](./typescript/README.md#usage-key--delegation-server-side)

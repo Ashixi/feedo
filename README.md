@@ -141,7 +141,7 @@ Feedo identity is wallet-native — there are no usernames or passwords.
 - **Usage key** — a separate key that signs requests but can't move funds, so your wallet's private key never leaves your wallet (or a server).
 
 Three ways to create an identity:
-1. **Website** — open `website/identity.html`, connect a wallet, register, and generate a usage key in one flow.
+1. **Website** — open [https://feedo.ink/identity.html](https://feedo.ink/identity.html), connect a wallet, register, and generate a usage key in one flow.
 2. **CLI** — `feedo init` (creates a wallet + registers the DID), then `feedo usage-key` + `feedo delegate`.
 3. **SDK** — `registerDid` / `register_did`, plus delegated mode via `usageKey` / `usage_key`.
 
