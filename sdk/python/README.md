@@ -304,6 +304,53 @@ X-Feedo-Signature: 0x<ECDSA signature of "FeedoAction:METHOD:PATH:TIMESTAMP">
 
 ---
 
+## Usage Key & Delegation (server-side)
+
+Your DID **is** your wallet address — the **funding key** that holds your credits/funds. For server SDKs (AnythingLLM, Dify, backends), never put the funding key in the environment. Instead, use a separate **usage key** that only signs requests and can never move funds.
+
+| Key | What it is | Holds funds? |
+|---|---|---|
+| **Funding key** | Your wallet. `did:feedo:<address>` | yes |
+| **Usage key** | Separate key that signs requests | no — only spends your credits |
+
+### Getting a usage key
+
+**Option A — Website (recommended).** Open the identity page, connect any wallet (EIP-6963: MetaMask, Coinbase Wallet, Rabby, Trust, Brave, Phantom, OKX…), and click **Generate usage key**. The site generates a random usage key in the browser and registers the delegation with a single wallet signature. Copy the printed private key into your server env.
+
+**Option B — SDK / CLI (deterministic).** Derive it from your wallet key with HMAC:
+
+```python
+from feedo.modules.crypto import FeedoCrypto
+
+usage = FeedoCrypto.derive_usage_key(wallet_private_key_hex)
+print(usage["address"], usage["private_key"])
+```
+
+Then register the delegation once — the wallet signs `feedo delegate usage to <usage_address>`:
+
+```
+POST /did/delegate  { did, usage_key, signature }
+```
+
+Or run `feedo delegate` from the CLI.
+
+### Delegated mode
+
+```python
+from feedo import FeedoClient
+
+client = FeedoClient(
+    usage_key="0x...",           # the usage key (NOT your funding key)
+    did="did:feedo:0x...",       # your wallet DID (owner)
+    consensus_seeds=["https://consensus.feedo.network"],
+    search_seeds=["https://search.feedo.network"],
+)
+```
+
+Requests are signed with the usage key and declare the owner DID; nodes resolve the delegation automatically.
+
+---
+
 ## Error Handling
 
 The SDK handles node failover automatically. Wrap network calls in `try/except`:

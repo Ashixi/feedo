@@ -51,6 +51,19 @@ By using these SDKs, developers can easily interact with all three layers of the
    - **Indexing**: Make public or private documents searchable.
    - **Web2 Gateway**: HTTP gateway for fast content retrieval.
 
+## Identity (DID & Usage Key)
+
+Your **identity is your wallet** — your DID is simply `did:feedo:0x<your-wallet-address>`.
+
+- **Register** once by signing `feedo register <did>` (`registerDid` / `register_did`).
+- For server SDKs, use a separate **usage key** so your funding key never leaves your wallet. See the "Usage Key & Delegation" section in each SDK's README.
+- You can create an identity + usage key without code on the identity page (any EIP-6963 wallet: MetaMask, Coinbase Wallet, Rabby, …).
+
+Learn more:
+- [TypeScript SDK — Usage Key & Delegation](./typescript/README.md#usage-key--delegation-server-side)
+- [Python SDK — Usage Key & Delegation](./python/README.md#usage-key--delegation-server-side)
+- [CLI — `feedo usage-key` / `feedo delegate`](./cli/README.md#feedo-usage-key)
+
 ## Important Note for New Developers ⚠️
 
 Before you can upload files or perform any write operations using these SDKs, **you must first register your DID**.

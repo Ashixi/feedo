@@ -596,9 +596,20 @@ POST /did/register
 Content-Type: application/json
 ```
 
-**Request:** `{ "public_key": "0x..." }`
+The DID is your Ethereum wallet address: `did:feedo:0x<address>`. Registration proves wallet ownership via an EIP-191 `personal_sign` over the canonical message `feedo register <did>`.
 
-**Response:** `200 OK` — `{ "did": "did:feedo:{public_key_hex}" }`
+**Request:**
+```json
+{
+    "did": "did:feedo:0x...",
+    "public_key": "0x...",
+    "signature": "0x..."
+}
+```
+
+**Validation:** `did::verify_signature(address, "feedo register <did>", signature)` — the signature must be produced by the wallet that owns this DID.
+
+**Response:** `200 OK` — `{ "did": "did:feedo:0x..." }`
 
 DID creation automatically credits 500,000 credits to the new DID.
 
@@ -731,6 +742,40 @@ GET /did/:did/names
     }
 ]
 ```
+
+### 7.9 Delegate Usage Key
+
+```
+POST /did/delegate
+Content-Type: application/json
+```
+
+Delegates request-signing to a separate **usage key** (0xD), so the funding wallet key (0xW) never needs to leave the wallet. The wallet proves ownership by signing the canonical message `feedo delegate usage to <usage_key>`.
+
+**Request:**
+```json
+{
+    "did": "did:feedo:0x...",
+    "usage_key": "0x...",
+    "signature": "0x..."
+}
+```
+
+**Validation:** `did::verify_signature(owner, "feedo delegate usage to <usage_key>", signature)` — the signature must be produced by the wallet that owns `did`.
+
+**Response:** `200 OK` — `{ "did": "did:feedo:0x...", "usage_key": "0x...", "error": null }`
+
+Stores the mapping `usage_key → owner` in the DID manager (Sled). A usage key can only sign requests — it cannot move funds.
+
+### 7.10 Get Delegation
+
+```
+GET /did/:address/delegation
+```
+
+Returns the owner wallet DID for a delegated usage key, or `null` if the key has no delegation.
+
+**Response:** `200 OK` — `{ "owner": "did:feedo:0x..." }` or `{ "owner": null }`
 
 ---
 

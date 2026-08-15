@@ -132,6 +132,23 @@ Each microservice has a documentation suite covering technical architecture, nod
 
 ---
 
+## Identity
+
+Feedo identity is wallet-native — there are no usernames or passwords.
+
+- **DID = your wallet address** (`did:feedo:0x…`). Connect any EIP-6963 wallet (MetaMask, Coinbase Wallet, Rabby, Trust, Brave, Phantom, OKX…).
+- **Register once** by signing `feedo register <did>` — you receive 500,000 free credits.
+- **Usage key** — a separate key that signs requests but can't move funds, so your wallet's private key never leaves your wallet (or a server).
+
+Three ways to create an identity:
+1. **Website** — open `website/identity.html`, connect a wallet, register, and generate a usage key in one flow.
+2. **CLI** — `feedo init` (creates a wallet + registers the DID), then `feedo usage-key` + `feedo delegate`.
+3. **SDK** — `registerDid` / `register_did`, plus delegated mode via `usageKey` / `usage_key`.
+
+See the [SDK docs](sdk/README.md) for the full usage-key & delegation reference.
+
+---
+
 ## Tests
 
 All three core nodes have integration tests covering real P2P scenarios.

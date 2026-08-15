@@ -72,8 +72,11 @@ You only need to do this **once per wallet**.
 ```typescript
 import { ethers } from 'ethers';
 
-// 1. Ask the user to sign a message to prove ownership of the private key
-const sig = await wallet.signMessage('register');
+// Your DID is your wallet address
+const did = `did:feedo:${wallet.address}`;
+
+// 1. Sign the canonical registration message to prove wallet ownership
+const sig = await wallet.signMessage(`feedo register ${did}`);
 
 // 2. Register the DID on the network
 await feedo.consensus.registerDid(wallet.signingKey.publicKey, sig);
@@ -269,6 +272,51 @@ X-Feedo-DID:       did:feedo:0xYourAddress
 X-Feedo-Timestamp: 1722345678901
 X-Feedo-Signature: 0x<ECDSA signature of "FeedoAction:METHOD:PATH:TIMESTAMP">
 ```
+
+---
+
+## Usage Key & Delegation (server-side)
+
+Your DID **is** your wallet address — the **funding key** that holds your credits/funds. For server SDKs (AnythingLLM, Dify, backends), never put the funding key in the environment. Instead, use a separate **usage key** that only signs requests and can never move funds.
+
+| Key | What it is | Holds funds? |
+|---|---|---|
+| **Funding key** | Your wallet. `did:feedo:<address>` | yes |
+| **Usage key** | Separate key that signs requests | no — only spends your credits |
+
+### Getting a usage key
+
+**Option A — Website (recommended).** Open the identity page, connect any wallet (EIP-6963: MetaMask, Coinbase Wallet, Rabby, Trust, Brave, Phantom, OKX…), and click **Generate usage key**. The site generates a random usage key in the browser and registers the delegation with a single wallet signature. Copy the printed private key into your server env.
+
+**Option B — SDK / CLI (deterministic).** Derive it from your wallet key with HMAC:
+
+```typescript
+import { FeedoCrypto } from 'feedo-protocol-sdk';
+
+const usage = FeedoCrypto.deriveUsageKey(wallet.privateKey);
+console.log(usage.address, usage.privateKey);
+```
+
+Then register the delegation once — the wallet signs `feedo delegate usage to <usage_address>`:
+
+```
+POST /did/delegate  { did, usage_key, signature }
+```
+
+Or run `feedo delegate` from the CLI.
+
+### Delegated mode
+
+```typescript
+const feedo = new FeedoClient({
+    usageKey: usage.privateKey,   // the usage key (NOT your funding key)
+    did: 'did:feedo:0x...',       // your wallet DID (owner)
+    consensusSeeds: ['https://consensus.feedo.network'],
+    searchSeeds: ['https://search.feedo.network'],
+});
+```
+
+Requests are signed with the usage key and declare the owner DID; nodes resolve the delegation automatically.
 
 ---
 
