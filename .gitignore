@@ -82,3 +82,34 @@ website/
 
 # AnythingLLM clone (for integration development)
 anything-llm/
+
+# Node.js dependencies
+node_modules/
+
+# Python build & cache artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Rust build artifacts
+target/
+
+# Runtime databases & node identity (auto-generated, not source)
+*.db
+*.sqlite
+*.sqlite3
+peer_key.bin
+consensus_db*/
+storage_db*/
+lancedb_data*/
+
+# Flutter build & ephemeral files
+feedo_search_ui/build/
+**/Flutter/ephemeral/
+
+# TypeScript compiled artifacts (source of truth is .ts)
+sdk/typescript/src/*.js
+sdk/typescript/src/modules/*.js
