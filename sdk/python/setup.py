@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="feedo-sdk",
-    version="0.1.19",
+    version="0.1.20",
     description="The official Developer SDK for Feedo Protocol",
     long_description=long_description,
     long_description_content_type="text/markdown",
