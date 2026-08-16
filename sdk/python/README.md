@@ -353,6 +353,88 @@ Requests are signed with the usage key and declare the owner DID; nodes resolve 
 
 ---
 
+## FeedoMemory (Memory Store)
+
+`FeedoMemory` is a **synchronous** memory abstraction over the Feedo search network, designed to wire Feedo up as a memory backend for AI agent frameworks (PraisonAI, etc.).
+
+### Installation
+
+```bash
+pip install feedo-sdk
+```
+
+### Quick start
+
+Only `usage_key` is required — the owner DID is auto-resolved from the usage key's delegation:
+
+```python
+from feedo import FeedoMemory
+
+memory = FeedoMemory(usage_key="0x...")
+
+# Store memories
+memory.add_long("User prefers dark mode", {"topic": "ui"})
+memory.add_short("Current task: integrate Feedo")
+
+# Semantic recall
+memory.search_long("dark mode")
+# -> [{"id": "mem_...", "text": "User prefers dark mode", "metadata": {...}, "score": 0.85}]
+
+# List everything
+memory.get_all_memories()
+```
+
+### Constructor
+
+```python
+FeedoMemory(
+    usage_key="0x...",    # delegated usage key (only this is required)
+    did=None,             # auto-resolved from the delegation if omitted
+    user_id=None,         # optional: isolate memories per user (defaults to DID)
+    private=True,         # True (default): owner-only; False: public
+    search_seeds=None,
+    consensus_seeds=None,
+    storage_seeds=None,
+)
+```
+
+### Methods
+
+| Method | Description |
+|---|---|
+| `add_short(text, metadata=None) -> id` | Store a short-term memory |
+| `add_long(text, metadata=None) -> id` | Store a long-term memory |
+| `search_short(query, limit=5) -> list` | Semantic search in short-term memory |
+| `search_long(query, limit=5) -> list` | Semantic search in long-term memory |
+| `get_all_memories() -> list` | Return all memories (short + long) |
+| `clear_short()` | Delete all short-term memories |
+| `clear_long()` | Delete all long-term memories |
+
+### Private vs public
+
+- `private=True` (default): memories are indexed as owner-only `private_post` items. The search node stores only the vector — not the plaintext (privacy).
+- `private=False`: memories are indexed as public documents (full text stored and retrievable).
+
+### Using as a PraisonAI memory backend
+
+```python
+from praisonaiagents import Agent
+
+agent = Agent(
+    name="Assistant",
+    memory={
+        "provider": "feedo",
+        "config": {
+            "usage_key": "0x...",   # only this is required
+            "user_id": "user123",   # optional
+            "private": True,        # optional (default True)
+        },
+    },
+)
+```
+
+---
+
 ## Error Handling
 
 The SDK handles node failover automatically. Wrap network calls in `try/except`:

@@ -16,7 +16,7 @@ The primary SDK for building Web3 dApps, Node.js backends, React, and React Nati
 ### 2. [Python SDK](./python/README.md)
 A fully asynchronous Python SDK built on `httpx` and `asyncio`, optimized for AI Agents, Data Pipelines, and Backend services.
 - **PyPI Package**: [`feedo-sdk`](https://pypi.org/project/feedo-sdk/)
-- **Key Features**: High-performance async API, ECIES Encryption, EIP-191 Auth.
+- **Key Features**: High-performance async API, ECIES Encryption, EIP-191 Auth, `FeedoMemory` (sync memory store for agent frameworks).
 
 ---
 
