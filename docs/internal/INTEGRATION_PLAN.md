@@ -233,6 +233,8 @@ Feedo — інфраструктурний проєкт (децентраліз�
 4. `consensus-node` — атрибуція: нода записує ledger-подію (хто, скільки, які ноди працювали). Спліт ingress/storage ~80/20.
 5. `consensus-node` — репутація DID: вік + баланс + чиста історія → тіри.
 
+> **Баланс кредитів** — перевірка через **DHT-lookup** (як DID-документ і делегація), а не через PBFT-реплікацію леджера. Так будь-яка нода зможе перевірити баланс юзера, навіть якщо кредит нарахований на іншій ноді.
+
 **Тіри rate limit (чернетка):**
 - Fresh — 10 req/s (новий DID)
 - Active — 50 req/s (7+ днів, чиста історія)
@@ -442,3 +444,22 @@ Repo: github.com/Ashixi/feedo
 28. **Thirdweb AI Engine** — `thirdweb-dev/...` — TypeScript
 29. **Bittensor Subnet SDK** — `bittensor/...` — Python
 30. **TencentDB Agent Memory** — TS/Python
+
+---
+
+## 11. PraisonAI інтеграція — виконано ✅
+
+**SDK (`feedo-sdk`):** новий клас `FeedoMemory` (`sdk/python/feedo/memory.py`) — синхронна memory-абстракція поверх search-модуля:
+- авторезолв `did` з `usage_key` (через `GET /did/{0xD}/delegation`)
+- `add_short` / `add_long` / `search_short` / `search_long` / `get_all` / `clear_*`
+- `private=True` (дефолт) → `index_private_document`; `private=False` → `index_document`
+- namespace-ізоляція: `feedo-memory:{user_id|DID}:{short|long}`
+
+**PraisonAI:** `FeedoMemoryAdapter` (`memory/adapters/feedo_adapter.py`) + фабрика `create_feedo_memory_adapter` + реєстрація `register_memory_factory("feedo", ...)` + приклад `examples/python/feedo_memory_example.py`.
+
+**Конфіг (мінімальний):**
+```python
+memory = {"provider": "feedo", "config": {"usage_key": "0x..."}}
+```
+
+**Далі:** PR у PraisonAI (опис за шаблоном розділу 9.1).
