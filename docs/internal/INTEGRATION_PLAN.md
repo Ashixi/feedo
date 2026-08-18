@@ -289,7 +289,7 @@ Feedo — інфраструктурний проєкт (децентраліз�
 ## 7. Definition of Done
 
 **Фаза 0 завершена, коли:**
-- [ ] PraisonAI PR злито
+- [ ] PraisonAI PR злито — (PR #4032 відкрито ✅, рев'ю Approve; ⏳ чекає мерджу)
 - [ ] Swarms PR злито
 - [ ] BeeAI PR злито
 - [ ] 1 плагін Рівня 2 опубліковано (ElizaOS або LobeChat)
@@ -408,7 +408,7 @@ Repo: github.com/Ashixi/feedo
 ## 10. Повний список проєктів (усі 30)
 
 ### Рівень 1 — бліц-вхід (за анонс-активністю)
-1. **PraisonAI** — `MervinPraison/PraisonAI` — Python — 🔥 високий анонс
+1. **PraisonAI** — `MervinPraison/PraisonAI` — Python — 🔥 високий анонс — ✅ PR #4032, ⏳ не змерджено
 2. **Swarms** — `kyegomez/swarms` — Python — 🔥 високий анонс
 3. **BeeAI Framework** — `i-am-bee/beeai-framework` — Python/TS — 🟡 changelog
 4. **DocsGPT** — `arc53/DocsGPT` — Python — 🟡 enterprise
@@ -447,7 +447,7 @@ Repo: github.com/Ashixi/feedo
 
 ---
 
-## 11. PraisonAI інтеграція — виконано ✅
+## 11. PraisonAI інтеграція — PR виконано ✅ · інтеграція не підтверджена ⏳
 
 **SDK (`feedo-sdk`):** новий клас `FeedoMemory` (`sdk/python/feedo/memory.py`) — синхронна memory-абстракція поверх search-модуля:
 - авторезолв `did` з `usage_key` (через `GET /did/{0xD}/delegation`)
@@ -462,4 +462,8 @@ Repo: github.com/Ashixi/feedo
 memory = {"provider": "feedo", "config": {"usage_key": "0x..."}}
 ```
 
-**Далі:** PR у PraisonAI (опис за шаблоном розділу 9.1).
+**Статус:**
+- ✅ PR відкрито — [MervinPraison/PraisonAI#4032](https://github.com/MervinPraison/PraisonAI/pull/4032)
+- ✅ Код у гілці `feat/feedo-memory-adapter` (фікс nested-config — коміт `9bc9e426e`)
+- ✅ Фінальне архітектурне рев'ю (Claude triage) — **Approve**, блокерів немає
+- ⏳ Інтеграція **не підтверджена**: PR ще не змерджено мейнтейнером (12 CI-workflows чекають апруву)
