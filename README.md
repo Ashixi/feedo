@@ -193,6 +193,16 @@ Join our Discord server to ask questions, meet the team, or apply for the techni
 
 ---
 
+## Contact
+
+- 🐙 GitHub — [Feedo SDK](https://github.com/Ashixi/feedo-sdk)
+- 🌐 Website — [feedo.ink](https://feedo.ink)
+- 💬 Discord — [Join the Feedo Discord](https://discord.gg/9sktH22ZN)
+- 𝕏 X — [@andrii_shumko](https://x.com/andrii_shumko)
+- ✉️ Email — [andrii@feedo.ink](mailto:andrii@feedo.ink)
+
+---
+
 ## Support the Project
 
 Feedo is fully open-source and community-funded. No VCs. No tokens. Just builders.
