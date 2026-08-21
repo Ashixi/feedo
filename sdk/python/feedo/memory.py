@@ -218,3 +218,20 @@ class FeedoMemory:
     def clear_long(self) -> None:
         """Clear all long-term memories."""
         self._run(self.client.search.delete_by_namespace(self._long_ns))
+
+    def add(self, text: str, metadata: Optional[Dict] = None, **kwargs) -> str:
+        """Universal method to store content (defaults to long-term memory)."""
+        return self.add_long(text, metadata, **kwargs)
+
+    def search(self, query: str, limit: int = 5, **kwargs) -> List[Dict[str, Any]]:
+        """Universal method to search memory (defaults to long-term memory)."""
+        return self.search_long(query, limit, **kwargs)
+
+    def delete(self, memory_id: str) -> None:
+        """Delete a specific memory entry by its ID."""
+        self._run(self.client.search.unpin(memory_id))
+
+    def update(self, memory_id: str, text: str, metadata: Optional[Dict] = None, **kwargs) -> str:
+        """Update an existing memory entry by its ID. Returns the new memory ID."""
+        self.delete(memory_id)
+        return self.add(text, metadata, **kwargs)
