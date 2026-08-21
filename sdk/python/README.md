@@ -402,6 +402,10 @@ FeedoMemory(
 
 | Method | Description |
 |---|---|
+| `add(text, metadata=None) -> id` | Universal method to store memory |
+| `search(query, limit=5) -> list` | Universal method for semantic search |
+| `update(memory_id, text, metadata=None) -> id` | Update a specific memory |
+| `delete(memory_id)` | Delete a specific memory |
 | `add_short(text, metadata=None) -> id` | Store a short-term memory |
 | `add_long(text, metadata=None) -> id` | Store a long-term memory |
 | `search_short(query, limit=5) -> list` | Semantic search in short-term memory |
