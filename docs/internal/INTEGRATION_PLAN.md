@@ -409,7 +409,7 @@ Repo: github.com/Ashixi/feedo
 
 ### Рівень 1 — бліц-вхід (за анонс-активністю)
 1. **PraisonAI** — `MervinPraison/PraisonAI` — Python — 🔥 високий анонс — ✅ PR #4032, ⏳ не змерджено
-2. **Swarms** — `kyegomez/swarms` — Python — 🔥 високий анонс
+2. **Swarms** — `kyegomez/swarms` — Python — 🔥 високий анонс — ✅ PR створено
 3. **BeeAI Framework** — `i-am-bee/beeai-framework` — Python/TS — 🟡 changelog
 4. **DocsGPT** — `arc53/DocsGPT` — Python — 🟡 enterprise
 5. **Heurist Agent Framework** — `heurist-network/...` — TS/Python — не перевірено
@@ -467,3 +467,20 @@ memory = {"provider": "feedo", "config": {"usage_key": "0x..."}}
 - ✅ Код у гілці `feat/feedo-memory-adapter` (фікс nested-config — коміт `9bc9e426e`)
 - ✅ Фінальне архітектурне рев'ю (Claude triage) — **Approve**, блокерів немає
 - ⏳ Інтеграція **не підтверджена**: PR ще не змерджено мейнтейнером (12 CI-workflows чекають апруву)
+
+---
+
+## 12. Swarms інтеграція — PR виконано ✅ · чекає мерджу ⏳
+
+**SDK (`feedo-sdk`):** оновлено `FeedoMemory` (версія `0.1.22`), додано універсальні методи `add`, `search`, `update`, `delete` для сумісності з сучасними фреймворками.
+
+**Swarms:** 
+- Реалізовано через концепцію **Agent Tools** (замість застарілого `swarms-memory`).
+- `FeedoMemoryTools` (`examples/tools/feedo/feedo_tools.py`) експортує інструменти керування пам'яттю безпосередньо агенту.
+- Додано `examples/tools/feedo/feedo_memory_example.py` та інструкції з ініціалізації.
+- Додано Feedo Protocol у таблицю інтеграцій `README.md`.
+- Написано юніт-тести з `MagicMock` (`tests/tools/test_feedo_tools.py`).
+
+**Статус:**
+- ✅ PR створено.
+- ⏳ Чекає на рев'ю та мердж.
