@@ -3,9 +3,9 @@ import asyncio
 from typing import List, Optional, Dict
 
 DEFAULT_SEEDS = {
-    "search": ["http://95.111.245.68:8000", "http://178.18.253.94:8000", "http://localhost:8000"],
-    "consensus": ["http://95.111.245.68:3000", "http://178.18.253.94:3000", "http://localhost:3000"],
-    "storage": ["http://95.111.245.68:3001", "http://178.18.253.94:3001", "http://localhost:3001"]
+    "search": ["https://api.feedo.ink", "https://api2.feedo.ink", "http://localhost:8000"],
+    "consensus": ["https://api.feedo.ink/consensus", "https://api2.feedo.ink/consensus", "http://localhost:3000"],
+    "storage": ["https://api.feedo.ink/storage", "https://api2.feedo.ink/storage", "http://localhost:3001"]
 }
 
 class NodeRouter:
@@ -32,7 +32,10 @@ class NodeRouter:
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 try:
-                    return task.result()
+                    result = task.result()
+                    for p in pending:
+                        p.cancel()
+                    return result
                 except Exception:
                     pass
             tasks = list(pending)

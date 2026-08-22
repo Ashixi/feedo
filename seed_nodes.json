@@ -2,32 +2,17 @@
   "nodes": [
     {
       "type": "consensus",
-      "http_url": "http://95.111.245.68:3000",
-      "p2p_addr": "/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWFEjLzDt1UboxThYA86pevUmDSairKyRGuzY8RbZW5Wi2"
+      "http_url": "https://api.feedo.ink/consensus",
+      "p2p_addr": "/ip4/95.111.245.68/udp/8041/quic-v1/p2p/12D3KooWS43sAocd9GEC8pGb77fykTK56EMAAmaF4qvGJsD767ro"
     },
     {
       "type": "storage",
-      "http_url": "http://95.111.245.68:3001",
-      "p2p_addr": "/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWLsiaNCqc7JDqCYhQ9VZHPWjxp98xh2ycPU15ZChkr9Bo"
+      "http_url": "https://api.feedo.ink/storage",
+      "p2p_addr": "/ip4/95.111.245.68/udp/8040/quic-v1/p2p/12D3KooWMdCA2m7XNToq2wqHaD23QEb13kYqX1ddDCBHfmzzHjxy"
     },
     {
       "type": "search",
-      "http_url": "http://95.111.245.68:8000",
-      "p2p_addr": ""
-    },
-    {
-      "type": "consensus",
-      "http_url": "http://178.18.253.94:3000",
-      "p2p_addr": "/ip4/178.18.253.94/udp/8041/quic-v1/p2p/12D3KooWHE8N1JUJtNBdLFhDGUK5Ny7HdwCSLxPSSN9tLmp6kwUL"
-    },
-    {
-      "type": "storage",
-      "http_url": "http://178.18.253.94:3001",
-      "p2p_addr": "/ip4/178.18.253.94/udp/8040/quic-v1/p2p/12D3KooWPvQ6GDXN4mfPo18AFBf6VypzyRbEdeAWsGRuF1o2gYsM"
-    },
-    {
-      "type": "search",
-      "http_url": "http://178.18.253.94:8000",
+      "http_url": "https://api.feedo.ink",
       "p2p_addr": ""
     }
   ]

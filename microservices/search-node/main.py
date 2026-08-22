@@ -162,6 +162,7 @@ class IndexDocumentPayload(BaseModel):
     item_type: str = "document"
     metadata: dict = {}
     namespace: str = ""
+    vector: list[float] = None
 
 class IndexImagePayload(BaseModel):
     hash_id: str
@@ -486,8 +487,11 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
             metadata["namespace"] = payload.namespace
         
         if payload.item_type == "private_post":
-            # 1. Compute embedding with the plaintext
-            vector = await brain.get_embedding_async(text_for_vector)
+            # 1. Use pre-computed vector if provided, else compute it
+            if payload.vector:
+                vector = payload.vector
+            else:
+                vector = await brain.get_embedding_async(text_for_vector)
             # 2. Do not store plaintext in the database!
             brain.add_vector_by_emb(
                 post_id=int(time.time()),
@@ -500,12 +504,19 @@ async def index_document(payload: IndexDocumentPayload, request: Request):
                 metadata=json.dumps(metadata)
             )
         else:
-            await brain.add_vector_async(
-                post_id=int(time.time()), 
-                hash_id=payload.hash_id, 
-                text=text_to_store,
+            if payload.vector:
+                vector = payload.vector
+            else:
+                vector = await brain.get_embedding_async(text_for_vector)
+
+            brain.add_vector_by_emb(
+                post_id=int(time.time()),
+                hash_id=payload.hash_id,
+                vector=vector,
+                source_type="api",
                 item_type=payload.item_type,
                 author=author,
+                text=text_to_store,
                 metadata=json.dumps(metadata)
             )
         return {"status": "ok"}
