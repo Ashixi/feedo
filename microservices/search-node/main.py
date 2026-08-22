@@ -38,17 +38,8 @@ brain = VectorBrain(db_path=lance_db_path)
 p2p_net = None
 crawler = None
 
-gateways_env = os.getenv("GATEWAYS", "")
-if gateways_env:
-    GATEWAYS = [g.strip() for g in gateways_env.split(",") if g.strip()]
-else:
-    GATEWAYS = [os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:3001")]
-
-consensus_env = os.getenv("CONSENSUS_NODES", "")
-if consensus_env:
-    CONSENSUS_NODES = [g.strip() for g in consensus_env.split(",") if g.strip()]
-else:
-    CONSENSUS_NODES = [os.getenv("CONSENSUS_URL", "http://127.0.0.1:3002")]
+FALLBACK_STORAGE = [os.getenv("STORAGE_NODE_URL", "http://127.0.0.1:3001")]
+FALLBACK_CONSENSUS = [os.getenv("CONSENSUS_URL", "http://127.0.0.1:3002")]
 
 
 # --- In-memory Token Bucket Rate Limiter ---
@@ -127,7 +118,7 @@ async def fetch_missing_text_from_dht(results: list):
     async def fetch_text(r):
         if not r.get("text"):
             async with aiohttp.ClientSession() as session:
-                for gateway in (get_storage_nodes() or GATEWAYS):
+                for gateway in (get_storage_nodes() or FALLBACK_STORAGE):
                     try:
                         async with session.get(f"{gateway}/download/{r['hash_id']}", timeout=3.0) as resp:
                             if resp.status == 200:
@@ -187,7 +178,7 @@ class IndexVectorPayload(BaseModel):
 async def telemetry_loop():
     import uuid
     import random
-    public_url = os.environ.get("PUBLIC_API_URL", f"http://{os.getenv('HOST', '127.0.0.1')}:{os.getenv('PORT', '8000')}")
+    public_url = os.environ.get("PUBLIC_DOMAIN", f"http://{os.getenv('HOST', '127.0.0.1')}:{os.getenv('PORT', '8000')}")
     
     while True:
         try:
@@ -216,14 +207,80 @@ async def telemetry_loop():
                 "data": report
             }
             
-            if GATEWAYS:
-                gateway = random.choice(GATEWAYS)
+            if FALLBACK_STORAGE:
+                gateway = random.choice(FALLBACK_STORAGE)
                 async with httpx.AsyncClient() as client:
                     await client.post(f"{gateway}/api/v1/pubsub/publish", json=payload, timeout=5.0)
         except Exception as e:
             print(f"⚠️ Error publishing telemetry: {e}")
             
         await asyncio.sleep(300)
+
+from eth_account.messages import encode_defunct
+from eth_account import Account
+
+async def router_registration_loop():
+    """Background task to register and heartbeat with the Router Node."""
+    router_url = os.getenv("ROUTER_NODE_URL", "http://127.0.0.1:8080")
+    node_id = os.getenv("NODE_ADDRESS", "")
+    priv_key = os.getenv("NODE_PRIVATE_KEY", "")
+    public_url = os.environ.get("PUBLIC_DOMAIN", f"http://{os.getenv('HOST', '127.0.0.1')}:{os.getenv('PORT', '8000')}")
+    
+    if not node_id or not priv_key:
+        print("⚠️ Missing NODE_ADDRESS or NODE_PRIVATE_KEY. Cannot register with Router.")
+        return
+
+    while True:
+        try:
+            timestamp = str(int(time.time() * 1000))
+            path = "/register"
+            payload = f"FeedoAction:POST:{path}:{timestamp}"
+            message = encode_defunct(text=payload)
+            signed = Account.sign_message(message, private_key=priv_key)
+            
+            headers = {
+                "X-Feedo-Node-ID": node_id,
+                "X-Feedo-Timestamp": timestamp,
+                "X-Feedo-Signature": signed.signature.hex()
+            }
+            
+            reg_data = {
+                "type": "search",
+                "p2p_addr": "", # Search nodes communicate via HTTP currently
+                "internal_http": f"http://{os.getenv('HOST', '127.0.0.1')}:{os.getenv('PORT', '8000')}",
+                "public_domain": public_url
+            }
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(f"{router_url}{path}", json=reg_data, headers=headers, timeout=5.0)
+                if resp.status_code == 200:
+                    break
+        except Exception as e:
+            print(f"⚠️ Failed to register with router: {e}")
+        await asyncio.sleep(5)
+        
+    print(f"✅ Successfully registered with Router Node ({router_url})")
+    
+    # Heartbeat loop
+    while True:
+        await asyncio.sleep(30)
+        try:
+            timestamp = str(int(time.time() * 1000))
+            path = "/heartbeat"
+            payload = f"FeedoAction:POST:{path}:{timestamp}"
+            message = encode_defunct(text=payload)
+            signed = Account.sign_message(message, private_key=priv_key)
+            
+            headers = {
+                "X-Feedo-Node-ID": node_id,
+                "X-Feedo-Timestamp": timestamp,
+                "X-Feedo-Signature": signed.signature.hex()
+            }
+            
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{router_url}{path}", headers=headers, timeout=5.0)
+        except Exception as e:
+            print(f"⚠️ Heartbeat failed: {e}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -242,7 +299,8 @@ async def startup_event():
     crawler = SearchCrawler(brain, adapters, http_client=_http_client)
     asyncio.create_task(crawler.crawl_loop())
     
-    init_discovery(GATEWAYS, CONSENSUS_NODES)
+    init_discovery()
+    asyncio.create_task(router_registration_loop())
 
 @app.post("/p2p/handshake")
 async def p2p_handshake(payload: HandshakePayload):
@@ -536,7 +594,7 @@ async def index_image(payload: IndexImagePayload, request: Request):
                 return JSONResponse(status_code=401, content={"detail": "Authentication required for private images"})
             author = x_feedo_did
 
-        storage_gateways = get_storage_nodes() or GATEWAYS
+        storage_gateways = get_storage_nodes() or FALLBACK_STORAGE
         if not storage_gateways:
             return {"status": "error", "message": "No storage gateways available"}
             

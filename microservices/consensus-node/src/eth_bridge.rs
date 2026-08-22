@@ -9,6 +9,7 @@ abigen!(
     PporTreasury,
     r#"[
         {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"client","type":"address"},{"indexed":true,"internalType":"bytes32","name":"serviceHash","type":"bytes32"},{"indexed":false,"internalType":"uint256","name":"poolAmount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"protocolFee","type":"uint256"}],"name":"PaymentReceived","type":"event"},
+        {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"Deposit","type":"event"},
         {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"node","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"NodeRegistered","type":"event"},
         {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"Withdrawn","type":"event"},
         {"anonymous":false,"inputs":[{"indexed":false,"internalType":"address[]","name":"newCommittee","type":"address[]"},{"indexed":false,"internalType":"uint256","name":"nonce","type":"uint256"}],"name":"CommitteeUpdated","type":"event"},
@@ -67,16 +68,23 @@ impl Web3Bridge {
                         // Парсимо лог як PaymentReceivedFilter
                         if let Ok(event) = PporTreasuryEvents::decode_log(&log.into()) {
                             match event {
+                                PporTreasuryEvents::DepositFilter(dep) => {
+                                    // deposit() — mint side of the bridge. Credit the depositor's own DID.
+                                    let did = format!("did:feedo:0x{}", hex::encode(dep.user.as_bytes()));
+                                    let amount_u64 = dep.amount.as_u64();
+                                    eprintln!("Web3 Deposit: {} deposited {} USDT -> credits {}", dep.user, dep.amount, did);
+                                    self.ledger.credit(&did, amount_u64).await;
+                                },
                                 PporTreasuryEvents::PaymentReceivedFilter(payment) => {
                                     // serviceHash - це наш targetId (ID отримувача)
-                                    let target_id_hex = format!("0x{}", hex::encode(payment.service_hash));
+                                    let did = format!("did:feedo:0x{}", hex::encode(&payment.service_hash[12..]));
                                     
                                     // Конвертуємо USDT (6 decimals зазвичай) у u64
                                     let amount_u64 = payment.pool_amount.as_u64(); 
                                     
-                                    eprintln!("Web3 Deposit: {} sent {} USDT (pool) for target {}", payment.client, payment.pool_amount, target_id_hex);
+                                    eprintln!("Web3 PaymentReceived: {} sent {} USDT (pool) -> credits {}", payment.client, payment.pool_amount, did);
                                     
-                                    self.ledger.credit(&target_id_hex, amount_u64).await;
+                                    self.ledger.credit(&did, amount_u64).await;
                                 },
                                 _ => {}
                             }

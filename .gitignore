@@ -83,6 +83,9 @@ website/
 # AnythingLLM clone (for integration development)
 anything-llm/
 
+# Swarms clone (for integration development)
+swarms/
+
 # Node.js dependencies
 node_modules/
 

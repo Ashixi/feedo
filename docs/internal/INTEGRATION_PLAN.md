@@ -410,7 +410,7 @@ Repo: github.com/Ashixi/feedo
 ### Рівень 1 — бліц-вхід (за анонс-активністю)
 1. **PraisonAI** — `MervinPraison/PraisonAI` — Python — 🔥 високий анонс — ✅ PR #4032, ⏳ не змерджено
 2. **Swarms** — `kyegomez/swarms` — Python — 🔥 високий анонс — ✅ PR створено
-3. **BeeAI Framework** — `i-am-bee/beeai-framework` — Python/TS — 🟡 changelog
+3. ~~**BeeAI Framework**~~ — `i-am-bee/beeai-framework` — Python/TS — PR created
 4. **DocsGPT** — `arc53/DocsGPT` — Python — 🟡 enterprise
 5. **Heurist Agent Framework** — `heurist-network/...` — TS/Python — не перевірено
 6. **Smart Agent Tools** — `MorpheusAIs/Smart-Agent-Tools` — Python/JS — не перевірено

@@ -30,14 +30,16 @@ echo "Which Feedo node type?"
 echo "1) Consensus Node (Rust)"
 echo "2) Storage Node (Rust)"
 echo "3) Search Node (Python, ML)"
-echo "4) All nodes (consensus + storage + search)"
-read -p "Select (1-4): " NODE_CHOICE < /dev/tty
+echo "4) Router Node (Python, Global Registry)"
+echo "5) All nodes (consensus + storage + search)"
+read -p "Select (1-5): " NODE_CHOICE < /dev/tty
 
 case $NODE_CHOICE in
   1) NODE_TYPES=(consensus) ;;
   2) NODE_TYPES=(storage) ;;
   3) NODE_TYPES=(search) ;;
-  4) NODE_TYPES=(consensus storage search) ;;
+  4) NODE_TYPES=(router) ;;
+  5) NODE_TYPES=(consensus storage search) ;;
   *) echo "Invalid choice."; exit 1;;
 esac
 
@@ -49,7 +51,7 @@ echo "Starting installation for $NODE_TYPE node..."
 # Variables
 INSTALL_DIR="/opt/feedo-$NODE_TYPE"
 REPO_URL="https://github.com/Ashixi/feedo.git"
-REGISTRY_URL="https://raw.githubusercontent.com/Ashixi/feedo/main/seed_nodes.json"
+
 
 # 1. Install System Dependencies
 echo "[1/6] Installing system dependencies..."
@@ -76,6 +78,7 @@ else
   cd $INSTALL_DIR
 fi
 
+if [ "$NODE_TYPE" != "router" ]; then
 # 3. Generate Keys (via Rust keygen binary)
 echo "[3/6] Generating Node Identity (Keys & DID)..."
 mkdir -p /etc/feedo
@@ -104,22 +107,25 @@ STORAGE_NODE_URL=""
 SEARCH_NODE_URL=""
 SEARCH_PEERS=""
 
-if curl -s -f $REGISTRY_URL > /tmp/seed_nodes.json 2>/dev/null; then
-  # Extract P2P addresses for bootstrap
-  BOOTSTRAP_PEERS=$(jq -r '[.nodes[].p2p_addr] | join(",")' /tmp/seed_nodes.json 2>/dev/null || echo "")
+ROUTER_URL="https://router.feedo.ink"
+
+if curl -s -f "$ROUTER_URL/discover" > /tmp/router_nodes.json 2>/dev/null; then
+  # Extract P2P addresses for bootstrap (ignoring empty strings)
+  BOOTSTRAP_PEERS=$(jq -r '[.nodes[].p2p_addr | select(. != null and . != "")] | join(",")' /tmp/router_nodes.json 2>/dev/null || echo "")
 
   # Extract HTTP URLs by node type — fully automatic service discovery
-  CONSENSUS_NODE_URL=$(jq -r '[.nodes[] | select(.type=="consensus") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
-  STORAGE_NODE_URL=$(jq -r '[.nodes[] | select(.type=="storage") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
-  SEARCH_NODE_URL=$(jq -r '[.nodes[] | select(.type=="search") | .http_url] | first' /tmp/seed_nodes.json 2>/dev/null || echo "")
+  CONSENSUS_NODE_URL=$(jq -r '[.nodes[] | select(.type=="consensus") | .internal_http] | first' /tmp/router_nodes.json 2>/dev/null || echo "")
+  STORAGE_NODE_URL=$(jq -r '[.nodes[] | select(.type=="storage") | .internal_http] | first' /tmp/router_nodes.json 2>/dev/null || echo "")
+  SEARCH_NODE_URL=$(jq -r '[.nodes[] | select(.type=="search") | .internal_http] | first' /tmp/router_nodes.json 2>/dev/null || echo "")
   # All search node HTTP URLs (for P2P peer discovery — search nodes use HTTP, not libp2p)
-  SEARCH_PEERS=$(jq -r '[.nodes[] | select(.type=="search") | .http_url] | join(",")' /tmp/seed_nodes.json 2>/dev/null || echo "")
+  SEARCH_PEERS=$(jq -r '[.nodes[] | select(.type=="search") | .internal_http] | join(",")' /tmp/router_nodes.json 2>/dev/null || echo "")
 
   echo "  Consensus: ${CONSENSUS_NODE_URL:-not found in registry}"
   echo "  Storage:   ${STORAGE_NODE_URL:-not found in registry}"
   echo "  Search:    ${SEARCH_NODE_URL:-not found in registry}"
 else
-  echo "Warning: Could not fetch registry from $REGISTRY_URL. Node will start as a Genesis Node."
+  echo "Warning: Could not fetch registry from $ROUTER_URL/discover. Node will start as a Genesis Node."
+fi
 fi
 
 # 5. Node Specific Setup
@@ -127,15 +133,27 @@ echo "[5/6] Configuring $NODE_TYPE..."
 ENV_FILE="$INSTALL_DIR/microservices/$NODE_TYPE-node/.env"
 mkdir -p "$INSTALL_DIR/microservices/$NODE_TYPE-node"
 
-echo "NODE_DID=$NODE_DID" > $ENV_FILE
-echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
-echo "NODE_WALLET_ADDRESS=$NODE_ADDR" >> $ENV_FILE
-echo "NODE_PRIVATE_KEY=$NODE_PRIV_KEY" >> $ENV_FILE
-echo "BOOTSTRAP_NODES=$BOOTSTRAP_PEERS" >> $ENV_FILE
-echo "CONSENSUS_NODE_URL=$CONSENSUS_NODE_URL" >> $ENV_FILE
-echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
-echo "SEARCH_NODE_URL=$SEARCH_NODE_URL" >> $ENV_FILE
-echo "ETH_RPC_URL=https://polygon.llamarpc.com" >> $ENV_FILE
+read -p "Public IP of THIS server (for P2P & node-to-node, e.g. 95.111.245.68) [Default: 127.0.0.1]: " HOST_IP < /dev/tty
+HOST_IP=${HOST_IP:-127.0.0.1}
+
+read -p "Public Domain of THIS node (for SDK users, optional, e.g. https://api.feedo.ink/storage): " PUBLIC_DOMAIN_INPUT < /dev/tty
+
+echo "HOST=$HOST_IP" > $ENV_FILE
+if [ -n "$PUBLIC_DOMAIN_INPUT" ]; then
+  echo "PUBLIC_DOMAIN=$PUBLIC_DOMAIN_INPUT" >> $ENV_FILE
+fi
+
+if [ "$NODE_TYPE" != "router" ]; then
+  echo "NODE_DID=$NODE_DID" >> $ENV_FILE
+  echo "NODE_ADDRESS=$NODE_ADDR" >> $ENV_FILE
+  echo "NODE_WALLET_ADDRESS=$NODE_ADDR" >> $ENV_FILE
+  echo "NODE_PRIVATE_KEY=$NODE_PRIV_KEY" >> $ENV_FILE
+  echo "BOOTSTRAP_NODES=$BOOTSTRAP_PEERS" >> $ENV_FILE
+  echo "CONSENSUS_NODE_URL=$CONSENSUS_NODE_URL" >> $ENV_FILE
+  echo "STORAGE_NODE_URL=$STORAGE_NODE_URL" >> $ENV_FILE
+  echo "SEARCH_NODE_URL=$SEARCH_NODE_URL" >> $ENV_FILE
+  echo "ETH_RPC_URL=https://polygon.llamarpc.com" >> $ENV_FILE
+fi
 
 if [ "$NODE_TYPE" = "storage" ]; then
   read -p "Total Storage Quota (GB) [Default: 70]: " QUOTA_TOTAL < /dev/tty
@@ -169,10 +187,17 @@ elif [ "$NODE_TYPE" = "search" ]; then
   # P2P: search nodes discover each other via HTTP URLs (KNOWN_PEERS),
   # not libp2p multiaddrs (BOOTSTRAP_NODES is for consensus/storage only).
   echo "KNOWN_PEERS=$SEARCH_PEERS" >> $ENV_FILE
-  read -p "Public URL of THIS search node (e.g. http://YOUR_IP:8000): " PUBLIC_API_URL < /dev/tty
-  echo "PUBLIC_API_URL=${PUBLIC_API_URL:-http://127.0.0.1:8000}" >> $ENV_FILE
 
   EXEC_PATH="$INSTALL_DIR/microservices/search-node/venv/bin/python $INSTALL_DIR/microservices/search-node/main.py"
+
+elif [ "$NODE_TYPE" = "router" ]; then
+  echo "Setting up Router Node (Python)..."
+  cd $INSTALL_DIR/microservices/router-node
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+
+  EXEC_PATH="$INSTALL_DIR/microservices/router-node/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8080"
 fi
 
 # 6. Systemd Registration
@@ -202,13 +227,17 @@ systemctl start feedo-$NODE_TYPE
 
 echo "=========================================="
 echo "✅ Installation Complete!"
-echo "Your Node DID is: $NODE_DID"
+if [ "$NODE_TYPE" != "router" ]; then
+  echo "Your Node DID is: $NODE_DID"
+fi
 echo "Node is running in the background via systemd."
 echo "View logs: journalctl -u feedo-$NODE_TYPE -f"
-if [ -z "$BOOTSTRAP_PEERS" ]; then
-  echo ""
-  echo "⚠️ IMPORTANT: You are running as a Genesis Node."
-  echo "Please add your Node IP and Peer ID to the seed_nodes.json in the repository so others can connect to you."
+if [ "$NODE_TYPE" != "router" ]; then
+  if [ -z "$BOOTSTRAP_PEERS" ]; then
+    echo ""
+    echo "⚠️ IMPORTANT: You are running as a Genesis Node."
+    echo "Please add your Node IP and Peer ID to the seed_nodes.json in the repository so others can connect to you."
+  fi
 fi
 echo "=========================================="
 }
@@ -243,6 +272,13 @@ update_node() {
     cargo build --release -p "$NODE_TYPE-node"
   elif [ "$NODE_TYPE" = "search" ]; then
     cd "$INSTALL_DIR/microservices/search-node"
+    if [ ! -d "venv" ]; then
+      python3 -m venv venv
+    fi
+    source venv/bin/activate
+    pip install -r requirements.txt
+  elif [ "$NODE_TYPE" = "router" ]; then
+    cd "$INSTALL_DIR/microservices/router-node"
     if [ ! -d "venv" ]; then
       python3 -m venv venv
     fi

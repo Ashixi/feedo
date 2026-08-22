@@ -20,6 +20,7 @@ mod peer_cache;
 mod quota;
 mod telemetry;
 mod auth;
+mod router_client;
 
 use network::{StorageBehaviour, HybridStore, DirectRequest, DirectResponse};
 use swarm_loop::{SwarmCommand, run_swarm};
@@ -478,41 +479,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(8040);
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", p2p_port).parse()?)?;
 
-    println!("DEBUG: BOOTSTRAP_NODES from env is: {:?}", std::env::var("BOOTSTRAP_NODES"));
-    
-    if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
-        for s in nodes_csv.split(',') {
-            let s = s.trim();
-            if s.is_empty() { continue; }
-            match s.parse::<libp2p::Multiaddr>() {
-                Ok(addr) => {
-                    // Extract PeerId from Multiaddr
-                    let mut peer_id = None;
-                    for p in addr.iter() {
-                        if let libp2p::multiaddr::Protocol::P2p(hash) = p {
-                            peer_id = Some(hash);
+    let router_url = std::env::var("ROUTER_NODE_URL").unwrap_or_else(|_| "https://router.feedo.ink".to_string());
+    println!("Fetching bootstrap peers from {}/discover...", router_url);
+    if let Ok(resp) = reqwest::get(format!("{}/discover", router_url)).await {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(nodes) = data.get("nodes").and_then(|n| n.as_array()) {
+                for node in nodes {
+                    if let Some(p2p_addr_str) = node.get("p2p_addr").and_then(|a| a.as_str()) {
+                        if p2p_addr_str.is_empty() { continue; }
+                        match p2p_addr_str.parse::<libp2p::Multiaddr>() {
+                            Ok(addr) => {
+                                let mut peer_id = None;
+                                for p in addr.iter() {
+                                    if let libp2p::multiaddr::Protocol::P2p(hash) = p {
+                                        peer_id = Some(hash);
+                                    }
+                                }
+                                
+                                if let Some(pid) = peer_id {
+                                    if pid != local_peer_id {
+                                        swarm.behaviour_mut().kademlia.add_address(&pid, addr.clone());
+                                        println!("Added dynamic Kademlia node: {} with peer id: {}", addr, pid);
+                                        match swarm.dial(addr.clone()) {
+                                            Ok(()) => println!("Dialing dynamic node: {}", addr),
+                                            Err(e) => println!("Error dialing {}: {:?}", addr, e),
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => println!("Invalid multiaddr '{}': {:?}", p2p_addr_str, e),
                         }
                     }
-                    
-                    if let Some(pid) = peer_id {
-                        swarm.behaviour_mut().kademlia.add_address(&pid, addr.clone());
-                        println!("Added Kademlia bootstrap node: {} with peer id: {}", addr, pid);
-                    } else {
-                        println!("Warning: No PeerId found in bootstrap multiaddr: {}", addr);
-                    }
-
-                    match swarm.dial(addr.clone()) {
-                        Ok(()) => println!("Dialing bootstrap node: {}", addr),
-                        Err(e) => println!("Error dialing {}: {:?}", addr, e),
-                    }
                 }
-                Err(e) => println!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
             }
         }
-        
-        println!("Triggering initial Kademlia bootstrap...");
-        let _ = swarm.behaviour_mut().kademlia.bootstrap();
     }
+        
+    println!("Triggering initial Kademlia bootstrap...");
+    let _ = swarm.behaviour_mut().kademlia.bootstrap();
 
     let (swarm_tx, swarm_rx) = mpsc::unbounded_channel();
     let (gossip_tx, _) = tokio::sync::broadcast::channel::<(String, Vec<u8>)>(1024);
@@ -525,14 +529,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         crate::swarm_loop::run_swarm(swarm, swarm_rx, key_clone, sf_clone2, gossip_tx_clone, quota_clone).await;
     });
 
-    let grpc_port: u16 = std::env::var("GRPC_PORT")
-        .unwrap_or_else(|_| "50052".to_string())
-        .parse()
-        .unwrap_or(50052);
+    let node_address = std::env::var("NODE_ADDRESS").unwrap_or_default();
+    let priv_key_hex = std::env::var("NODE_PRIVATE_KEY").unwrap_or_default();
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let p2p_port_clone = p2p_port;
+    let local_peer_id_str = local_peer_id.to_string();
     let http_port: u16 = std::env::var("HTTP_PORT")
         .unwrap_or_else(|_| "3001".to_string())
         .parse()
         .unwrap_or(3001);
+    
+    let p2p_addr = format!("/ip4/{}/udp/{}/quic-v1/p2p/{}", host, p2p_port_clone, local_peer_id_str);
+    let internal_http = format!("http://{}:{}", host, http_port);
+
+    let public_domain = std::env::var("PUBLIC_DOMAIN").ok();
+
+    tokio::spawn(async move {
+        router_client::router_registration_loop(
+            "storage",
+            &node_address,
+            &priv_key_hex,
+            &p2p_addr,
+            &internal_http,
+            public_domain.as_deref(),
+        ).await;
+    });
+
+    let grpc_port: u16 = std::env::var("GRPC_PORT")
+        .unwrap_or_else(|_| "50052".to_string())
+        .parse()
+        .unwrap_or(50052);
     let grpc_addr: SocketAddr = format!("0.0.0.0:{}", grpc_port).parse().unwrap();
     let http_addr: SocketAddr = format!("0.0.0.0:{}", http_port).parse().unwrap();
 

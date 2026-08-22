@@ -33,7 +33,7 @@ from uuid import uuid4
 import httpx
 
 from .client import FeedoClient
-from .router import DEFAULT_SEEDS
+from .router import ROUTER_URL
 
 
 def _run(coro):
@@ -101,7 +101,17 @@ class FeedoMemory:
                 "FeedoMemory requires either `usage_key`, `private_key`, or an existing `client`."
             )
 
-        consensus_seeds = consensus_seeds or DEFAULT_SEEDS["consensus"]
+        if not consensus_seeds:
+            try:
+                resp = httpx.get(f"{ROUTER_URL}/discover?type=consensus", timeout=3.0)
+                if resp.status_code == 200:
+                    consensus_seeds = [
+                        n.get("public_domain") or n.get("internal_http")
+                        for n in resp.json().get("nodes", [])
+                    ]
+            except Exception:
+                pass
+        consensus_seeds = consensus_seeds or ["https://api.feedo.ink/consensus"]
 
         # Auto-resolve the owner DID from the usage key's delegation.
         if client is None and did is None and usage_key and not private_key:

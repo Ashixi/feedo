@@ -28,6 +28,7 @@ pub mod acl;
 pub mod peer_cache;
 pub mod telemetry;
 pub mod dht_store;
+pub mod router_client;
 
 use swarm_loop::SwarmCommand;
 use network::{ConsensusCodec, CONSENSUS_PROTOCOL};
@@ -1287,28 +1288,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p2p_port = std::env::var("P2P_PORT").unwrap_or_else(|_| "8041".to_string());
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", p2p_port).parse()?)?;
 
-    if let Ok(nodes_csv) = std::env::var("BOOTSTRAP_NODES") {
-        let mut bootstrapped = false;
-        for s in nodes_csv.split(',') {
-            let s = s.trim();
-            if s.is_empty() { continue; }
-            match s.parse::<libp2p::Multiaddr>() {
-                Ok(addr) => {
-                    if let Some(libp2p::multiaddr::Protocol::P2p(peer_id)) = addr.iter().find(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_))) {
-                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                        bootstrapped = true;
-                    }
-                    match swarm.dial(addr.clone()) {
-                        Ok(()) => eprintln!("Dialing bootstrap node: {}", addr),
-                        Err(e) => eprintln!("Error dialing {}: {:?}", addr, e),
+    let router_url = std::env::var("ROUTER_NODE_URL").unwrap_or_else(|_| "https://router.feedo.ink".to_string());
+    eprintln!("Fetching bootstrap peers from {}/discover...", router_url);
+    if let Ok(resp) = reqwest::get(format!("{}/discover", router_url)).await {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            let mut bootstrapped = false;
+            if let Some(nodes) = data.get("nodes").and_then(|n| n.as_array()) {
+                for node in nodes {
+                    if let Some(p2p_addr_str) = node.get("p2p_addr").and_then(|a| a.as_str()) {
+                        if p2p_addr_str.is_empty() { continue; }
+                        match p2p_addr_str.parse::<libp2p::Multiaddr>() {
+                            Ok(addr) => {
+                                if let Some(libp2p::multiaddr::Protocol::P2p(peer_id)) = addr.iter().find(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_))) {
+                                    if peer_id != local_peer_id {
+                                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                                        bootstrapped = true;
+                                        match swarm.dial(addr.clone()) {
+                                            Ok(()) => eprintln!("Dialing dynamic bootstrap node: {}", addr),
+                                            Err(e) => eprintln!("Error dialing {}: {:?}", addr, e),
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("Invalid dynamic multiaddr '{}': {:?}", p2p_addr_str, e),
+                        }
                     }
                 }
-                Err(e) => eprintln!("Invalid bootstrap multiaddr '{}': {:?}", s, e),
             }
-        }
-        if bootstrapped {
-            let _ = swarm.behaviour_mut().kademlia.bootstrap();
-            eprintln!("Initiated Kademlia bootstrap");
+            if bootstrapped {
+                let _ = swarm.behaviour_mut().kademlia.bootstrap();
+                eprintln!("Initiated dynamic Kademlia bootstrap");
+            }
         }
     }
 
@@ -1324,6 +1334,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(async move {
         crate::swarm_loop::run_swarm(swarm, swarm_rx, ppor_clone, name_db_clone, did_manager_clone, ledger_clone, telemetry_clone).await;
+    });
+
+    let node_address = std::env::var("NODE_ADDRESS").unwrap_or_default();
+    let priv_key_hex = std::env::var("NODE_PRIVATE_KEY").unwrap_or_default();
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let p2p_port_clone = p2p_port.clone();
+    let local_peer_id_str = local_peer_id.to_string();
+    
+    let p2p_addr = format!("/ip4/{}/udp/{}/quic-v1/p2p/{}", host, p2p_port_clone, local_peer_id_str);
+    let internal_http = format!("http://{}:{}", host, http_port);
+
+    let public_domain = std::env::var("PUBLIC_DOMAIN").ok();
+
+    tokio::spawn(async move {
+        router_client::router_registration_loop(
+            "consensus",
+            &node_address,
+            &priv_key_hex,
+            &p2p_addr,
+            &internal_http,
+            public_domain.as_deref(),
+        ).await;
     });
 
     let consensus_service = MyConsensusService {

@@ -64,21 +64,21 @@ class SearchModule:
                 return response.json()
 
     async def search(self, query: str, limit: int = 50, federated: bool = True, item_type: str = "all", offset: int = 0, app_id: Optional[str] = None, search_type: str = "text", image_url: Optional[str] = None, namespace: Optional[str] = None):
-        params = {
+        data = {
             "text": query,
             "limit": limit,
-            "federated": "true" if federated else "false",
+            "federated": federated,
             "item_type": item_type,
             "offset": offset,
             "search_type": search_type
         }
         if app_id:
-            params["app_id"] = app_id
+            data["app_id"] = app_id
         if image_url:
-            params["image_url"] = image_url
+            data["image_url"] = image_url
         if namespace:
-            params["namespace"] = namespace
-        return await self._request("GET", "/query", params=params)
+            data["namespace"] = namespace
+        return await self._request("POST", "/query", json=data)
 
     async def query(self, query_text: str, limit: int = 10, item_type: str = "all", app_id: Optional[str] = None):
         """Alias for search() for backwards compatibility."""

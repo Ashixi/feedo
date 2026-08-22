@@ -60,11 +60,18 @@ export class SearchModule {
     }
 
     async search(query: string, limit: number = 50, federated: boolean = true, itemType: string = "all", offset: number = 0, appId?: string, searchType: string = "text", imageUrl?: string, namespace?: string) {
-        let qs = `text=${encodeURIComponent(query)}&limit=${limit}&federated=${federated}&item_type=${itemType}&offset=${offset}&search_type=${encodeURIComponent(searchType)}`;
-        if (appId) qs += `&app_id=${encodeURIComponent(appId)}`;
-        if (imageUrl) qs += `&image_url=${encodeURIComponent(imageUrl)}`;
-        if (namespace) qs += `&namespace=${encodeURIComponent(namespace)}`;
-        return this.request('GET', `/query?${qs}`);
+        const data: any = {
+            text: query,
+            limit,
+            federated,
+            item_type: itemType,
+            offset,
+            search_type: searchType
+        };
+        if (appId) data.app_id = appId;
+        if (imageUrl) data.image_url = imageUrl;
+        if (namespace) data.namespace = namespace;
+        return this.request('POST', '/query', data);
     }
 
     async getDocuments(limit: number = 50, offset: number = 0, itemType: string = "all", appId?: string, namespace?: string) {
